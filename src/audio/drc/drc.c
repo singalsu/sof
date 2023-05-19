@@ -122,7 +122,7 @@ inline int drc_set_pre_delay_time(struct drc_state *state,
 
 static int drc_setup(struct drc_comp_data *cd, uint16_t channels, uint32_t rate)
 {
-	uint32_t sample_bytes = get_sample_bytes(cd->source_format);
+	uint32_t sample_bytes = get_sample_bytes(cd->sink_format);
 	int ret;
 
 	/* Reset any previous state */
@@ -253,8 +253,8 @@ static int drc_process(struct processing_module *mod,
 	/* Check for changed configuration */
 	if (comp_is_new_data_blob_available(cd->model_handler)) {
 		cd->config = comp_get_data_blob(cd->model_handler, NULL, NULL);
-		ret = drc_setup(cd, audio_stream_get_channels(source),
-				audio_stream_get_rate(source));
+		ret = drc_setup(cd, audio_stream_get_channels(sink),
+				audio_stream_get_rate(sink));
 		if (ret < 0) {
 			comp_err(dev, "drc_copy(), failed DRC setup");
 			return ret;
@@ -333,14 +333,14 @@ static int drc_prepare(struct processing_module *mod,
 	drc_set_alignment(&source_c->stream, &sink_c->stream);
 
 	/* get source data format */
-	cd->source_format = audio_stream_get_frm_fmt(&source_c->stream);
+	cd->sink_format = audio_stream_get_frm_fmt(&sink_c->stream);
 	channels = audio_stream_get_channels(&sink_c->stream);
 	rate = audio_stream_get_rate(&sink_c->stream);
 	buffer_release(sink_c);
 	buffer_release(source_c);
 
 	/* Initialize DRC */
-	comp_info(dev, "drc_prepare(), source_format=%d", cd->source_format);
+	comp_info(dev, "drc_prepare(), sink_format=%d", cd->sink_format);
 	cd->config = comp_get_data_blob(cd->model_handler, NULL, NULL);
 	if (cd->config) {
 		ret = drc_setup(cd, channels, rate);
@@ -349,7 +349,7 @@ static int drc_prepare(struct processing_module *mod,
 			return ret;
 		}
 
-		cd->drc_func = drc_find_proc_func(cd->source_format);
+		cd->drc_func = drc_find_proc_func(cd->sink_format);
 		if (!cd->drc_func) {
 			comp_err(dev, "drc_prepare(), No proc func");
 			return -EINVAL;

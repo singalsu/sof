@@ -69,7 +69,7 @@ struct drc_comp_data {
 	struct comp_data_blob_handler *model_handler;
 	struct sof_drc_config *config;      /**< pointer to setup blob */
 	bool config_ready;                  /**< set when fully received */
-	enum sof_ipc_frame source_format;   /**< source frame format */
+	enum sof_ipc_frame sink_format;     /**< source frame format */
 	drc_func drc_func;            /**< processing function */
 };
 
