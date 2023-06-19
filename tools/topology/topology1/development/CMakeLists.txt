@@ -24,6 +24,7 @@ set(TPLGS
 	"sof-tgl-nocodec-ci\;sof-tgl-nocodec-ci"
 	"sof-tgl-nocodec-ci\;sof-adl-nocodec-ci"
 	"sof-tgl-nocodec-mux\;sof-tgl-nocodec-mux"
+	"sof-tgl-nocodec-crossover\;sof-tgl-nocodec-crossover"
 	"sof-hda-generic-kwd\;sof-hda-generic-2ch-kwd\;-DCHANNELS=2\;-DDYNAMIC=1"
 	"sof-hda-generic-kwd\;sof-hda-generic-4ch-kwd\;-DCHANNELS=4\;-DDYNAMIC=1"
 )
