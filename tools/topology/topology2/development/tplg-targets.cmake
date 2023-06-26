@@ -97,5 +97,12 @@ PLATFORM=mtl"
 # BT offload loopback test topology (lbm) for mtl
 "cavs-nocodec-bt\;sof-nocodec-bt-mtl-lbm\;BT_LOOPBACK_MODE=true,PLATFORM=mtl,\
 PREPROCESS_PLUGINS=nhlt,NHLT_BIN=nhlt-sof-nocodec-bt-mtl-lbm.bin"
+
+# Topology to test IPC4 DRC with all formats
+"cavs-nocodec-passthrough\;sof-tgl-nocodec-passthrough\;PLATFORM=tgl,PREPROCESS_PLUGINS=nhlt,NHLT_BIN=nhlt-sof-tgl-nocodec-passthrough.bin"
+
+# Topology to test IPC4 DRC with all formats
+"cavs-nocodec-drc-formats\;sof-tgl-nocodec-drc-formats\;PLATFORM=tgl,PREPROCESS_PLUGINS=nhlt,NHLT_BIN=nhlt-sof-tgl-nocodec-drc-formats.bin,EFX_DRC_PARAMS=enabled"
+
 )
 
