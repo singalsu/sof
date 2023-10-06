@@ -138,6 +138,9 @@ PREPROCESS_PLUGINS=nhlt,NHLT_BIN=nhlt-sof-nocodec-bt-mtl-lbm.bin"
 "sof-hda-generic\;sof-hda-benchmark-rtnr24-tgl\;PLATFORM=TGL,HDA_CONFIG=benchmark,BENCH_CONFIG=rtnr24"
 "sof-hda-generic\;sof-hda-benchmark-rtnr32-tgl\;PLATFORM=TGL,HDA_CONFIG=benchmark,BENCH_CONFIG=rtnr32"
 
+"sof-hda-generic\;sof-hda-benchmark-igo_nr16-tgl\;PLATFORM=TGL,HDA_CONFIG=benchmark,BENCH_CONFIG=igo_nr16"
+
+
 # Topology to test IPC4 Crossover
 "development/cavs-nocodec-crossover\;sof-tgl-nocodec-crossover-2way\;PLATFORM=tgl,\
 PREPROCESS_PLUGINS=nhlt,NHLT_BIN=nhlt-sof-tgl-nocodec-crossover.bin,EFX_CROSSOVER_PARAMS=2way"
