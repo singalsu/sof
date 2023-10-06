@@ -134,7 +134,9 @@ PREPROCESS_PLUGINS=nhlt,NHLT_BIN=nhlt-sof-nocodec-bt-mtl-lbm.bin"
 "sof-hda-generic\;sof-hda-benchmark-eqfir24-tgl\;PLATFORM=TGL,HDA_CONFIG=benchmark,BENCH_CONFIG=eqfir24,BENCH_EQFIR_PARAMS=loudness"
 "sof-hda-generic\;sof-hda-benchmark-eqfir32-tgl\;PLATFORM=TGL,HDA_CONFIG=benchmark,BENCH_CONFIG=eqfir32,BENCH_EQFIR_PARAMS=loudness"
 
-"sof-hda-generic\;sof-hda-benchmark-tdfb16-tgl\;PLATFORM=TGL,HDA_CONFIG=benchmark,BENCH_CONFIG=tdfb16,BENCH_TDFB_PARAMS=line2_50mm"
+"sof-hda-generic\;sof-hda-benchmark-rtnr16-tgl\;PLATFORM=TGL,HDA_CONFIG=benchmark,BENCH_CONFIG=rtnr16"
+"sof-hda-generic\;sof-hda-benchmark-rtnr24-tgl\;PLATFORM=TGL,HDA_CONFIG=benchmark,BENCH_CONFIG=rtnr24"
+"sof-hda-generic\;sof-hda-benchmark-rtnr32-tgl\;PLATFORM=TGL,HDA_CONFIG=benchmark,BENCH_CONFIG=rtnr32"
 
 # Topology to test IPC4 Crossover
 "development/cavs-nocodec-crossover\;sof-tgl-nocodec-crossover-2way\;PLATFORM=tgl,\
