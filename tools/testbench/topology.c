@@ -370,7 +370,14 @@ static int tb_register_fileread(struct testbench_prm *tp,
 		return ret;
 
 	/* configure fileread */
-	fileread->fn = strdup(tp->input_file[tp->input_file_index]);
+	if (!tp->input_file[tp->input_file_index]) {
+		fprintf(stderr,
+			"error: input file [%d] is not defined, add filename to -i f1,f2,...\n",
+			tp->input_file_index);
+		return -EINVAL;
+	}
+
+	fileread.fn = strdup(tp->input_file[tp->input_file_index]);
 	if (tp->input_file_index == 0)
 		tp->fr_id = ctx->comp_id;
 
@@ -428,7 +435,8 @@ static int tb_register_filewrite(struct testbench_prm *tp,
 
 	/* configure filewrite (multiple output files are supported.) */
 	if (!tp->output_file[tp->output_file_index]) {
-		fprintf(stderr, "error: output[%d] file name is null\n",
+		fprintf(stderr,
+			"error: output file [%d] is not defined, add filename to -o f1,f2,..\n",
 			tp->output_file_index);
 		return -EINVAL;
 	}
@@ -766,4 +774,3 @@ out:
 	free(ctx->tplg_base);
 	return ret;
 }
-
