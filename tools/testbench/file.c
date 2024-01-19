@@ -24,6 +24,7 @@
 #include <stdlib.h>
 #include "testbench/common_test.h"
 #include "testbench/file.h"
+#include "testbench/file_ipc4.h"
 
 LOG_MODULE_REGISTER(file, CONFIG_SOF_LOG_LEVEL);
 
@@ -532,9 +533,18 @@ static int file_init(struct processing_module *mod)
 {
 	struct comp_dev *dev = mod->dev;
 	struct module_data *mod_data = &mod->priv;
+	struct file_comp_data *cd;
+
+#if CONFIG_IPC_MAJOR_4
+	const struct ipc4_file_module_cfg *module_cfg =
+		(const struct ipc4_file_module_cfg *)mod_data->cfg.init_data;
+
+	const struct ipc4_file_config *ipc_file = &module_cfg->config;
+#else
 	const struct ipc_comp_file *ipc_file =
 		(const struct ipc_comp_file *)mod_data->cfg.init_data;
-	struct file_comp_data *cd;
+#endif
+
 
 	debug_print("file_init()\n");
 
