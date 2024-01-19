@@ -166,10 +166,11 @@ static void test_pipeline_free_comps(int pipeline_id)
 		case COMP_TYPE_BUFFER:
 			if (icd->cb->pipeline_id != pipeline_id)
 				break;
+#if DISABLED_CODE
 			err = ipc_buffer_free(sof_get()->ipc, icd->id);
 			if (err)
-				fprintf(stderr, "failed to free buffer %d\n",
-					icd->id);
+				fprintf(stderr, "failed to free buffer %d\n", icd->id);
+#endif
 			break;
 		default:
 			if (icd->pipeline->pipeline_id != pipeline_id)
@@ -275,7 +276,7 @@ static int parse_input_args(int argc, char **argv, struct testbench_prm *tp)
 	int option = 0;
 	int ret = 0;
 
-	while ((option = getopt(argc, argv, "hdqi:o:t:b:a:r:R:c:n:C:P:Vp:T:D:")) != -1) {
+	while ((option = getopt(argc, argv, "hdqi:o:t:b:r:R:c:n:C:P:p:T:D:V:")) != -1) {
 		switch (option) {
 		/* input sample file */
 		case 'i':
@@ -353,7 +354,12 @@ static int parse_input_args(int argc, char **argv, struct testbench_prm *tp)
 			tp->pipeline_duration_ms = atoi(optarg);
 			break;
 
-		/* print usage */
+		/* IPC version */
+		case 'V':
+			tp->ipc_version = atoi(optarg);
+			break;
+
+			/* print usage */
 		case 'h':
 			print_usage(argv[0]);
 			exit(EXIT_SUCCESS);
@@ -422,7 +428,7 @@ static void test_pipeline_free(struct testbench_prm *tp)
 		test_pipeline_free_comps(tp->pipelines[i]);
 }
 
-static int test_pipeline_params(struct testbench_prm *tp, struct tplg_context *ctx)
+static int test_pipeline_params(struct testbench_prm *tp)
 {
 	struct ipc_comp_dev *pcm_dev;
 	struct pipeline *p;
@@ -450,7 +456,7 @@ static int test_pipeline_params(struct testbench_prm *tp, struct tplg_context *c
 		if (!tp->fs_out)
 			tp->fs_out = p->period * p->frames_per_sched;
 
-		ret = tb_pipeline_params(tp, ipc, p, ctx);
+		ret = tb_pipeline_params(tp, ipc, p);
 		if (ret < 0) {
 			fprintf(stderr, "error: pipeline params failed: %s\n",
 				strerror(ret));
@@ -509,8 +515,9 @@ static bool test_pipeline_check_state(struct testbench_prm *tp, int state)
 	return false;
 }
 
-static int test_pipeline_load(struct testbench_prm *tp, struct tplg_context *ctx)
+static int test_pipeline_load(struct testbench_prm *tb)
 {
+	struct tplg_context *ctx = &tb->tplg;
 	int ret;
 
 	/* setup the thread virtual core config */
@@ -518,21 +525,40 @@ static int test_pipeline_load(struct testbench_prm *tp, struct tplg_context *ctx
 	ctx->comp_id = 1;
 	ctx->core_id = 0;
 	ctx->sof = sof_get();
-	ctx->tplg_file = tp->tplg_file;
-	ctx->ipc_major = 3;
+	ctx->tplg_file = tb->tplg_file;
+	if (tb->ipc_version < 3 || tb->ipc_version > 4) {
+		fprintf(stderr, "error: illegal ipc version\n");
+		return -EINVAL;
+	}
+
+	ctx->ipc_major = tb->ipc_version;
 
 	/* parse topology file and create pipeline */
-	ret = tb_parse_topology(tp, ctx);
+	ret = tb_parse_topology(tb);
 	if (ret < 0)
 		fprintf(stderr, "error: parsing topology\n");
 
+	fprintf(stdout, "topology parsing complete\n");
+
+	ret = tb_set_up_pipelines(tb, SOF_IPC_STREAM_PLAYBACK);
+	if (ret) {
+		fprintf(stderr, "error: Failed tb_set_up_pipelines for playback\n");
+		return ret;
+	}
+
+	ret = tb_set_up_pipelines(tb, SOF_IPC_STREAM_CAPTURE);
+	if (ret) {
+		fprintf(stderr, "error: Failed tb_set_up_pipelines for capture\n");
+		return ret;
+	}
+
+	fprintf(stdout, "pipelines set up complete\n");
 	return ret;
 }
 
-static void test_pipeline_stats(struct testbench_prm *tp,
-				struct tplg_context *ctx, long long delta_t)
+static void test_pipeline_stats(struct testbench_prm *tp, long long delta_t)
 {
-	int count = 1;
+	struct tplg_context *ctx = &tp->tplg;
 	struct ipc_comp_dev *icd;
 	struct comp_dev *file_dev;
 	struct processing_module *file_mod;
@@ -542,6 +568,7 @@ static void test_pipeline_stats(struct testbench_prm *tp,
 	float pipeline_mcps;
 	int n_in, n_out, frames_out;
 	int i;
+	int count = 1;
 
 	/* Get pointer to filewrite */
 	icd = ipc_get_comp_by_id(sof_get()->ipc, tp->fw_id);
@@ -625,7 +652,6 @@ static void test_pipeline_stats(struct testbench_prm *tp,
 static int pipline_test(struct testbench_prm *tp)
 {
 	int dp_count = 0;
-	struct tplg_context ctx;
 	struct timespec ts;
 	struct timespec td0, td1;
 	long long delta_t;
@@ -643,14 +669,14 @@ static int pipline_test(struct testbench_prm *tp)
 		printf("		           Test Start %d\n", dp_count);
 		printf("==========================================================\n");
 
-		err = test_pipeline_load(tp, &ctx);
+		err = test_pipeline_load(tp);
 		if (err < 0) {
 			fprintf(stderr, "error: pipeline load %d failed %d\n",
 				dp_count, err);
 			break;
 		}
 
-		err = test_pipeline_params(tp, &ctx);
+		err = test_pipeline_params(tp);
 		if (err < 0) {
 			fprintf(stderr, "error: pipeline params %d failed %d\n",
 				dp_count, err);
@@ -712,7 +738,7 @@ static int pipline_test(struct testbench_prm *tp)
 
 		delta_t = (td1.tv_sec - td0.tv_sec) * 1000000;
 		delta_t += (td1.tv_nsec - td0.tv_nsec) / 1000;
-		test_pipeline_stats(tp, &ctx, delta_t);
+		test_pipeline_stats(tp, delta_t);
 
 		err = test_pipeline_reset(tp);
 		if (err < 0) {
@@ -761,6 +787,19 @@ int main(int argc, char **argv)
 	tp.tick_period_us = 0; /* Execute fast non-real time, for 1 ms tick use -T 1000 */
 	tp.pipeline_duration_ms = 5000;
 	tp.copy_iterations = 1;
+	tp.ipc_version = 4;	// FIXME from IPC_CONVFIG_MAJOR
+	tp.period_size = 96;	// FIXME becomes somehow obs in tb_match_audio_format()
+
+	// TODO move somewhere else and integrate with command line
+	tp.num_configs = 1;
+	strcpy(tp.config[0].name, "48k2c32b");
+	tp.config[0].buffer_frames = 24000;
+	tp.config[0].buffer_time = 0;
+	tp.config[0].period_frames = 6000;
+	tp.config[0].period_time = 0;
+	tp.config[0].rate = 48000;
+	tp.config[0].channels = 2;
+	tp.config[0].format = SOF_IPC_FRAME_S32_LE;
 
 	/* command line arguments*/
 	err = parse_input_args(argc, argv, &tp);
