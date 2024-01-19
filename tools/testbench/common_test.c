@@ -45,7 +45,6 @@ int tb_setup(struct sof *sof, struct testbench_prm *tp)
 
 	/* init components */
 	sys_comp_init(sof);
-	sys_comp_selector_init();
 
 	/* Module adapter components */
 	sys_comp_module_crossover_interface_init();
@@ -55,11 +54,13 @@ int tb_setup(struct sof *sof, struct testbench_prm *tp)
 	sys_comp_module_eq_fir_interface_init();
 	sys_comp_module_eq_iir_interface_init();
 	sys_comp_module_file_interface_init();
+	sys_comp_module_gain_interface_init();
 	sys_comp_module_google_rtc_audio_processing_interface_init();
 	sys_comp_module_igo_nr_interface_init();
 	sys_comp_module_multiband_drc_interface_init();
 	sys_comp_module_mux_interface_init();
 	sys_comp_module_rtnr_interface_init();
+	sys_comp_module_selector_interface_init();
 	sys_comp_module_src_interface_init();
 	sys_comp_module_asrc_interface_init();
 	sys_comp_module_tdfb_interface_init();
@@ -198,8 +199,7 @@ int tb_pipeline_reset(struct ipc *ipc, struct pipeline *p)
 }
 
 /* pipeline pcm params */
-int tb_pipeline_params(struct testbench_prm *tp, struct ipc *ipc, struct pipeline *p,
-		       struct tplg_context *ctx)
+int tb_pipeline_params(struct testbench_prm *tp, struct ipc *ipc, struct pipeline *p)
 {
 	struct comp_dev *cd;
 	struct sof_ipc_pcm_params params = {{0}};

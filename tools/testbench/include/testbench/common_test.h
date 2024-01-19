@@ -12,10 +12,10 @@
 #include <time.h>
 #include <stdio.h>
 #include <rtos/sof.h>
+#include <tplg_parser/topology.h>
 #include <sof/audio/component_ext.h>
 #include <sof/math/numbers.h>
 #include <sof/audio/format.h>
-
 #include <sof/lib/uuid.h>
 
 #define DEBUG_MSG_LEN		1024
@@ -27,7 +27,27 @@
 /* number of widgets types supported in testbench */
 #define NUM_WIDGETS_SUPPORTED	16
 
-struct tplg_context;
+#define TB_NAME_SIZE	256
+
+#define TB_MAX_CONFIG	128
+
+struct tb_mq_desc {
+	/* IPC message queue */
+	//mqd_t mq;
+	//struct mq_attr attr;
+	char queue_name[TB_NAME_SIZE];
+};
+
+struct tb_config {
+	char name[44];
+	unsigned long buffer_frames;
+	unsigned long buffer_time;
+	unsigned long period_frames;
+	unsigned long period_time;
+	int rate;
+	int channels;
+	unsigned long format;
+};
 
 /*
  * Global testbench data.
@@ -45,7 +65,6 @@ struct testbench_prm {
 	char *bits_in; /* input bit format */
 	int pipelines[MAX_OUTPUT_FILE_NUM]; /* output file names */
 	int pipeline_num;
-	struct tplg_context *ctx;
 
 	int fr_id;
 	int fw_id;
@@ -79,11 +98,30 @@ struct testbench_prm {
 	uint32_t channels_in;
 	uint32_t channels_out;
 	enum sof_ipc_frame frame_fmt;
+	int ipc_version;
+
+	/* topology */
+	struct tplg_context tplg;
+	struct list_item widget_list;
+	struct list_item route_list;
+	struct list_item pcm_list;
+	struct list_item pipeline_list;
+	int instance_ids[SND_SOC_TPLG_DAPM_LAST];
+	struct tb_mq_desc ipc_tx;
+	struct tb_mq_desc ipc_rx;
+
+	int pcm_id;
+	struct tplg_pcm_info *pcm_info;
+
+	struct tb_config config[TB_MAX_CONFIG];
+	int num_configs;
+
+	size_t period_size;
 };
 
 extern int debug;
 
-int tb_parse_topology(struct testbench_prm *tb, struct tplg_context *ctx);
+int tb_parse_topology(struct testbench_prm *tb);
 
 int edf_scheduler_init(void);
 
@@ -92,8 +130,7 @@ void tb_free(struct sof *sof);
 
 int tb_pipeline_start(struct ipc *ipc, struct pipeline *p);
 
-int tb_pipeline_params(struct testbench_prm *tp, struct ipc *ipc, struct pipeline *p,
-		       struct tplg_context *ctx);
+int tb_pipeline_params(struct testbench_prm *tp, struct ipc *ipc, struct pipeline *p);
 
 int tb_pipeline_stop(struct ipc *ipc, struct pipeline *p);
 
@@ -104,5 +141,7 @@ void debug_print(char *message);
 void tb_gettime(struct timespec *td);
 
 void tb_getcycles(uint64_t *cycles);
+
+int tb_set_up_pipelines(struct testbench_prm *tb, int dir);
 
 #endif
