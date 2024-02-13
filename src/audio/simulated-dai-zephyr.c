@@ -130,6 +130,11 @@ static struct dai *fake_dai_get(uint32_t type, uint32_t index, uint32_t flags)
 	return d;
 }
 
+void fake_dai_put(struct dai *dai)
+{
+	rfree(dai);
+}
+
 /*
  * Next is copy & remove of dai-zephyr.c
  */
@@ -746,7 +751,7 @@ void dai_common_free(struct dai_data *dd)
 
 	dai_release_llp_slot(dd);
 
-	dai_put(dd->dai);
+	fake_dai_put(dd->dai);
 
 	rfree(dd->dai_spec_config);
 }
