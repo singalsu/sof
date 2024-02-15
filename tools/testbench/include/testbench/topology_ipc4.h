@@ -11,18 +11,6 @@
 
 #define TB_FAKE_IPC	0
 
-struct sof_ipc4_process {
-	struct ipc4_base_module_cfg base_config;
-	struct ipc4_base_module_cfg_ext *base_config_ext;
-	struct ipc4_audio_format output_format;
-	struct sof_ipc4_available_audio_format available_fmt;
-	void *ipc_config_data;
-	uint32_t ipc_config_size;
-	struct ipc4_module_init_instance msg;
-	uint32_t base_config_ext_size;
-	uint32_t init_config;
-};
-
 int tb_parse_ipc4_comp_tokens(struct testbench_prm *tp, struct ipc4_base_module_cfg *base_cfg);
 
 void tb_setup_widget_ipc_msg(struct tplg_comp_info *comp_info);
@@ -42,5 +30,7 @@ int tb_match_audio_format(struct testbench_prm *tb, struct tplg_comp_info *comp_
 				 struct tb_config *config);
 
 int tb_set_up_widget_base_config(struct testbench_prm *tb, struct tplg_comp_info *comp_info);
+
+int tb_pipelines_set_state(struct testbench_prm *tb, int state, int dir);
 
 #endif /* _TESTBENCH_TOPOLOGY_IPC4_H */

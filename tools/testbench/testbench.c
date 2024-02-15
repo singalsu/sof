@@ -13,6 +13,8 @@
 #include <getopt.h>
 #include "testbench/common_test.h"
 #include <tplg_parser/topology.h>
+#include "testbench/topology_ipc4.h"
+#include "testbench/topology.h"
 #include "testbench/trace.h"
 #include "testbench/file.h"
 #include <limits.h>
@@ -518,7 +520,11 @@ static bool test_pipeline_check_state(struct testbench_prm *tp, int state)
 static int test_pipeline_load(struct testbench_prm *tb)
 {
 	struct tplg_context *ctx = &tb->tplg;
+	struct tplg_pipeline_list *pipeline_list_playback;
+	struct tplg_pipeline_list *pipeline_list_capture;
+	struct tplg_pipeline_info *pipe_info;
 	int ret;
+	int i;
 
 	/* setup the thread virtual core config */
 	memset(ctx, 0, sizeof(*ctx));
@@ -553,7 +559,51 @@ static int test_pipeline_load(struct testbench_prm *tb)
 	}
 
 	fprintf(stdout, "pipelines set up complete\n");
-	return ret;
+
+	pipeline_list_playback = &tb->pcm_info->playback_pipeline_list;
+	pipeline_list_capture = &tb->pcm_info->capture_pipeline_list;
+
+	for (i = 0; i < pipeline_list_playback->count; i++) {
+		pipe_info = pipeline_list_playback->pipelines[i];
+		fprintf(stderr, "Playback id = %d, name = %s\n", pipe_info->id, pipe_info->name);
+	}
+
+	for (i = 0; i < pipeline_list_capture->count; i++) {
+		pipe_info = pipeline_list_capture->pipelines[i];
+		fprintf(stderr, "Capture id = %d, name = %s\n", pipe_info->id, pipe_info->name);
+	}
+
+
+	/* Prepare */
+
+	ret = tb_pipelines_set_state(tb, SOF_IPC4_PIPELINE_STATE_PAUSED, SOF_IPC_STREAM_PLAYBACK);
+	if (ret) {
+		fprintf(stderr, "error: failed to set state to paused\n");
+		return ret;
+	}
+
+	ret = tb_pipelines_set_state(tb, SOF_IPC4_PIPELINE_STATE_PAUSED, SOF_IPC_STREAM_CAPTURE);
+	if (ret) {
+		fprintf(stderr, "error: failed to set state to paused\n");
+		return ret;
+	}
+
+
+	fprintf(stdout, "pipelines set up complete\n");
+
+	ret = tb_pipelines_set_state(tb, SOF_IPC4_PIPELINE_STATE_RUNNING, SOF_IPC_STREAM_PLAYBACK);
+	if (ret) {
+		fprintf(stderr, "error: failed to set state to paused\n");
+		return ret;
+	}
+
+	ret = tb_pipelines_set_state(tb, SOF_IPC4_PIPELINE_STATE_RUNNING, SOF_IPC_STREAM_CAPTURE);
+	if (ret) {
+		fprintf(stderr, "error: failed to set state to paused\n");
+		return ret;
+	}
+
+	return 0;
 }
 
 static void test_pipeline_stats(struct testbench_prm *tp, long long delta_t)
