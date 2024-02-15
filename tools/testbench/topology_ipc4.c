@@ -160,7 +160,6 @@ int tb_set_up_route(struct testbench_prm *tb, struct tplg_route_info *route_info
 	bu.extension.r.dst_queue = 0;
 	bu.extension.r.src_queue = 0;
 
-	// TODO
 	ret = tb_mq_cmd_tx_rx(&tb->ipc_tx, &tb->ipc_rx, &bu, sizeof(bu), &reply, sizeof(reply));
 	if (ret < 0) {
 		fprintf(stderr, "error: can't set up route %s -> %s\n", src_comp_info->name,
