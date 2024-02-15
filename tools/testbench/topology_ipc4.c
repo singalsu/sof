@@ -12,6 +12,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 
+#include "testbench/common_test.h"
 #include "testbench/topology.h"
 #include "testbench/topology_ipc4.h"
 #include "testbench/file.h"
@@ -48,6 +49,8 @@ static int tb_mq_cmd_tx_rx(struct tb_mq_desc *ipc_tx, struct tb_mq_desc *ipc_rx,
 			   void *msg, size_t len, void *reply, size_t rlen)
 {
 	char mailbox[IPC4_MAX_MSG_SIZE];
+	struct ipc4_message_reply *reply_msg = reply;
+
 
 	if (len > IPC4_MAX_MSG_SIZE || rlen > IPC4_MAX_MSG_SIZE) {
 		fprintf(stderr, "ipc: message too big len=%ld rlen=%ld\n", len, rlen);
@@ -55,9 +58,7 @@ static int tb_mq_cmd_tx_rx(struct tb_mq_desc *ipc_tx, struct tb_mq_desc *ipc_rx,
 	}
 
 #if TB_FAKE_IPC
-	struct ipc4_message_reply *fake_reply = reply;
-
-	fake_reply->primary.r.status = IPC4_SUCCESS;
+	reply_msg->primary.r.status = IPC4_SUCCESS;
 #else
 
 	memset(mailbox, 0, IPC4_MAX_MSG_SIZE);
@@ -66,6 +67,9 @@ static int tb_mq_cmd_tx_rx(struct tb_mq_desc *ipc_tx, struct tb_mq_desc *ipc_rx,
 
 	memcpy(reply, mailbox, rlen);
 #endif
+
+	if (reply_msg->primary.r.status != IPC4_SUCCESS)
+		return -EINVAL;
 
 	return 0;
 }
@@ -358,6 +362,71 @@ int tb_set_up_widget_base_config(struct testbench_prm *tb, struct tplg_comp_info
 
 	/* copy the basecfg into the ipc payload */
 	memcpy(comp_info->ipc_payload, &comp_info->basecfg, sizeof(struct ipc4_base_module_cfg));
+
+	return 0;
+}
+
+static int tb_pipeline_set_state(struct testbench_prm *tb, int state,
+				 struct ipc4_pipeline_set_state *pipe_state,
+				 struct tplg_pipeline_info *pipe_info,
+				 struct tb_mq_desc *ipc_tx, struct tb_mq_desc *ipc_rx)
+{
+	struct ipc4_message_reply reply = {{ 0 }};
+	int ret;
+
+	pipe_state->primary.r.ppl_id = pipe_info->instance_id;
+
+	ret = tb_mq_cmd_tx_rx(ipc_tx, ipc_rx, pipe_state, sizeof(*pipe_state),
+			      &reply, sizeof(reply));
+	if (ret < 0)
+		fprintf(stderr, "failed pipeline %d set state %d\n", pipe_info->instance_id, state);
+
+	return ret;
+}
+
+int tb_pipelines_set_state(struct testbench_prm *tb, int state, int dir)
+{
+	struct ipc4_pipeline_set_state pipe_state = {{ 0 }};
+	struct tplg_pipeline_list *pipeline_list;
+	int i;
+
+	if (dir == SOF_IPC_STREAM_CAPTURE)
+		pipeline_list = &tb->pcm_info->capture_pipeline_list;
+	else
+		pipeline_list = &tb->pcm_info->playback_pipeline_list;
+
+	pipe_state.primary.r.ppl_state = state;
+	pipe_state.primary.r.type = SOF_IPC4_GLB_SET_PIPELINE_STATE;
+	pipe_state.primary.r.msg_tgt = SOF_IPC4_MESSAGE_TARGET_FW_GEN_MSG;
+	pipe_state.primary.r.rsp = SOF_IPC4_MESSAGE_DIR_MSG_REQUEST;
+
+	/*
+	 * pipeline list is populated starting from the host to DAI. So traverse the list in
+	 * the reverse order for capture to start the source pipeline first.
+	 */
+	if (dir == SOF_IPC_STREAM_CAPTURE) {
+		for (i = pipeline_list->count - 1; i >= 0; i--) {
+			struct tplg_pipeline_info *pipe_info = pipeline_list->pipelines[i];
+			int ret;
+
+			ret = tb_pipeline_set_state(tb, state, &pipe_state, pipe_info,
+						    &tb->ipc_tx, &tb->ipc_rx);
+			if (ret < 0)
+				return ret;
+		}
+
+		return 0;
+	}
+
+	for (i = 0; i < pipeline_list->count; i++) {
+		struct tplg_pipeline_info *pipe_info = pipeline_list->pipelines[i];
+		int ret;
+
+		ret = tb_pipeline_set_state(tb, state, &pipe_state, pipe_info,
+					    &tb->ipc_tx, &tb->ipc_rx);
+		if (ret < 0)
+			return ret;
+	}
 
 	return 0;
 }
