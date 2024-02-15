@@ -732,7 +732,7 @@ static int plug_set_up_widget_base_config(snd_sof_plug_t *plug, struct tplg_comp
 	}
 
 	/* match audio formats and populate base config */
-	ret = plug_match_audio_format(plug, comp_info, config);
+		ret = plug_match_audio_format(plug, comp_info, config);
 	if (ret < 0)
 		return ret;
 
