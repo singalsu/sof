@@ -570,6 +570,7 @@ static int file_init(struct processing_module *mod)
 	cd->channels = ipc_file->channels;
 	cd->frame_fmt = ipc_file->frame_fmt;
 	dev->direction = ipc_file->direction;
+	dev->direction_set = true;
 
 	/* open file handle(s) depending on mode */
 	switch (cd->fs.mode) {
