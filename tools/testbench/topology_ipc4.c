@@ -455,6 +455,11 @@ int tb_new_aif_in_out(struct testbench_prm *tb, int dir)
 		file->config.channels = tb->channels_in;
 		file->config.frame_fmt = tb->frame_fmt;
 		file->config.direction = dir;
+		if (tb->input_file_index >= tb->input_file_num) {
+			fprintf(stderr, "error: not enough input files\n");
+			return -EINVAL;
+		}
+
 		file->config.fn = strdup(tb->input_file[tb->input_file_index]);
 		if (tb->input_file_index == 0)
 			tb->fr_id = ctx->comp_id;
@@ -470,6 +475,11 @@ int tb_new_aif_in_out(struct testbench_prm *tb, int dir)
 		file->config.channels = tb->channels_out;
 		file->config.frame_fmt = tb->frame_fmt;
 		file->config.direction = dir;
+		if (tb->output_file_index >= tb->output_file_num) {
+			fprintf(stderr, "error: not enough output files\n");
+			return -EINVAL;
+		}
+
 		file->config.fn = strdup(tb->output_file[tb->output_file_index]);
 		if (tb->output_file_index == 0)
 			tb->fw_id = ctx->comp_id;
@@ -509,6 +519,11 @@ int tb_new_dai_in_out(struct testbench_prm *tb, int dir)
 		file->config.channels = tb->channels_out;
 		file->config.frame_fmt = tb->frame_fmt;
 		file->config.direction = dir;
+		if (tb->output_file_index >= tb->output_file_num) {
+			fprintf(stderr, "error: not enough output files\n");
+			return -EINVAL;
+		}
+
 		file->config.fn = strdup(tb->output_file[tb->output_file_index]);
 		if (tb->output_file_index == 0)
 			tb->fw_id = ctx->comp_id;
@@ -524,6 +539,11 @@ int tb_new_dai_in_out(struct testbench_prm *tb, int dir)
 		file->config.channels = tb->channels_in;
 		file->config.frame_fmt = tb->frame_fmt;
 		file->config.direction = dir;
+		if (tb->input_file_index >= tb->input_file_num) {
+			fprintf(stderr, "error: not enough input files\n");
+			return -EINVAL;
+		}
+
 		file->config.fn = strdup(tb->input_file[tb->input_file_index]);
 		if (tb->input_file_index == 0)
 			tb->fr_id = ctx->comp_id;

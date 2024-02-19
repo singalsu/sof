@@ -546,7 +546,7 @@ static int file_init(struct processing_module *mod)
 #endif
 
 
-	debug_print("file_init()\n");
+	comp_info(dev, "file_init()");
 
 	cd = rzalloc(SOF_MEM_ZONE_RUNTIME_SHARED, 0, SOF_MEM_CAPS_RAM, sizeof(*cd));
 	if (!cd)
@@ -706,7 +706,7 @@ static int file_prepare(struct processing_module *mod,
 	struct comp_dev *dev = mod->dev;
 	struct file_comp_data *cd = module_get_private_data(mod);
 
-	debug_print("file_prepare()");
+	comp_info(dev, "file_prepare()");
 
 	/* file component sink/source buffer period count */
 	cd->max_frames = dev->frames;
