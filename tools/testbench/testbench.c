@@ -186,6 +186,7 @@ static void test_pipeline_free_comps(int pipeline_id)
 	}
 }
 
+#if DISABLED_CODE
 static void test_pipeline_set_test_limits(int pipeline_id, int max_copies,
 					  int max_samples)
 {
@@ -227,6 +228,7 @@ static void test_pipeline_set_test_limits(int pipeline_id, int max_copies,
 		}
 	}
 }
+#endif
 
 static void test_pipeline_get_file_stats(int pipeline_id)
 {
@@ -381,11 +383,11 @@ static int parse_input_args(int argc, char **argv, struct testbench_prm *tp)
 
 static struct pipeline *get_pipeline_by_id(int id)
 {
-	struct ipc_comp_dev *pcm_dev;
+	struct ipc_comp_dev *pipe_dev;
 	struct ipc *ipc = sof_get()->ipc;
 
-	pcm_dev = ipc_get_ppl_src_comp(ipc, id);
-	return pcm_dev->cd->pipeline;
+	pipe_dev = ipc_get_comp_by_ppl_id(ipc, COMP_TYPE_PIPELINE, id, IPC_COMP_IGNORE_REMOTE);
+	return pipe_dev->pipeline;
 }
 
 static int test_pipeline_stop(struct testbench_prm *tp)
@@ -430,6 +432,7 @@ static void test_pipeline_free(struct testbench_prm *tp)
 		test_pipeline_free_comps(tp->pipelines[i]);
 }
 
+#if DISABLED_CODE
 static int test_pipeline_params(struct testbench_prm *tp)
 {
 	struct ipc_comp_dev *pcm_dev;
@@ -493,6 +496,7 @@ static int test_pipeline_start(struct testbench_prm *tp)
 
 	return 0;
 }
+#endif
 
 static bool test_pipeline_check_state(struct testbench_prm *tp, int state)
 {
@@ -509,7 +513,18 @@ static bool test_pipeline_check_state(struct testbench_prm *tp, int state)
 
 	/* Run pipeline until EOF from fileread */
 	for (i = 0; i < tp->pipeline_num; i++) {
-		p = get_pipeline_by_id(tp->pipelines[i]);
+		// p = get_pipeline_by_id(tp->pipelines[i]);
+		p = get_pipeline_by_id(0);
+		if (!p) {
+			fprintf(stderr, "error: failed get_pipeline_by_id().");
+			return false;
+		}
+
+		if (!p->pipe_task) {
+			fprintf(stderr, "error: pipeline task is null.");
+			return false;
+		}
+
 		if (p->pipe_task->state	== state)
 			return true;
 	}
@@ -726,6 +741,7 @@ static int pipline_test(struct testbench_prm *tp)
 			break;
 		}
 
+#if DISABLED_CODE
 		err = test_pipeline_params(tp);
 		if (err < 0) {
 			fprintf(stderr, "error: pipeline params %d failed %d\n",
@@ -739,6 +755,7 @@ static int pipline_test(struct testbench_prm *tp)
 				dp_count, err);
 			break;
 		}
+#endif
 
 		tb_gettime(&td0);
 
