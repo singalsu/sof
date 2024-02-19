@@ -512,6 +512,7 @@ static void ipc_compound_msg_done(uint32_t msg_id, int error)
 
 static int ipc_wait_for_compound_msg(void)
 {
+#if  !CONFIG_LIBRARY
 	int try_count = 30;
 
 	while (atomic_read(&msg_data.delayed_reply)) {
@@ -523,6 +524,7 @@ static int ipc_wait_for_compound_msg(void)
 			return IPC4_FAILURE;
 		}
 	}
+#endif
 
 	return IPC4_SUCCESS;
 }
