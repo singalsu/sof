@@ -686,7 +686,8 @@ static int file_process(struct processing_module *mod,
 	}
 
 	cd->fs.copy_count++;
-	if (cd->fs.reached_eof || (cd->max_copies && cd->fs.copy_count >= cd->max_copies)) {
+	if (!samples || cd->fs.reached_eof ||
+	    (cd->max_copies && cd->fs.copy_count >= cd->max_copies)) {
 		cd->fs.reached_eof = 1;
 		debug_print("file_process(): reached EOF");
 		schedule_task_cancel(mod->dev->pipeline->pipe_task);
