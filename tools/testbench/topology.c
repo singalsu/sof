@@ -801,3 +801,149 @@ int tb_set_up_pipelines(struct testbench_prm *tb, int dir)
 
 	return 0;
 }
+
+static int tb_free_widgets(struct testbench_prm *tb, struct tplg_comp_info *starting_comp_info,
+			   struct tplg_comp_info *current_comp_info)
+{
+	struct tplg_route_info *route_info;
+	struct list_item *item;
+	int ret;
+
+	/* for playback */
+	list_for_item(item, &tb->route_list) {
+		route_info = container_of(item, struct tplg_route_info, item);
+		if (route_info->source != current_comp_info)
+			continue;
+
+		/* Widgets will be freed when the pipeline is deleted, so just unbind modules */
+		ret = tb_free_route(tb, route_info);
+		if (ret < 0)
+			return ret;
+
+		/* and then continue down the path */
+		if (route_info->sink->type != SND_SOC_TPLG_DAPM_DAI_IN ||
+		    route_info->sink->type != SND_SOC_TPLG_DAPM_DAI_OUT) {
+			ret = tb_free_widgets(tb, starting_comp_info, route_info->sink);
+			if (ret < 0)
+				return ret;
+		}
+	}
+
+	return 0;
+}
+
+static int tb_free_widgets_capture(struct testbench_prm *tb,
+				   struct tplg_comp_info *starting_comp_info,
+				   struct tplg_comp_info *current_comp_info)
+{
+	struct tplg_route_info *route_info;
+	struct list_item *item;
+	int ret;
+
+	/* for playback */
+	list_for_item(item, &tb->route_list) {
+		route_info = container_of(item, struct tplg_route_info, item);
+		if (route_info->sink != current_comp_info)
+			continue;
+
+		/* Widgets will be freed when the pipeline is deleted, so just unbind modules */
+		ret = tb_free_route(tb, route_info);
+		if (ret < 0)
+			return ret;
+
+		/* and then continue down the path */
+		if (route_info->sink->type != SND_SOC_TPLG_DAPM_DAI_IN &&
+		    route_info->sink->type != SND_SOC_TPLG_DAPM_DAI_OUT) {
+			ret = tb_free_widgets_capture(tb, starting_comp_info, route_info->source);
+			if (ret < 0)
+				return ret;
+		}
+	}
+
+	return 0;
+}
+
+int tb_free_pipelines(struct testbench_prm *tb, struct tplg_pipeline_list *pipeline_list, int dir)
+{
+	struct tplg_comp_info *host = NULL;
+	struct tplg_pcm_info *pcm_info;
+	struct list_item *item;
+	int ret, i;
+
+	list_for_item(item, &tb->pcm_list) {
+		pcm_info = container_of(item, struct tplg_pcm_info, item);
+		if (pcm_info->id == tb->pcm_id) {
+			if (dir)
+				host = pcm_info->capture_host;
+			else
+				host = pcm_info->playback_host;
+			break;
+		}
+	}
+
+	if (!host) {
+		fprintf(stderr, "No host component found for PCM ID: %d\n", tb->pcm_id);
+		return -EINVAL;
+	}
+
+	if (dir) {
+		ret = tb_free_widgets_capture(tb, host, host);
+		if (ret < 0) {
+			fprintf(stderr, "failed to free widgets for capture PCM %d\n", tb->pcm_id);
+			return ret;
+		}
+	} else {
+		ret = tb_free_widgets(tb, host, host);
+		if (ret < 0) {
+			fprintf(stderr, "failed to free widgets for PCM %d\n", tb->pcm_id);
+			return ret;
+		}
+	}
+
+	for (i = 0; i < pipeline_list->count; i++) {
+		struct tplg_pipeline_info *pipe_info = pipeline_list->pipelines[i];
+
+		ret = tb_delete_pipeline(tb, pipe_info);
+		if (ret < 0)
+			return ret;
+	}
+
+	tb->instance_ids[SND_SOC_TPLG_DAPM_SCHEDULER] = 0;
+	return 0;
+}
+
+void tb_free_topology(struct testbench_prm *tb)
+{
+	struct tplg_pcm_info *pcm_info;
+	struct tplg_comp_info *comp_info;
+	struct tplg_route_info *route_info;
+	struct tplg_pipeline_info *pipe_info;
+	struct list_item *item, *_item;
+
+	list_for_item_safe(item, _item, &tb->pcm_list) {
+		pcm_info = container_of(item, struct tplg_pcm_info, item);
+		free(pcm_info->name);
+		free(pcm_info);
+	}
+
+	list_for_item_safe(item, _item, &tb->widget_list) {
+		comp_info = container_of(item, struct tplg_comp_info, item);
+		free(comp_info->name);
+		free(comp_info->stream_name);
+		free(comp_info->ipc_payload);
+		free(comp_info);
+	}
+
+	list_for_item_safe(item, _item, &tb->route_list) {
+		route_info = container_of(item, struct tplg_route_info, item);
+		free(route_info);
+	}
+
+	list_for_item_safe(item, _item, &tb->pipeline_list) {
+		pipe_info = container_of(item, struct tplg_pipeline_info, item);
+		free(pipe_info->name);
+		free(pipe_info);
+	}
+
+	tplg_debug("freed all pipelines, widgets, routes and pcms\n");
+}
