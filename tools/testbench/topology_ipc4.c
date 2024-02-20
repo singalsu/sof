@@ -33,6 +33,10 @@ static const struct sof_topology_token ipc4_comp_tokens[] = {
 		offsetof(struct ipc4_base_module_cfg, is_pages)},
 };
 
+/*
+ * IPC
+ */
+
 static int tb_ipc_message(void *mailbox, size_t bytes)
 {
 	struct ipc *ipc = ipc_get();
@@ -236,6 +240,10 @@ void tb_pipeline_update_resource_usage(struct testbench_prm *tb,
 
 	pipe_info->mem_usage += total;
 }
+
+/*
+ * IPC
+ */
 
 int tb_is_single_format(struct sof_ipc4_pin_format *fmts, int num_formats)
 {
@@ -448,6 +456,10 @@ int tb_pipelines_set_state(struct testbench_prm *tb, int state, int dir)
 	return 0;
 }
 
+/*
+ * Topology widgets
+ */
+
 int tb_new_aif_in_out(struct testbench_prm *tb, int dir)
 {
 	struct tplg_context *ctx = &tb->tplg;
@@ -479,12 +491,10 @@ int tb_new_aif_in_out(struct testbench_prm *tb, int dir)
 		}
 
 		file->config.fn = strdup(tb->input_file[tb->input_file_index]);
-		if (tb->input_file_index == 0)
-			tb->fr_id = ctx->comp_id;
-
-		tb->input_file_index++;
 		comp_info->instance_id = tb->instance_ids[SND_SOC_TPLG_DAPM_AIF_IN]++;
 		comp_info->module_id = 0x9a;
+		tb->fr_id[tb->input_file_index] = comp_info->module_id;
+		tb->input_file_index++;
 		tb_setup_widget_ipc_msg(comp_info);
 	} else {
 		file = (struct ipc4_file_module_cfg *)comp_info->ipc_payload;
@@ -499,12 +509,10 @@ int tb_new_aif_in_out(struct testbench_prm *tb, int dir)
 		}
 
 		file->config.fn = strdup(tb->output_file[tb->output_file_index]);
-		if (tb->output_file_index == 0)
-			tb->fw_id = ctx->comp_id;
-
-		tb->output_file_index++;
 		comp_info->instance_id = tb->instance_ids[SND_SOC_TPLG_DAPM_AIF_OUT]++;
 		comp_info->module_id = 0x9b;
+		tb->fw_id[tb->output_file_index] = comp_info->module_id;
+		tb->output_file_index++;
 		tb_setup_widget_ipc_msg(comp_info);
 	}
 
@@ -543,12 +551,10 @@ int tb_new_dai_in_out(struct testbench_prm *tb, int dir)
 		}
 
 		file->config.fn = strdup(tb->output_file[tb->output_file_index]);
-		if (tb->output_file_index == 0)
-			tb->fw_id = ctx->comp_id;
-
-		tb->output_file_index++;
 		comp_info->instance_id = tb->instance_ids[SND_SOC_TPLG_DAPM_DAI_OUT]++;
 		comp_info->module_id = 0x9c;
+		tb->fw_id[tb->output_file_index] = comp_info->module_id;
+		tb->output_file_index++;
 		tb_setup_widget_ipc_msg(comp_info);
 	} else {
 		file = (struct ipc4_file_module_cfg *)comp_info->ipc_payload;
@@ -563,12 +569,10 @@ int tb_new_dai_in_out(struct testbench_prm *tb, int dir)
 		}
 
 		file->config.fn = strdup(tb->input_file[tb->input_file_index]);
-		if (tb->input_file_index == 0)
-			tb->fr_id = ctx->comp_id;
-
-		tb->input_file_index++;
 		comp_info->instance_id = tb->instance_ids[SND_SOC_TPLG_DAPM_DAI_IN]++;
 		comp_info->module_id = 0x9d;
+		tb->fr_id[tb->input_file_index] = comp_info->module_id;
+		tb->input_file_index++;
 		tb_setup_widget_ipc_msg(comp_info);
 	}
 
@@ -675,6 +679,10 @@ out:
 
 }
 
+/*
+ * To run
+ */
+
 int tb_set_running_state(struct testbench_prm *tb)
 {
 	int ret;
@@ -705,6 +713,10 @@ int tb_set_running_state(struct testbench_prm *tb)
 	fprintf(stdout, "pipelines are set to running state\n");
 	return ret;
 }
+
+/*
+ * To stop
+ */
 
 int tb_set_reset_state(struct testbench_prm *tb)
 {

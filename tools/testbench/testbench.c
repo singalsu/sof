@@ -251,17 +251,19 @@ static int parse_input_args(int argc, char **argv, struct testbench_prm *tp)
 
 static void test_pipeline_stats(struct testbench_prm *tp, long long delta_t)
 {
-	struct tplg_context *ctx = &tp->tplg;
-	struct ipc_comp_dev *icd;
-	struct comp_dev *file_dev;
-	struct processing_module *file_mod;
-	struct pipeline *p;
-	struct file_comp_data *frcd, *fwcd;
+	//struct tplg_context *ctx = &tp->tplg;
+	//struct ipc_comp_dev *icd;
+	//struct comp_dev *file_dev;
+	//struct processing_module *file_mod;
+	//struct pipeline *p;
+	//struct file_comp_data *frcd, *fwcd;
 	long long file_cycles, pipeline_cycles;
 	float pipeline_mcps;
 	int n_in, n_out, frames_out;
 	int i;
 	int count = 1;
+
+#if DISABLED_CODE
 
 	/* Get pointer to filewrite */
 	icd = ipc_get_comp_by_id(sof_get()->ipc, tp->fw_id);
@@ -297,14 +299,20 @@ static void test_pipeline_stats(struct testbench_prm *tp, long long delta_t)
 	n_in = frcd->fs.n;
 	n_out = fwcd->fs.n;
 	file_cycles = frcd->fs.cycles_count + fwcd->fs.cycles_count;
+#else
+	n_out = 0;
+	n_in = 0;
+	file_cycles = 0;
+#endif
 
 	/* print test summary */
 	printf("==========================================================\n");
 	printf("		           Test Summary %d\n", count);
 	printf("==========================================================\n");
-	printf("Test Pipeline:\n");
-	printf("%s\n", tp->pipeline_string);
-	tb_show_file_stats(ctx->pipeline_id);
+	for (i = 0; i < tp->pipeline_num; i++) {
+		printf("pipeline %d\n", tp->pipelines[i]);
+		tb_show_file_stats(tp, tp->pipelines[i]);
+	}
 
 	printf("Input bit format: %s\n", tp->bits_in);
 	printf("Input sample rate: %d\n", tp->fs_in);
@@ -430,6 +438,13 @@ static int pipline_test(struct testbench_prm *tp)
 		delta_t += (td1.tv_nsec - td0.tv_nsec) / 1000;
 		test_pipeline_stats(tp, delta_t);
 
+		err = tb_free_all_pipelines(tp);
+		if (err < 0) {
+			fprintf(stderr, "error: free pipelines %d failed %d\n", dp_count, err);
+			break;
+		}
+
+		tb_free_topology(tp);
 		dp_count++;
 	}
 
@@ -458,7 +473,6 @@ int main(int argc, char **argv)
 
 	tp.channels_in = TESTBENCH_NCH;
 	tp.channels_out = 0;
-	tp.max_pipeline_id = 0;
 	tp.copy_check = false;
 	tp.quiet = 0;
 	tp.dynamic_pipeline_iterations = 1;

@@ -559,6 +559,7 @@ static int file_init(struct processing_module *mod)
 
 	/* get filename from IPC and open file */
 	cd->fs.fn = strdup(ipc_file->fn);
+	free(ipc_file->fn);
 
 	/* set file format */
 	cd->fs.f_format = get_file_format(cd->fs.fn);
@@ -625,7 +626,7 @@ static int file_free(struct processing_module *mod)
 {
 	struct file_comp_data *cd = module_get_private_data(mod);
 
-	debug_print("file_free()");
+	comp_info(mod->dev, "file_free()");
 
 	if (cd->fs.mode == FILE_READ)
 		fclose(cd->fs.rfh);
@@ -747,15 +748,13 @@ static int file_prepare(struct processing_module *mod,
 
 static int file_reset(struct processing_module *mod)
 {
-	debug_print("file_reset()");
-
+	comp_info(mod->dev, "file_reset()");
 	return 0;
 }
 
 static int file_trigger(struct comp_dev *dev, int cmd)
 {
-	debug_print("asrc_trigger()");
-
+	comp_info(dev, "file_trigger");
 	return comp_set_state(dev, cmd);
 }
 

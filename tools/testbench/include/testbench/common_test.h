@@ -23,6 +23,8 @@
 
 #define MAX_INPUT_FILE_NUM	16
 #define MAX_OUTPUT_FILE_NUM	16
+#define MAX_PIPELINES_NUM	16
+
 
 /* number of widgets types supported in testbench */
 #define NUM_WIDGETS_SUPPORTED	16
@@ -57,19 +59,16 @@ struct tb_config {
  */
 struct testbench_prm {
 	long long total_cycles;
-	char *tplg_file; /* topology file to use */
+	int pipelines[MAX_PIPELINES_NUM];
+	int fr_id[MAX_OUTPUT_FILE_NUM];
+	int fw_id[MAX_OUTPUT_FILE_NUM];
 	char *input_file[MAX_INPUT_FILE_NUM]; /* input file names */
 	char *output_file[MAX_OUTPUT_FILE_NUM]; /* output file names */
+	char *tplg_file; /* topology file to use */
+	char *bits_in; /* input bit format */
 	int input_file_num; /* number of input files */
 	int output_file_num; /* number of output files */
-	char *bits_in; /* input bit format */
-	int pipelines[MAX_OUTPUT_FILE_NUM]; /* output file names */
 	int pipeline_num;
-
-	int fr_id;
-	int fw_id;
-
-	int max_pipeline_id;
 	int copy_iterations;
 	bool copy_check;
 	bool quiet;
@@ -78,7 +77,7 @@ struct testbench_prm {
 	int tick_period_us;
 	int pipeline_duration_ms;
 	int real_time;
-	FILE *file;
+	//FILE *file;
 	char *pipeline_string;
 	int output_file_index;
 	int input_file_index;
@@ -146,7 +145,7 @@ int tb_load_topology(struct testbench_prm *tb);
 
 int tb_set_up_all_pipelines(struct testbench_prm *tb);
 
-void tb_show_file_stats(int pipeline_id);
+void tb_show_file_stats(struct testbench_prm *tp, int pipeline_id);
 
 bool tb_schedule_pipeline_check_state(struct testbench_prm *tp, int state);
 
