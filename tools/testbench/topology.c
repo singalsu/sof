@@ -756,6 +756,7 @@ int tb_set_up_pipelines(struct testbench_prm *tb, int dir)
 	struct list_item *item;
 	int ret;
 
+	// TODO tb->pcm_id is not defined?
 	list_for_item(item, &tb->pcm_list) {
 		pcm_info = container_of(item, struct tplg_pcm_info, item);
 
@@ -863,13 +864,15 @@ static int tb_free_widgets_capture(struct testbench_prm *tb,
 	return 0;
 }
 
-int tb_free_pipelines(struct testbench_prm *tb, struct tplg_pipeline_list *pipeline_list, int dir)
+int tb_free_pipelines(struct testbench_prm *tb, int dir)
 {
-	struct tplg_comp_info *host = NULL;
+	struct tplg_pipeline_list *pipeline_list;
 	struct tplg_pcm_info *pcm_info;
 	struct list_item *item;
+	struct tplg_comp_info *host = NULL;
 	int ret, i;
 
+	// TODO tb->pcm_id is not defined?
 	list_for_item(item, &tb->pcm_list) {
 		pcm_info = container_of(item, struct tplg_pcm_info, item);
 		if (pcm_info->id == tb->pcm_id) {
@@ -887,12 +890,14 @@ int tb_free_pipelines(struct testbench_prm *tb, struct tplg_pipeline_list *pipel
 	}
 
 	if (dir) {
+		pipeline_list = &tb->pcm_info->capture_pipeline_list;
 		ret = tb_free_widgets_capture(tb, host, host);
 		if (ret < 0) {
 			fprintf(stderr, "failed to free widgets for capture PCM %d\n", tb->pcm_id);
 			return ret;
 		}
 	} else {
+		pipeline_list = &tb->pcm_info->playback_pipeline_list;
 		ret = tb_free_widgets(tb, host, host);
 		if (ret < 0) {
 			fprintf(stderr, "failed to free widgets for PCM %d\n", tb->pcm_id);
@@ -909,6 +914,13 @@ int tb_free_pipelines(struct testbench_prm *tb, struct tplg_pipeline_list *pipel
 	}
 
 	tb->instance_ids[SND_SOC_TPLG_DAPM_SCHEDULER] = 0;
+	return 0;
+}
+
+int tb_free_all_pipelines(struct testbench_prm *tb)
+{
+	tb_free_pipelines(tb, SOF_IPC_STREAM_PLAYBACK);
+	tb_free_pipelines(tb, SOF_IPC_STREAM_CAPTURE);
 	return 0;
 }
 
