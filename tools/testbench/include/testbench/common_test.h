@@ -142,6 +142,12 @@ void tb_gettime(struct timespec *td);
 
 void tb_getcycles(uint64_t *cycles);
 
-int tb_set_up_pipelines(struct testbench_prm *tb, int dir);
+int tb_load_topology(struct testbench_prm *tb);
+
+int tb_set_up_all_pipelines(struct testbench_prm *tb);
+
+void tb_show_file_stats(int pipeline_id);
+
+bool tb_schedule_pipeline_check_state(struct testbench_prm *tp, int state);
 
 #endif
