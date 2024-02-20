@@ -3,6 +3,7 @@
 // Copyright(c) 2018-2024 Intel Corporation. All rights reserved.
 
 #include <platform/lib/ll_schedule.h>
+#include <module/module/base.h>
 #include <sof/audio/component_ext.h>
 #include <sof/audio/pipeline.h>
 #include <sof/ipc/driver.h>
@@ -304,7 +305,7 @@ void tb_getcycles(uint64_t *cycles)
 #endif
 }
 
-static int tb_get_instance_id(struct testbench_prm *tp, int id)
+static int tb_get_pipeline_instance_id(struct testbench_prm *tp, int id)
 {
 	struct tplg_pipeline_info *pipe_info;
 	struct tplg_pipeline_list *pipeline_list;
@@ -331,14 +332,15 @@ static struct pipeline *tb_get_pipeline_by_id(struct testbench_prm *tb, int pipe
 {
 	struct ipc_comp_dev *pipe_dev;
 	struct ipc *ipc = sof_get()->ipc;
-	int id = tb_get_instance_id(tb, pipeline_id);
+	int id = tb_get_pipeline_instance_id(tb, pipeline_id);
 
 	pipe_dev = ipc_get_comp_by_ppl_id(ipc, COMP_TYPE_PIPELINE, id, IPC_COMP_IGNORE_REMOTE);
 	return pipe_dev->pipeline;
 }
 
-void tb_show_file_stats(int pipeline_id)
+void tb_show_file_stats(struct testbench_prm *tb, int pipeline_id)
 {
+#if DISABLED_CODE
 	struct list_item *clist;
 	struct list_item *temp;
 	struct ipc_comp_dev *icd;
@@ -346,6 +348,7 @@ void tb_show_file_stats(int pipeline_id)
 	struct dai_data *dd;
 	struct file_comp_data *fcd;
 	unsigned long time;
+	int pipeline_instance_id = tb_get_pipeline_instance_id(tb, pipeline_id);
 
 	/* get the file IO status for each file in pipeline */
 	list_for_item_safe(clist, temp, &sof_get()->ipc->comp_list) {
@@ -354,7 +357,7 @@ void tb_show_file_stats(int pipeline_id)
 		switch (icd->type) {
 		case COMP_TYPE_COMPONENT:
 			cd = icd->cd;
-			if (cd->pipeline->pipeline_id != pipeline_id)
+			if (cd->pipeline->pipeline_id != pipeline_instance_id)
 				break;
 			switch (cd->drv->type) {
 			case SOF_COMP_HOST:
@@ -380,6 +383,34 @@ void tb_show_file_stats(int pipeline_id)
 			break;
 		}
 	}
+#else
+	struct ipc_comp_dev *icd;
+	struct comp_dev *dev;
+	struct processing_module *mod;
+	struct file_comp_data *fcd;
+	int i;
+
+	// TODO: Not what I wanted
+	for (i = 0; i < tb->input_file_num; i++) {
+		icd = ipc_get_comp_by_id(sof_get()->ipc, tb->fr_id[i]);
+		dev = icd->cd;
+		mod = comp_get_drvdata(dev);
+		fcd = module_get_private_data(mod);
+		printf("file %s: id %d: type %d: samples %d copies %d\n",
+		       fcd->fs.fn, dev->ipc_config.id, dev->drv->type, fcd->fs.n,
+		       fcd->fs.copy_count);
+	}
+
+	for (i = 0; i < tb->output_file_num; i++) {
+		icd = ipc_get_comp_by_id(sof_get()->ipc, tb->fw_id[i]);
+		dev = icd->cd;
+		mod = comp_get_drvdata(dev);
+		fcd = module_get_private_data(mod);
+		printf("file %s: id %d: type %d: samples %d copies %d\n",
+		       fcd->fs.fn, dev->ipc_config.id, dev->drv->type, fcd->fs.n,
+		       fcd->fs.copy_count);
+	}
+#endif
 }
 
 #if DISABLED_CODE
