@@ -675,3 +675,122 @@ out:
 
 }
 
+int tb_set_running_state(struct testbench_prm *tb)
+{
+	int ret;
+
+	ret = tb_pipelines_set_state(tb, SOF_IPC4_PIPELINE_STATE_PAUSED, SOF_IPC_STREAM_PLAYBACK);
+	if (ret) {
+		fprintf(stderr, "error: failed to set state to paused\n");
+		return ret;
+	}
+
+	ret = tb_pipelines_set_state(tb, SOF_IPC4_PIPELINE_STATE_PAUSED, SOF_IPC_STREAM_CAPTURE);
+	if (ret) {
+		fprintf(stderr, "error: failed to set state to paused\n");
+		return ret;
+	}
+
+	fprintf(stdout, "pipelines are set to paused state\n");
+	ret = tb_pipelines_set_state(tb, SOF_IPC4_PIPELINE_STATE_RUNNING, SOF_IPC_STREAM_PLAYBACK);
+	if (ret) {
+		fprintf(stderr, "error: failed to set state to running\n");
+		return ret;
+	}
+
+	ret = tb_pipelines_set_state(tb, SOF_IPC4_PIPELINE_STATE_RUNNING, SOF_IPC_STREAM_CAPTURE);
+	if (ret)
+		fprintf(stderr, "error: failed to set state to running\n");
+
+	fprintf(stdout, "pipelines are set to running state\n");
+	return ret;
+}
+
+int tb_set_reset_state(struct testbench_prm *tb)
+{
+	int ret;
+
+	ret = tb_pipelines_set_state(tb, SOF_IPC4_PIPELINE_STATE_RESET, SOF_IPC_STREAM_PLAYBACK);
+	if (ret) {
+		fprintf(stderr, "error: failed to set state to reset\n");
+		return ret;
+	}
+
+	ret = tb_pipelines_set_state(tb, SOF_IPC4_PIPELINE_STATE_RESET, SOF_IPC_STREAM_CAPTURE);
+	if (ret)
+		fprintf(stderr, "error: failed to set state to reset\n");
+
+	return ret;
+}
+
+int tb_delete_pipeline(struct testbench_prm *tb, struct tplg_pipeline_info *pipe_info)
+{
+	struct ipc4_pipeline_delete msg;
+	struct ipc4_message_reply reply;
+	int ret;
+
+	msg.primary.r.type = SOF_IPC4_GLB_DELETE_PIPELINE;
+	msg.primary.r.msg_tgt = SOF_IPC4_MESSAGE_TARGET_FW_GEN_MSG;
+	msg.primary.r.rsp = SOF_IPC4_MESSAGE_DIR_MSG_REQUEST;
+	msg.primary.r.instance_id = pipe_info->instance_id;
+
+	ret = tb_mq_cmd_tx_rx(&tb->ipc_tx, &tb->ipc_rx, &msg, sizeof(msg), &reply, sizeof(reply));
+	if (ret < 0) {
+		fprintf(stderr, "error: can't delete pipeline %s\n", pipe_info->name);
+		return ret;
+	}
+
+	if (reply.primary.r.status != IPC4_SUCCESS) {
+		fprintf(stderr, "pipeline %s instance ID %d delete failed with status %d\n",
+			pipe_info->name, pipe_info->instance_id, reply.primary.r.status);
+		return -EINVAL;
+	}
+
+	tplg_debug("pipeline %s instance_id %d freed\n", pipe_info->name,
+		   pipe_info->instance_id);
+
+	return 0;
+}
+
+int tb_free_route(struct testbench_prm *tb, struct tplg_route_info *route_info)
+{
+	struct tplg_comp_info *src_comp_info = route_info->source;
+	struct tplg_comp_info *sink_comp_info = route_info->sink;
+	struct ipc4_module_bind_unbind bu;
+	struct ipc4_message_reply reply;
+	int ret;
+
+	/* only unbind when widgets belong to separate pipelines */
+	if (src_comp_info->pipeline_id == sink_comp_info->pipeline_id)
+		return 0;
+
+	bu.primary.r.module_id = src_comp_info->module_id;
+	bu.primary.r.instance_id = src_comp_info->instance_id;
+	bu.primary.r.type = SOF_IPC4_MOD_UNBIND;
+	bu.primary.r.msg_tgt = SOF_IPC4_MESSAGE_TARGET_MODULE_MSG;
+	bu.primary.r.rsp = SOF_IPC4_MESSAGE_DIR_MSG_REQUEST;
+
+	bu.extension.r.dst_module_id = sink_comp_info->module_id;
+	bu.extension.r.dst_instance_id = sink_comp_info->instance_id;
+
+	/* FIXME: assign queue ID for components with multiple inputs/outputs */
+	bu.extension.r.dst_queue = 0;
+	bu.extension.r.src_queue = 0;
+
+	ret = tb_mq_cmd_tx_rx(&tb->ipc_tx, &tb->ipc_rx, &bu, sizeof(bu), &reply, sizeof(reply));
+	if (ret < 0) {
+		fprintf(stderr, "error: can't set up route %s -> %s\n", src_comp_info->name,
+			sink_comp_info->name);
+		return ret;
+	}
+
+	if (reply.primary.r.status != IPC4_SUCCESS) {
+		fprintf(stderr, "route %s -> %s ID set up failed with status %d\n",
+			src_comp_info->name, sink_comp_info->name, reply.primary.r.status);
+		return -EINVAL;
+	}
+
+	tplg_debug("route %s -> %s freed\n", src_comp_info->name, sink_comp_info->name);
+
+	return 0;
+}

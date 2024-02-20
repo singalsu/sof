@@ -8,7 +8,6 @@
 #include <sof/audio/module_adapter/module/generic.h>
 #include <sof/ipc/driver.h>
 #include <sof/ipc/topology.h>
-#include <platform/lib/ll_schedule.h>
 #include <sof/list.h>
 #include <getopt.h>
 #include "testbench/common_test.h"
@@ -144,137 +143,6 @@ static void print_usage(char *executable)
 	printf("-b S16_LE -a volume=libsof_volume.so\n");
 }
 
-/* free components */
-static void test_pipeline_free_comps(int pipeline_id)
-{
-	struct list_item *clist;
-	struct list_item *temp;
-	struct ipc_comp_dev *icd = NULL;
-	int err;
-
-	/* remove the components for this pipeline */
-	list_for_item_safe(clist, temp, &sof_get()->ipc->comp_list) {
-		icd = container_of(clist, struct ipc_comp_dev, list);
-
-		switch (icd->type) {
-		case COMP_TYPE_COMPONENT:
-			if (icd->cd->pipeline->pipeline_id != pipeline_id)
-				break;
-			err = ipc_comp_free(sof_get()->ipc, icd->id);
-			if (err)
-				fprintf(stderr, "failed to free comp %d\n",
-					icd->id);
-			break;
-		case COMP_TYPE_BUFFER:
-			if (icd->cb->pipeline_id != pipeline_id)
-				break;
-#if DISABLED_CODE
-			err = ipc_buffer_free(sof_get()->ipc, icd->id);
-			if (err)
-				fprintf(stderr, "failed to free buffer %d\n", icd->id);
-#endif
-			break;
-		default:
-			if (icd->pipeline->pipeline_id != pipeline_id)
-				break;
-			err = ipc_pipeline_free(sof_get()->ipc, icd->id);
-			if (err)
-				fprintf(stderr, "failed to free pipeline %d\n",
-					icd->id);
-			break;
-		}
-	}
-}
-
-#if DISABLED_CODE
-static void test_pipeline_set_test_limits(int pipeline_id, int max_copies,
-					  int max_samples)
-{
-	struct list_item *clist;
-	struct list_item *temp;
-	struct ipc_comp_dev *icd = NULL;
-	struct comp_dev *cd;
-	struct dai_data *dd;
-	struct file_comp_data *fcd;
-
-	/* set the test limits for this pipeline */
-	list_for_item_safe(clist, temp, &sof_get()->ipc->comp_list) {
-		icd = container_of(clist, struct ipc_comp_dev, list);
-
-		switch (icd->type) {
-		case COMP_TYPE_COMPONENT:
-			cd = icd->cd;
-			if (cd->pipeline->pipeline_id != pipeline_id)
-				break;
-
-			switch (cd->drv->type) {
-			case SOF_COMP_HOST:
-			case SOF_COMP_DAI:
-			case SOF_COMP_FILEREAD:
-			case SOF_COMP_FILEWRITE:
-				/* only file limits supported today. TODO: add others */
-				dd = comp_get_drvdata(cd);
-				fcd = comp_get_drvdata(dd->dai);
-				fcd->max_samples = max_samples;
-				fcd->max_copies = max_copies;
-				break;
-			default:
-				break;
-			}
-			break;
-		case COMP_TYPE_BUFFER:
-		default:
-			break;
-		}
-	}
-}
-#endif
-
-static void test_pipeline_get_file_stats(int pipeline_id)
-{
-	struct list_item *clist;
-	struct list_item *temp;
-	struct ipc_comp_dev *icd;
-	struct comp_dev *cd;
-	struct dai_data *dd;
-	struct file_comp_data *fcd;
-	unsigned long time;
-
-	/* get the file IO status for each file in pipeline */
-	list_for_item_safe(clist, temp, &sof_get()->ipc->comp_list) {
-		icd = container_of(clist, struct ipc_comp_dev, list);
-
-		switch (icd->type) {
-		case COMP_TYPE_COMPONENT:
-			cd = icd->cd;
-			if (cd->pipeline->pipeline_id != pipeline_id)
-				break;
-			switch (cd->drv->type) {
-			case SOF_COMP_HOST:
-			case SOF_COMP_DAI:
-			case SOF_COMP_FILEREAD:
-			case SOF_COMP_FILEWRITE:
-				dd = comp_get_drvdata(cd);
-				fcd = comp_get_drvdata(dd->dai);
-
-				time = cd->pipeline->pipe_task->start;
-				if (fcd->fs.copy_count == 0)
-					fcd->fs.copy_count = 1;
-				printf("file %s: id %d: type %d: samples %d copies %d total time %lu uS avg time %lu uS\n",
-				       fcd->fs.fn, cd->ipc_config.id, cd->drv->type, fcd->fs.n,
-				       fcd->fs.copy_count, time, time / fcd->fs.copy_count);
-				break;
-			default:
-				break;
-			}
-			break;
-		case COMP_TYPE_BUFFER:
-		default:
-			break;
-		}
-	}
-}
-
 static int parse_input_args(int argc, char **argv, struct testbench_prm *tp)
 {
 	int option = 0;
@@ -381,246 +249,6 @@ static int parse_input_args(int argc, char **argv, struct testbench_prm *tp)
 	return ret;
 }
 
-static struct pipeline *get_pipeline_by_id(int id)
-{
-	struct ipc_comp_dev *pipe_dev;
-	struct ipc *ipc = sof_get()->ipc;
-
-	pipe_dev = ipc_get_comp_by_ppl_id(ipc, COMP_TYPE_PIPELINE, id, IPC_COMP_IGNORE_REMOTE);
-	return pipe_dev->pipeline;
-}
-
-static int test_pipeline_stop(struct testbench_prm *tp)
-{
-	struct pipeline *p;
-	struct ipc *ipc = sof_get()->ipc;
-	int ret = 0;
-	int i;
-
-	for (i = 0; i < tp->pipeline_num; i++) {
-		p = get_pipeline_by_id(tp->pipelines[i]);
-		ret = tb_pipeline_stop(ipc, p);
-		if (ret < 0)
-			break;
-	}
-
-	return ret;
-}
-
-static int test_pipeline_reset(struct testbench_prm *tp)
-{
-	struct pipeline *p;
-	struct ipc *ipc = sof_get()->ipc;
-	int ret = 0;
-	int i;
-
-	for (i = 0; i < tp->pipeline_num; i++) {
-		p = get_pipeline_by_id(tp->pipelines[i]);
-		ret = tb_pipeline_reset(ipc, p);
-		if (ret < 0)
-			break;
-	}
-
-	return ret;
-}
-
-static void test_pipeline_free(struct testbench_prm *tp)
-{
-	int i;
-
-	for (i = 0; i < tp->pipeline_num; i++)
-		test_pipeline_free_comps(tp->pipelines[i]);
-}
-
-#if DISABLED_CODE
-static int test_pipeline_params(struct testbench_prm *tp)
-{
-	struct ipc_comp_dev *pcm_dev;
-	struct pipeline *p;
-	struct ipc *ipc = sof_get()->ipc;
-	int ret = 0;
-	int i;
-
-	/* Run pipeline until EOF from fileread */
-
-	for (i = 0; i < tp->pipeline_num; i++) {
-		pcm_dev = ipc_get_ppl_src_comp(ipc, tp->pipelines[i]);
-		if (!pcm_dev) {
-			fprintf(stderr, "error: pipeline %d has no source component\n",
-				tp->pipelines[i]);
-			return -EINVAL;
-		}
-
-		/* set up pipeline params */
-		p = pcm_dev->cd->pipeline;
-
-		/* input and output sample rate */
-		if (!tp->fs_in)
-			tp->fs_in = p->period * p->frames_per_sched;
-
-		if (!tp->fs_out)
-			tp->fs_out = p->period * p->frames_per_sched;
-
-		ret = tb_pipeline_params(tp, ipc, p);
-		if (ret < 0) {
-			fprintf(stderr, "error: pipeline params failed: %s\n",
-				strerror(ret));
-			return ret;
-		}
-	}
-
-
-	return 0;
-}
-
-static int test_pipeline_start(struct testbench_prm *tp)
-{
-	struct pipeline *p;
-	struct ipc *ipc = sof_get()->ipc;
-	int i;
-
-	/* Run pipeline until EOF from fileread */
-	for (i = 0; i < tp->pipeline_num; i++) {
-		p = get_pipeline_by_id(tp->pipelines[i]);
-
-		/* do we need to apply copy count limit ? */
-		if (tp->copy_check)
-			test_pipeline_set_test_limits(tp->pipelines[i], tp->copy_iterations, 0);
-
-		/* set pipeline params and trigger start */
-		if (tb_pipeline_start(ipc, p) < 0) {
-			fprintf(stderr, "error: pipeline params\n");
-			return -EINVAL;
-		}
-	}
-
-	return 0;
-}
-#endif
-
-static bool test_pipeline_check_state(struct testbench_prm *tp, int state)
-{
-	struct pipeline *p;
-	uint64_t cycles0, cycles1;
-	int i;
-
-	tb_getcycles(&cycles0);
-
-	schedule_ll_run_tasks();
-
-	tb_getcycles(&cycles1);
-	tp->total_cycles += cycles1 - cycles0;
-
-	/* Run pipeline until EOF from fileread */
-	for (i = 0; i < tp->pipeline_num; i++) {
-		// p = get_pipeline_by_id(tp->pipelines[i]);
-		p = get_pipeline_by_id(0);
-		if (!p) {
-			fprintf(stderr, "error: failed get_pipeline_by_id().");
-			return false;
-		}
-
-		if (!p->pipe_task) {
-			fprintf(stderr, "error: pipeline task is null.");
-			return false;
-		}
-
-		if (p->pipe_task->state	== state)
-			return true;
-	}
-
-	return false;
-}
-
-static int test_pipeline_load(struct testbench_prm *tb)
-{
-	struct tplg_context *ctx = &tb->tplg;
-	struct tplg_pipeline_list *pipeline_list_playback;
-	struct tplg_pipeline_list *pipeline_list_capture;
-	struct tplg_pipeline_info *pipe_info;
-	int ret;
-	int i;
-
-	/* setup the thread virtual core config */
-	memset(ctx, 0, sizeof(*ctx));
-	ctx->comp_id = 1;
-	ctx->core_id = 0;
-	ctx->sof = sof_get();
-	ctx->tplg_file = tb->tplg_file;
-	if (tb->ipc_version < 3 || tb->ipc_version > 4) {
-		fprintf(stderr, "error: illegal ipc version\n");
-		return -EINVAL;
-	}
-
-	ctx->ipc_major = tb->ipc_version;
-
-	/* parse topology file and create pipeline */
-	ret = tb_parse_topology(tb);
-	if (ret < 0)
-		fprintf(stderr, "error: parsing topology\n");
-
-	fprintf(stdout, "topology parsing complete\n");
-
-	ret = tb_set_up_pipelines(tb, SOF_IPC_STREAM_PLAYBACK);
-	if (ret) {
-		fprintf(stderr, "error: Failed tb_set_up_pipelines for playback\n");
-		return ret;
-	}
-
-	ret = tb_set_up_pipelines(tb, SOF_IPC_STREAM_CAPTURE);
-	if (ret) {
-		fprintf(stderr, "error: Failed tb_set_up_pipelines for capture\n");
-		return ret;
-	}
-
-	fprintf(stdout, "pipelines set up complete\n");
-
-	pipeline_list_playback = &tb->pcm_info->playback_pipeline_list;
-	pipeline_list_capture = &tb->pcm_info->capture_pipeline_list;
-
-	for (i = 0; i < pipeline_list_playback->count; i++) {
-		pipe_info = pipeline_list_playback->pipelines[i];
-		fprintf(stderr, "Playback id = %d, name = %s\n", pipe_info->id, pipe_info->name);
-	}
-
-	for (i = 0; i < pipeline_list_capture->count; i++) {
-		pipe_info = pipeline_list_capture->pipelines[i];
-		fprintf(stderr, "Capture id = %d, name = %s\n", pipe_info->id, pipe_info->name);
-	}
-
-
-	/* Prepare */
-
-	ret = tb_pipelines_set_state(tb, SOF_IPC4_PIPELINE_STATE_PAUSED, SOF_IPC_STREAM_PLAYBACK);
-	if (ret) {
-		fprintf(stderr, "error: failed to set state to paused\n");
-		return ret;
-	}
-
-	ret = tb_pipelines_set_state(tb, SOF_IPC4_PIPELINE_STATE_PAUSED, SOF_IPC_STREAM_CAPTURE);
-	if (ret) {
-		fprintf(stderr, "error: failed to set state to paused\n");
-		return ret;
-	}
-
-
-	fprintf(stdout, "pipelines set up complete\n");
-
-	ret = tb_pipelines_set_state(tb, SOF_IPC4_PIPELINE_STATE_RUNNING, SOF_IPC_STREAM_PLAYBACK);
-	if (ret) {
-		fprintf(stderr, "error: failed to set state to paused\n");
-		return ret;
-	}
-
-	ret = tb_pipelines_set_state(tb, SOF_IPC4_PIPELINE_STATE_RUNNING, SOF_IPC_STREAM_CAPTURE);
-	if (ret) {
-		fprintf(stderr, "error: failed to set state to paused\n");
-		return ret;
-	}
-
-	return 0;
-}
-
 static void test_pipeline_stats(struct testbench_prm *tp, long long delta_t)
 {
 	struct tplg_context *ctx = &tp->tplg;
@@ -676,7 +304,7 @@ static void test_pipeline_stats(struct testbench_prm *tp, long long delta_t)
 	printf("==========================================================\n");
 	printf("Test Pipeline:\n");
 	printf("%s\n", tp->pipeline_string);
-	test_pipeline_get_file_stats(ctx->pipeline_id);
+	tb_show_file_stats(ctx->pipeline_id);
 
 	printf("Input bit format: %s\n", tp->bits_in);
 	printf("Input sample rate: %d\n", tp->fs_in);
@@ -734,28 +362,23 @@ static int pipline_test(struct testbench_prm *tp)
 		printf("		           Test Start %d\n", dp_count);
 		printf("==========================================================\n");
 
-		err = test_pipeline_load(tp);
+		err = tb_load_topology(tp);
 		if (err < 0) {
-			fprintf(stderr, "error: pipeline load %d failed %d\n",
-				dp_count, err);
+			fprintf(stderr, "error: topology load %d failed %d\n", dp_count, err);
 			break;
 		}
 
-#if DISABLED_CODE
-		err = test_pipeline_params(tp);
+		err = tb_set_up_all_pipelines(tp);
 		if (err < 0) {
-			fprintf(stderr, "error: pipeline params %d failed %d\n",
-				dp_count, err);
+			fprintf(stderr, "error: pipelines set up %d failed %d\n", dp_count, err);
 			break;
 		}
 
-		err = test_pipeline_start(tp);
+		err = tb_set_running_state(tp);
 		if (err < 0) {
-			fprintf(stderr, "error: pipeline run %d failed %d\n",
-				dp_count, err);
+			fprintf(stderr, "error: pipelines state set %d failed %d\n", dp_count, err);
 			break;
 		}
-#endif
 
 		tb_gettime(&td0);
 
@@ -780,7 +403,7 @@ static int pipline_test(struct testbench_prm *tp)
 #endif
 			if (err == 0) {
 				nsleep_time += tp->tick_period_us; /* sleep fully completed */
-				if (test_pipeline_check_state(tp, SOF_TASK_STATE_CANCEL)) {
+				if (tb_schedule_pipeline_check_state(tp, SOF_TASK_STATE_CANCEL)) {
 					fprintf(stdout, "pipeline cancelled !\n");
 					break;
 				}
@@ -796,9 +419,9 @@ static int pipline_test(struct testbench_prm *tp)
 
 		tb_gettime(&td1);
 
-		err = test_pipeline_stop(tp);
+		err = tb_set_reset_state(tp);
 		if (err < 0) {
-			fprintf(stderr, "error: pipeline stop %d failed %d\n",
+			fprintf(stderr, "error: pipeline reset %d failed %d\n",
 				dp_count, err);
 			break;
 		}
@@ -806,15 +429,6 @@ static int pipline_test(struct testbench_prm *tp)
 		delta_t = (td1.tv_sec - td0.tv_sec) * 1000000;
 		delta_t += (td1.tv_nsec - td0.tv_nsec) / 1000;
 		test_pipeline_stats(tp, delta_t);
-
-		err = test_pipeline_reset(tp);
-		if (err < 0) {
-			fprintf(stderr, "error: pipeline stop %d failed %d\n",
-				dp_count, err);
-			break;
-		}
-
-		test_pipeline_free(tp);
 
 		dp_count++;
 	}

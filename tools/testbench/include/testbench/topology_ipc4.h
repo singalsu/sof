@@ -33,4 +33,12 @@ int tb_set_up_widget_base_config(struct testbench_prm *tb, struct tplg_comp_info
 
 int tb_pipelines_set_state(struct testbench_prm *tb, int state, int dir);
 
+int tb_delete_pipeline(struct testbench_prm *tb, struct tplg_pipeline_info *pipe_info);
+
+int tb_free_route(struct testbench_prm *tb, struct tplg_route_info *route_info);
+
+int tb_set_running_state(struct testbench_prm *tb);
+
+int tb_set_reset_state(struct testbench_prm *tb);
+
 #endif /* _TESTBENCH_TOPOLOGY_IPC4_H */
