@@ -687,12 +687,20 @@ static int file_process(struct processing_module *mod,
 	}
 
 	cd->fs.copy_count++;
-	// if (!samples || cd->fs.reached_eof ||
-	if (cd->fs.reached_eof ||
-	    (cd->max_copies && cd->fs.copy_count >= cd->max_copies)) {
+	if (cd->fs.reached_eof || (cd->max_copies && cd->fs.copy_count >= cd->max_copies)) {
 		cd->fs.reached_eof = 1;
 		debug_print("file_process(): reached EOF");
 		schedule_task_cancel(mod->dev->pipeline->pipe_task);
+	}
+
+	if (samples) {
+		cd->copies_timeout = 0;
+	} else {
+		cd->copies_timeout++;
+		if (cd->copies_timeout == FILE_MAX_COPIES_TIMEOUT) {
+			debug_print("file_process(): Max timeout count reached");
+			schedule_task_cancel(mod->dev->pipeline->pipe_task);
+		}
 	}
 
 	tb_getcycles(&cycles1);
@@ -749,7 +757,10 @@ static int file_prepare(struct processing_module *mod,
 
 static int file_reset(struct processing_module *mod)
 {
+	struct file_comp_data *cd = module_get_private_data(mod);
+
 	comp_info(mod->dev, "file_reset()");
+	cd->copies_timeout = 0;
 	return 0;
 }
 
