@@ -13,6 +13,8 @@
 
 #include <stdint.h>
 
+#define FILE_MAX_COPIES_TIMEOUT	10
+
 /**< Convert with right shift a bytes count to samples count */
 #define FILE_BYTES_TO_S16_SAMPLES(s)	((s) >> 1)
 #define FILE_BYTES_TO_S32_SAMPLES(s)	((s) >> 2)
@@ -58,6 +60,7 @@ struct file_comp_data {
 	int max_samples;
 	int max_copies;
 	int max_frames;
+	int copies_timeout;
 };
 
 void sys_comp_module_file_interface_init(void);
