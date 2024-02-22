@@ -309,10 +309,12 @@ static void test_pipeline_stats(struct testbench_prm *tp, long long delta_t)
 	printf("==========================================================\n");
 	printf("		           Test Summary %d\n", count);
 	printf("==========================================================\n");
+#if DISABLED_CODE
 	for (i = 0; i < tp->pipeline_num; i++) {
 		printf("pipeline %d\n", tp->pipelines[i]);
 		tb_show_file_stats(tp, tp->pipelines[i]);
 	}
+#endif
 
 	printf("Input bit format: %s\n", tp->bits_in);
 	printf("Input sample rate: %d\n", tp->fs_in);
@@ -451,10 +453,9 @@ static int pipline_test(struct testbench_prm *tp)
 	return 0;
 }
 
-static struct testbench_prm tp;
-
 int main(int argc, char **argv)
 {
+	struct testbench_prm tp;
 	int i, err;
 
 	/* initialize input and output sample rates, files, etc. */

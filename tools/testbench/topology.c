@@ -23,6 +23,7 @@
 #include "testbench/file.h"
 #include "testbench/topology.h"
 #include "testbench/topology_ipc4.h"
+#include "build_xt_testbench/sof_parser/install/include/tplg_parser/topology.h"
 
 static int tb_new_src(struct testbench_prm *tb)
 {
@@ -773,6 +774,9 @@ int tb_set_up_pipelines(struct testbench_prm *tb, int dir)
 		fprintf(stderr, "No host component found for PCM ID: %d\n", tb->pcm_id);
 		return -EINVAL;
 	}
+
+	if (!tb_is_pipeline_enabled(tb, host->pipeline_id))
+		return 0;
 
 	tb->pcm_info = pcm_info;
 
