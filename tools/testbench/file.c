@@ -687,7 +687,8 @@ static int file_process(struct processing_module *mod,
 	}
 
 	cd->fs.copy_count++;
-	if (!samples || cd->fs.reached_eof ||
+	// if (!samples || cd->fs.reached_eof ||
+	if (cd->fs.reached_eof ||
 	    (cd->max_copies && cd->fs.copy_count >= cd->max_copies)) {
 		cd->fs.reached_eof = 1;
 		debug_print("file_process(): reached EOF");

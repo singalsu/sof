@@ -149,4 +149,6 @@ void tb_show_file_stats(struct testbench_prm *tp, int pipeline_id);
 
 bool tb_schedule_pipeline_check_state(struct testbench_prm *tp, int state);
 
+bool tb_is_pipeline_enabled(struct testbench_prm *tb, int pipeline_id);
+
 #endif

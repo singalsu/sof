@@ -391,18 +391,6 @@ static int tb_pipeline_set_state(struct testbench_prm *tb, int state,
 	return ret;
 }
 
-static bool tb_pipeline_enabled(struct testbench_prm *tb, int pipeline_id)
-{
-	int i;
-
-	for (i = 0; i < tb->pipeline_num; i++) {
-		if (tb->pipelines[i] == pipeline_id)
-			return true;
-	}
-
-	return false;
-}
-
 int tb_pipelines_set_state(struct testbench_prm *tb, int state, int dir)
 {
 	struct ipc4_pipeline_set_state pipe_state = {{ 0 }};
@@ -428,7 +416,7 @@ int tb_pipelines_set_state(struct testbench_prm *tb, int state, int dir)
 			struct tplg_pipeline_info *pipe_info = pipeline_list->pipelines[i];
 			int ret;
 
-			if (!tb_pipeline_enabled(tb, pipe_info->id))
+			if (!tb_is_pipeline_enabled(tb, pipe_info->id))
 				continue;
 
 			ret = tb_pipeline_set_state(tb, state, &pipe_state, pipe_info,
@@ -444,7 +432,7 @@ int tb_pipelines_set_state(struct testbench_prm *tb, int state, int dir)
 		struct tplg_pipeline_info *pipe_info = pipeline_list->pipelines[i];
 		int ret;
 
-		if (!tb_pipeline_enabled(tb, pipe_info->id))
+		if (!tb_is_pipeline_enabled(tb, pipe_info->id))
 			continue;
 
 		ret = tb_pipeline_set_state(tb, state, &pipe_state, pipe_info,
