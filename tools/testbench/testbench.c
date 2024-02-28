@@ -148,7 +148,7 @@ static int parse_input_args(int argc, char **argv, struct testbench_prm *tp)
 	int option = 0;
 	int ret = 0;
 
-	while ((option = getopt(argc, argv, "hdqi:o:t:b:r:R:c:n:C:P:p:T:D:V:")) != -1) {
+	while ((option = getopt(argc, argv, "hd:qi:o:t:b:r:R:c:n:C:P:p:T:D:V:")) != -1) {
 		switch (option) {
 		/* input sample file */
 		case 'i':

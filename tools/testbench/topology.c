@@ -876,46 +876,37 @@ int tb_free_pipelines(struct testbench_prm *tb, int dir)
 	struct tplg_comp_info *host = NULL;
 	int ret, i;
 
-	// TODO tb->pcm_id is not defined?
 	list_for_item(item, &tb->pcm_list) {
 		pcm_info = container_of(item, struct tplg_pcm_info, item);
-		if (pcm_info->id == tb->pcm_id) {
-			if (dir)
-				host = pcm_info->capture_host;
-			else
-				host = pcm_info->playback_host;
-			break;
+		if (dir)
+			host = pcm_info->capture_host;
+		else
+			host = pcm_info->playback_host;
+
+		if (dir) {
+			pipeline_list = &tb->pcm_info->capture_pipeline_list;
+			ret = tb_free_widgets_capture(tb, host, host);
+			if (ret < 0) {
+				fprintf(stderr, "failed to free widgets for capture PCM\n");
+				return ret;
+			}
+		} else {
+			pipeline_list = &tb->pcm_info->playback_pipeline_list;
+			ret = tb_free_widgets(tb, host, host);
+			if (ret < 0) {
+				fprintf(stderr, "failed to free widgets for playback PCM\n");
+				return ret;
+			}
+		}
+		for (i = 0; i < pipeline_list->count; i++) {
+			struct tplg_pipeline_info *pipe_info = pipeline_list->pipelines[i];
+
+			ret = tb_delete_pipeline(tb, pipe_info);
+			if (ret < 0)
+				return ret;
 		}
 	}
 
-	if (!host) {
-		fprintf(stderr, "No host component found for PCM ID: %d\n", tb->pcm_id);
-		return -EINVAL;
-	}
-
-	if (dir) {
-		pipeline_list = &tb->pcm_info->capture_pipeline_list;
-		ret = tb_free_widgets_capture(tb, host, host);
-		if (ret < 0) {
-			fprintf(stderr, "failed to free widgets for capture PCM %d\n", tb->pcm_id);
-			return ret;
-		}
-	} else {
-		pipeline_list = &tb->pcm_info->playback_pipeline_list;
-		ret = tb_free_widgets(tb, host, host);
-		if (ret < 0) {
-			fprintf(stderr, "failed to free widgets for PCM %d\n", tb->pcm_id);
-			return ret;
-		}
-	}
-
-	for (i = 0; i < pipeline_list->count; i++) {
-		struct tplg_pipeline_info *pipe_info = pipeline_list->pipelines[i];
-
-		ret = tb_delete_pipeline(tb, pipe_info);
-		if (ret < 0)
-			return ret;
-	}
 
 	tb->instance_ids[SND_SOC_TPLG_DAPM_SCHEDULER] = 0;
 	return 0;

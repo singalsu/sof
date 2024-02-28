@@ -559,7 +559,6 @@ static int file_init(struct processing_module *mod)
 
 	/* get filename from IPC and open file */
 	cd->fs.fn = strdup(ipc_file->fn);
-	free(ipc_file->fn); // TODO, why is this not helping with valgrind issue?
 
 	/* set file format */
 	cd->fs.f_format = get_file_format(cd->fs.fn);

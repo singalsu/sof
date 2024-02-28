@@ -336,14 +336,10 @@ bool tb_schedule_pipeline_check_state(struct testbench_prm *tp, int state)
 	/* Run pipeline until EOF from fileread */
 	for (i = 0; i < tp->pipeline_num; i++) {
 		p = tb_get_pipeline_by_id(tp, tp->pipelines[i]);
-		if (p->pipe_task->state != state) {
-			fprintf(stderr, "pipeline %d state is %d expexted %d\n",
-				tp->pipelines[i], p->pipe_task->state, state);
+		if (p->pipe_task->state != state)
 			equal_state = false;
-		}
 	}
 
-	// equal_state = false;
 	return equal_state;
 }
 

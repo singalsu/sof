@@ -416,8 +416,8 @@ int tb_pipelines_set_state(struct testbench_prm *tb, int state, int dir)
 			struct tplg_pipeline_info *pipe_info = pipeline_list->pipelines[i];
 			int ret;
 
-			if (!tb_is_pipeline_enabled(tb, pipe_info->id))
-				continue;
+			//if (!tb_is_pipeline_enabled(tb, pipe_info->id))
+			//	continue;
 
 			ret = tb_pipeline_set_state(tb, state, &pipe_state, pipe_info,
 						    &tb->ipc_tx, &tb->ipc_rx);
@@ -432,8 +432,8 @@ int tb_pipelines_set_state(struct testbench_prm *tb, int state, int dir)
 		struct tplg_pipeline_info *pipe_info = pipeline_list->pipelines[i];
 		int ret;
 
-		if (!tb_is_pipeline_enabled(tb, pipe_info->id))
-			continue;
+		//if (!tb_is_pipeline_enabled(tb, pipe_info->id))
+		//	continue;
 
 		ret = tb_pipeline_set_state(tb, state, &pipe_state, pipe_info,
 					    &tb->ipc_tx, &tb->ipc_rx);
@@ -478,7 +478,7 @@ int tb_new_aif_in_out(struct testbench_prm *tb, int dir)
 			return -EINVAL;
 		}
 
-		file->config.fn = strdup(tb->input_file[tb->input_file_index]);
+		file->config.fn = tb->input_file[tb->input_file_index];
 		comp_info->instance_id = tb->instance_ids[SND_SOC_TPLG_DAPM_AIF_IN]++;
 		comp_info->module_id = 0x9a;
 		tb->fr_id[tb->input_file_index] = comp_info->module_id;
@@ -496,7 +496,7 @@ int tb_new_aif_in_out(struct testbench_prm *tb, int dir)
 			return -EINVAL;
 		}
 
-		file->config.fn = strdup(tb->output_file[tb->output_file_index]);
+		file->config.fn = tb->output_file[tb->output_file_index];
 		comp_info->instance_id = tb->instance_ids[SND_SOC_TPLG_DAPM_AIF_OUT]++;
 		comp_info->module_id = 0x9b;
 		tb->fw_id[tb->output_file_index] = comp_info->module_id;
@@ -538,7 +538,7 @@ int tb_new_dai_in_out(struct testbench_prm *tb, int dir)
 			return -EINVAL;
 		}
 
-		file->config.fn = strdup(tb->output_file[tb->output_file_index]);
+		file->config.fn = tb->output_file[tb->output_file_index];
 		comp_info->instance_id = tb->instance_ids[SND_SOC_TPLG_DAPM_DAI_OUT]++;
 		comp_info->module_id = 0x9c;
 		tb->fw_id[tb->output_file_index] = comp_info->module_id;
@@ -556,7 +556,7 @@ int tb_new_dai_in_out(struct testbench_prm *tb, int dir)
 			return -EINVAL;
 		}
 
-		file->config.fn = strdup(tb->input_file[tb->input_file_index]);
+		file->config.fn = tb->input_file[tb->input_file_index];
 		comp_info->instance_id = tb->instance_ids[SND_SOC_TPLG_DAPM_DAI_IN]++;
 		comp_info->module_id = 0x9d;
 		tb->fr_id[tb->input_file_index] = comp_info->module_id;
