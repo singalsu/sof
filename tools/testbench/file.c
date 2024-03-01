@@ -625,6 +625,7 @@ static int file_free(struct processing_module *mod)
 {
 	struct file_comp_data *cd = module_get_private_data(mod);
 
+	fprintf(stderr, "file_free()\n");
 	comp_info(mod->dev, "file_free()");
 
 	if (cd->fs.mode == FILE_READ)
@@ -758,6 +759,7 @@ static int file_reset(struct processing_module *mod)
 {
 	struct file_comp_data *cd = module_get_private_data(mod);
 
+	fprintf(stderr, "file_reset()\n");
 	comp_info(mod->dev, "file_reset()");
 	cd->copies_timeout = 0;
 	return 0;

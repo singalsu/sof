@@ -82,7 +82,7 @@ struct testbench_prm {
 	int output_file_index;
 	int input_file_index;
 
-	struct tplg_comp_info *info;
+	//struct tplg_comp_info *info;
 	int info_index;
 	int info_elems;
 
@@ -109,7 +109,7 @@ struct testbench_prm {
 	struct tb_mq_desc ipc_tx;
 	struct tb_mq_desc ipc_rx;
 
-	int pcm_id;
+	int pcm_id;	// TODO: This needs to be cleaned up
 	struct tplg_pcm_info *pcm_info;
 
 	struct tb_config config[TB_MAX_CONFIG];

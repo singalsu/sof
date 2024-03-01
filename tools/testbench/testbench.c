@@ -148,7 +148,7 @@ static int parse_input_args(int argc, char **argv, struct testbench_prm *tp)
 	int option = 0;
 	int ret = 0;
 
-	while ((option = getopt(argc, argv, "hd:qi:o:t:b:r:R:c:n:C:P:p:T:D:V:")) != -1) {
+	while ((option = getopt(argc, argv, "hd:qi:o:t:b:r:R:c:n:C:P:p:T:D:")) != -1) {
 		switch (option) {
 		/* input sample file */
 		case 'i':
@@ -226,12 +226,7 @@ static int parse_input_args(int argc, char **argv, struct testbench_prm *tp)
 			tp->pipeline_duration_ms = atoi(optarg);
 			break;
 
-		/* IPC version */
-		case 'V':
-			tp->ipc_version = atoi(optarg);
-			break;
-
-			/* print usage */
+		/* print usage */
 		case 'h':
 			print_usage(argv[0]);
 			exit(EXIT_SUCCESS);
@@ -466,6 +461,8 @@ int main(int argc, char **argv)
 	tp.tplg_file = NULL;
 	tp.input_file_num = 0;
 	tp.output_file_num = 0;
+	tp.input_file_index = 0;
+	tp.output_file_index = 0;
 	for (i = 0; i < MAX_OUTPUT_FILE_NUM; i++)
 		tp.output_file[i] = NULL;
 
@@ -496,6 +493,8 @@ int main(int argc, char **argv)
 	tp.config[0].rate = 48000;
 	tp.config[0].channels = 2;
 	tp.config[0].format = SOF_IPC_FRAME_S32_LE;
+
+	tp.pcm_id = 0; // TODO: Fix this
 
 	/* command line arguments*/
 	err = parse_input_args(argc, argv, &tp);

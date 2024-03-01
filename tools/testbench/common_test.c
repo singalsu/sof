@@ -38,6 +38,10 @@
 #include <xtensa/tie/xt_timer.h>
 #endif
 
+/* 37c196ae-3532-4282-8a78-dd9d50cc7123 */
+DECLARE_SOF_RT_UUID("testbench", testbench_uuid, 0x37c196ae, 0x3532, 0x4282,
+		    0x8a, 0x78, 0xdd, 0x9d, 0x50, 0xcc, 0x71, 0x23);
+
 /* testbench helper functions for pipeline setup and trigger */
 
 int tb_setup(struct sof *sof, struct testbench_prm *tp)
@@ -78,6 +82,10 @@ int tb_setup(struct sof *sof, struct testbench_prm *tp)
 		fprintf(stderr, "error: IPC init\n");
 		return -EINVAL;
 	}
+
+	/* Trace */
+	ipc_tr.level = LOG_LEVEL_INFO;
+	ipc_tr.uuid_p = SOF_UUID(testbench_uuid);
 
 	/* init LL scheduler */
 	if (scheduler_init_ll(&domain) < 0) {

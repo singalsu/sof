@@ -509,14 +509,11 @@ int tb_parse_topology(struct testbench_prm *tb)
 		if (!comp_info->pipe_info) {
 			fprintf(stderr, "warning: failed  assigning pipeline for %s\n",
 				comp_info->name);
-			//fprintf(stderr, "Error assigning pipeline for %s\n", comp_info->name);
-			//return -EINVAL;
 		}
 	}
 
 out:
 	/* free all data */
-	free(tb->info);
 	free(ctx->tplg_base);
 	return ret;
 }
