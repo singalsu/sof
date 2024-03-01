@@ -395,6 +395,8 @@ int tb_pipelines_set_state(struct testbench_prm *tb, int state, int dir)
 {
 	struct ipc4_pipeline_set_state pipe_state = {{ 0 }};
 	struct tplg_pipeline_list *pipeline_list;
+	struct tplg_pipeline_info *pipe_info;
+	int ret;
 	int i;
 
 	if (dir == SOF_IPC_STREAM_CAPTURE)
@@ -413,12 +415,7 @@ int tb_pipelines_set_state(struct testbench_prm *tb, int state, int dir)
 	 */
 	if (dir == SOF_IPC_STREAM_CAPTURE) {
 		for (i = pipeline_list->count - 1; i >= 0; i--) {
-			struct tplg_pipeline_info *pipe_info = pipeline_list->pipelines[i];
-			int ret;
-
-			//if (!tb_is_pipeline_enabled(tb, pipe_info->id))
-			//	continue;
-
+			pipe_info = pipeline_list->pipelines[i];
 			ret = tb_pipeline_set_state(tb, state, &pipe_state, pipe_info,
 						    &tb->ipc_tx, &tb->ipc_rx);
 			if (ret < 0)
@@ -428,13 +425,9 @@ int tb_pipelines_set_state(struct testbench_prm *tb, int state, int dir)
 		return 0;
 	}
 
-	for (i = 0; i < pipeline_list->count; i++) {
-		struct tplg_pipeline_info *pipe_info = pipeline_list->pipelines[i];
-		int ret;
-
-		//if (!tb_is_pipeline_enabled(tb, pipe_info->id))
-		//	continue;
-
+	// for (i = 0; i < pipeline_list->count; i++) {
+	for (i = pipeline_list->count - 1; i >= 0; i--) {
+		pipe_info = pipeline_list->pipelines[i];
 		ret = tb_pipeline_set_state(tb, state, &pipe_state, pipe_info,
 					    &tb->ipc_tx, &tb->ipc_rx);
 		if (ret < 0)

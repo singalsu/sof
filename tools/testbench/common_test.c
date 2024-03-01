@@ -332,7 +332,7 @@ bool tb_schedule_pipeline_check_state(struct testbench_prm *tp, int state)
 	struct pipeline *p;
 	uint64_t cycles0, cycles1;
 	int i;
-	bool equal_state = true;
+	bool state_matches;
 
 	tb_getcycles(&cycles0);
 
@@ -341,14 +341,18 @@ bool tb_schedule_pipeline_check_state(struct testbench_prm *tp, int state)
 	tb_getcycles(&cycles1);
 	tp->total_cycles += cycles1 - cycles0;
 
-	/* Run pipeline until EOF from fileread */
-	for (i = 0; i < tp->pipeline_num; i++) {
+	/* Check if all pipelines are in state */
+	p = tb_get_pipeline_by_id(tp, tp->pipelines[0]);
+	state_matches = (p->pipe_task->state == state);
+
+	for (i = 1; i < tp->pipeline_num; i++) {
 		p = tb_get_pipeline_by_id(tp, tp->pipelines[i]);
-		if (p->pipe_task->state != state)
-			equal_state = false;
+		state_matches = (p->pipe_task->state == state);
+		if (!state_matches)
+			break;
 	}
 
-	return equal_state;
+	return state_matches;
 }
 
 bool tb_is_pipeline_enabled(struct testbench_prm *tb, int pipeline_id)

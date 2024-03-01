@@ -13,7 +13,7 @@
 
 #include <stdint.h>
 
-#define FILE_MAX_COPIES_TIMEOUT	10
+#define FILE_MAX_COPIES_TIMEOUT	3
 
 /**< Convert with right shift a bytes count to samples count */
 #define FILE_BYTES_TO_S16_SAMPLES(s)	((s) >> 1)

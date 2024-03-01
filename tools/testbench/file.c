@@ -670,6 +670,8 @@ static int file_process(struct processing_module *mod,
 		frames = MIN(frames, cd->max_frames);
 		samples = cd->file_func(cd, sink, NULL, frames);
 		audio_stream_produce(sink, audio_stream_sample_bytes(sink) * samples);
+		comp_info(dev, "file_read, samples = %d, copy_count = %d",
+			  samples, cd->fs.copy_count);
 		break;
 	case FILE_WRITE:
 		/* write PCM samples into file */
@@ -679,6 +681,8 @@ static int file_process(struct processing_module *mod,
 		frames = MIN(frames, cd->max_frames);
 		samples = cd->file_func(cd, NULL, source, frames);
 		audio_stream_consume(source, audio_stream_sample_bytes(source) * samples);
+		comp_info(dev, "file_write, samples = %d, copy_count = %d",
+			  samples, cd->fs.copy_count);
 		break;
 	default:
 		/* TODO: duplex mode */
@@ -687,9 +691,10 @@ static int file_process(struct processing_module *mod,
 	}
 
 	cd->fs.copy_count++;
+
 	if (cd->fs.reached_eof || (cd->max_copies && cd->fs.copy_count >= cd->max_copies)) {
 		cd->fs.reached_eof = 1;
-		debug_print("file_process(): reached EOF");
+		comp_info(dev, "file_process(): reached EOF or max_copies");
 		schedule_task_cancel(mod->dev->pipeline->pipe_task);
 	}
 
@@ -698,7 +703,7 @@ static int file_process(struct processing_module *mod,
 	} else {
 		cd->copies_timeout++;
 		if (cd->copies_timeout == FILE_MAX_COPIES_TIMEOUT) {
-			debug_print("file_process(): Max timeout count reached");
+			comp_info(dev, "file_process(): copies_timeout reached");
 			schedule_task_cancel(mod->dev->pipeline->pipe_task);
 		}
 	}
