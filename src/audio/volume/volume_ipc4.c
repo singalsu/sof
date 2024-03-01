@@ -109,6 +109,8 @@ int volume_init(struct processing_module *mod)
 	uint8_t channel;
 	uint32_t instance_id = IPC4_INST_ID(dev_comp_id(dev));
 
+	comp_info(dev, "volume_init()");
+
 	if (instance_id >= IPC4_MAX_PEAK_VOL_REG_SLOTS) {
 		comp_err(dev, "instance_id %u out of array bounds.", instance_id);
 		return -EINVAL;

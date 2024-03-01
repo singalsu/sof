@@ -406,7 +406,7 @@ static int volume_free(struct processing_module *mod)
 {
 	struct vol_data *cd = module_get_private_data(mod);
 
-	comp_dbg(mod->dev, "volume_free()");
+	comp_info(mod->dev, "volume_free()");
 
 	volume_peak_free(cd);
 	rfree(cd->vol);
@@ -658,7 +658,7 @@ static int volume_prepare(struct processing_module *mod,
 	int ret;
 	int i;
 
-	comp_dbg(dev, "volume_prepare()");
+	comp_info(dev, "volume_prepare()");
 
 	ret = volume_peak_prepare(cd, mod);
 
@@ -747,7 +747,7 @@ static int volume_reset(struct processing_module *mod)
 {
 	struct vol_data *cd = module_get_private_data(mod);
 
-	comp_dbg(mod->dev, "volume_reset()");
+	comp_info(mod->dev, "volume_reset()");
 	volume_reset_state(cd);
 	return 0;
 }
