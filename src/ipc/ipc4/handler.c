@@ -300,8 +300,8 @@ int ipc4_pipeline_prepare(struct ipc_comp_dev *ppl_icd, uint32_t cmd)
 	int ret = 0;
 
 	status = ppl_icd->pipeline->status;
-	tr_dbg(&ipc_tr, "pipeline %d: initial state: %d, cmd: %d", ppl_icd->id,
-	       status, cmd);
+	tr_info(&ipc_tr, "pipeline %d: initial state: %d, cmd: %d", ppl_icd->id,
+		status, cmd);
 
 	switch (cmd) {
 	case SOF_IPC4_PIPELINE_STATE_RUNNING:
@@ -388,8 +388,8 @@ int ipc4_pipeline_trigger(struct ipc_comp_dev *ppl_icd, uint32_t cmd, bool *dela
 	int ret;
 
 	status = ppl_icd->pipeline->status;
-	tr_dbg(&ipc_tr, "pipeline %d: initial state: %d, cmd: %d", ppl_icd->id,
-	       status, cmd);
+	tr_info(&ipc_tr, "pipeline %d: initial state: %d, cmd: %d", ppl_icd->id,
+		status, cmd);
 
 	if (status == COMP_STATE_INIT)
 		return 0;
@@ -454,7 +454,7 @@ int ipc4_pipeline_trigger(struct ipc_comp_dev *ppl_icd, uint32_t cmd, bool *dela
 			    ppl_icd->id, cmd, ret);
 		ret = IPC4_PIPELINE_STATE_NOT_SET;
 	} else if (ret == PPL_STATUS_SCHEDULED) {
-		tr_dbg(&ipc_tr, "pipeline %d: trigger cmd %d is delayed",
+		tr_info(&ipc_tr, "pipeline %d: trigger cmd %d is delayed",
 		       ppl_icd->id, cmd);
 		*delayed = true;
 		ret = 0;

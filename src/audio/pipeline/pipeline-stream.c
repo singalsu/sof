@@ -206,7 +206,7 @@ static int pipeline_comp_list(struct comp_dev *current,
 	 * commands separately so we don't need to trigger them together
 	 */
 	if (!is_single_ppl && (!is_same_sched || IPC4_MOD_ID(current->ipc_config.id))) {
-		pipe_dbg(current->pipeline,
+		pipe_info(current->pipeline,
 			 "pipeline_comp_list(), current is from another pipeline");
 		return 0;
 	}
