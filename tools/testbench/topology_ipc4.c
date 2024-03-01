@@ -425,8 +425,7 @@ int tb_pipelines_set_state(struct testbench_prm *tb, int state, int dir)
 		return 0;
 	}
 
-	// for (i = 0; i < pipeline_list->count; i++) {
-	for (i = pipeline_list->count - 1; i >= 0; i--) {
+	for (i = 0; i < pipeline_list->count; i++) {
 		pipe_info = pipeline_list->pipelines[i];
 		ret = tb_pipeline_set_state(tb, state, &pipe_state, pipe_info,
 					    &tb->ipc_tx, &tb->ipc_rx);
@@ -702,6 +701,18 @@ int tb_set_running_state(struct testbench_prm *tb)
 int tb_set_reset_state(struct testbench_prm *tb)
 {
 	int ret;
+
+	ret = tb_pipelines_set_state(tb, SOF_IPC4_PIPELINE_STATE_PAUSED, SOF_IPC_STREAM_PLAYBACK);
+	if (ret) {
+		fprintf(stderr, "error: failed to set state to paused\n");
+		return ret;
+	}
+
+	ret = tb_pipelines_set_state(tb, SOF_IPC4_PIPELINE_STATE_PAUSED, SOF_IPC_STREAM_CAPTURE);
+	if (ret) {
+		fprintf(stderr, "error: failed to set state to paused\n");
+		return ret;
+	}
 
 	ret = tb_pipelines_set_state(tb, SOF_IPC4_PIPELINE_STATE_RESET, SOF_IPC_STREAM_PLAYBACK);
 	if (ret) {
