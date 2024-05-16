@@ -44,6 +44,16 @@ for fs = [16e3 48e3]
 	a2 = -az;  % Azimuth -az deg
 	line2_two_beams(fs, d, a1, a2, fn, 1);
 
+	%% 2 mic 73.5 mm array
+	fn.tplg1_fn = sprintf('coef_line2_74mm_pm%sdeg_%dkhz.m4', azstr, fs/1e3);
+	fn.sofctl3_fn = sprintf('coef_line2_74mm_pm%sdeg_%dkhz.txt', azstr, fs/1e3);
+	fn.tplg2_fn = sprintf('line2_74mm_pm%sdeg_%dkhz.conf', azstr, fs/1e3);
+	fn.sofctl4_fn = sprintf('line2_74mm_pm%sdeg_%dkhz.txt', azstr, fs/1e3);
+	d = 73.5e-3;  % 73.5 mm spacing
+	a1 = az;   % Azimuth +az deg
+	a2 = -az;  % Azimuth -az deg
+	line2_two_beams(fs, d, a1, a2, fn, 1);
+
 	%% 4 mic 28 mm spaced array
 	fn.tplg1_fn = sprintf('coef_line4_28mm_pm%sdeg_%dkhz.m4', azstr, fs/1e3);
 	fn.sofctl3_fn = sprintf('coef_line4_28mm_pm%sdeg_%dkhz.txt', azstr, fs/1e3);
