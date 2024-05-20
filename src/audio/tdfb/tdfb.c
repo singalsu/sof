@@ -79,6 +79,15 @@ static inline int set_func(struct processing_module *mod, enum sof_ipc_frame fmt
 	return 0;
 }
 
+void tdfb_pass(struct tdfb_comp_data *cd, struct input_stream_buffer *bsource,
+	       struct output_stream_buffer *bsink, int frames)
+{
+	struct audio_stream *source = bsource->data;
+	struct audio_stream *sink = bsink->data;
+
+	audio_stream_copy(source, 0, sink, 0, frames * audio_stream_get_channels(source));
+}
+
 /*
  * Control code functions next. The processing is in fir_ C modules.
  */
@@ -301,10 +310,23 @@ static void tdfb_init_delay(struct tdfb_comp_data *cd)
 	}
 }
 
-static int tdfb_setup(struct processing_module *mod, int source_nch, int sink_nch)
+static int tdfb_setup(struct processing_module *mod, int source_nch, int sink_nch,
+		      enum sof_ipc_frame fmt)
 {
 	struct tdfb_comp_data *cd = module_get_private_data(mod);
 	int delay_size;
+
+	if (cd->beam_on) {
+		comp_info(mod->dev, "seppo beam on set func");
+		set_func(mod, fmt);
+	} else {
+		if (source_nch == sink_nch) {
+			comp_info(mod->dev, "seppo beam off set pass-through");
+			cd->tdfb_func = tdfb_pass;
+		} else {
+			comp_info(mod->dev, "seppo beam off no suitable pass-through yet");
+		}
+	}
 
 	/* Set coefficients for each channel from coefficient blob */
 	delay_size = tdfb_init_coef(mod, source_nch, sink_nch);
@@ -468,7 +490,8 @@ static int tdfb_process(struct processing_module *mod,
 	if (comp_is_new_data_blob_available(cd->model_handler)) {
 		cd->config = comp_get_data_blob(cd->model_handler, NULL, NULL);
 		ret = tdfb_setup(mod, audio_stream_get_channels(source),
-				 audio_stream_get_channels(sink));
+				 audio_stream_get_channels(sink),
+				 audio_stream_get_frm_fmt(source));
 		if (ret < 0) {
 			comp_err(dev, "tdfb_process(), failed FIR setup");
 			return ret;
@@ -479,7 +502,8 @@ static int tdfb_process(struct processing_module *mod,
 	if (cd->update) {
 		cd->update = false;
 		ret = tdfb_setup(mod, audio_stream_get_channels(source),
-				 audio_stream_get_channels(sink));
+				 audio_stream_get_channels(sink),
+				 audio_stream_get_frm_fmt(source));
 		if (ret < 0) {
 			comp_err(dev, "tdfb_process(), failed FIR setup");
 			return ret;
@@ -560,7 +584,7 @@ static int tdfb_prepare(struct processing_module *mod,
 		goto out;
 	}
 
-	ret = tdfb_setup(mod, source_channels, sink_channels);
+	ret = tdfb_setup(mod, source_channels, sink_channels, frame_fmt);
 	if (ret < 0) {
 		comp_err(dev, "tdfb_prepare() error: tdfb_setup failed.");
 		goto out;
