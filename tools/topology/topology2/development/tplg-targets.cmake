@@ -18,6 +18,13 @@ PREPROCESS_PLUGINS=nhlt,NHLT_BIN=nhlt-sof-tgl-nocodec.bin,\
 SSP1_PCM_CORE_ID=0,SSP2_PCM_CORE_ID=0,\
 SSP0_MIXER_2LEVEL=1,PLATFORM=tgl"
 
+# CAVS SSP topology for TGL with 96 kHz SSP
+# multicore disabled due to SOF issue #8942
+"cavs-nocodec\;sof-tgl-nocodec-ssp-96k\;NUM_DMICS=4,PDM1_MIC_A_ENABLE=1,PDM1_MIC_B_ENABLE=1,\
+PREPROCESS_PLUGINS=nhlt,NHLT_BIN=nhlt-sof-tgl-nocodec.bin,\
+SSP1_PCM_CORE_ID=0,SSP2_PCM_CORE_ID=0,\
+SSP0_MIXER_2LEVEL=1,PLATFORM=tgl,SSP0_RATE=96000,PASSTHROUGH=true"
+
 # multicore disabled due to SOF issue #8942
 "cavs-nocodec\;sof-adl-nocodec\;NUM_DMICS=4,PDM1_MIC_A_ENABLE=1,PDM1_MIC_B_ENABLE=1,\
 SSP1_PCM_CORE_ID=0,SSP2_PCM_CORE_ID=0,\
