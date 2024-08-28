@@ -67,6 +67,11 @@ case "$platform" in
 	XTENSA_CORE="ace30_LX7HiFi4_PIF"
 	TOOLCHAIN_VER="RI-2022.10-linux"
 	;;
+    nvl)
+	PLATFORM="$platform"
+	XTENSA_CORE="ace4px_HiFi5MMU_PIF_nlib"
+	TOOLCHAIN_VER="RI-2022.10-linux"
+	;;
 
     # NXP
     imx8)
@@ -144,7 +149,7 @@ esac
 
 # Pre-zephyr "XTOS" build, testbench,...
 case "$platform" in
-    mtl|lnl|ptl|acp_7_0)
+    mtl|lnl|ptl|acp_7_0|nvl)
 	SOF_CC_BASE='clang';;
     *)
 	SOF_CC_BASE='xcc';;
