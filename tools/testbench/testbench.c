@@ -11,7 +11,7 @@
 #include <platform/lib/ll_schedule.h>
 #include <sof/list.h>
 #include <getopt.h>
-#include "testbench/common_test.h"
+#include "testbench/common_test_ipc3.h"
 #include <tplg_parser/topology.h>
 #include "testbench/trace.h"
 #include "testbench/file.h"

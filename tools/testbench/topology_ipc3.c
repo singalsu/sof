@@ -19,7 +19,7 @@
 #include <math.h>
 #include <stdio.h>
 #include <stdlib.h>
-#include "testbench/common_test.h"
+#include "testbench/common_test_ipc3.h"
 #include "testbench/file.h"
 
 #define MAX_TPLG_OBJECT_SIZE	4096
