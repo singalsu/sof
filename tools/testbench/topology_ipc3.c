@@ -371,12 +371,13 @@ static int tb_register_fileread(struct testbench_prm *tp,
 
 	/* configure fileread */
 	fileread->fn = strdup(tp->input_file[tp->input_file_index]);
-	if (tp->input_file_index == 0)
-		tp->fr_id = ctx->comp_id;
+	tp->fr[tp->input_file_index].id = ctx->comp_id;
+	tp->fr[tp->input_file_index].instance_id = ctx->comp_id;
+	tp->fr[tp->input_file_index].pipeline_id = ctx->pipeline_id;
+	tp->input_file_index++;
 
 	/* use fileread comp as scheduling comp */
 	ctx->sched_id = ctx->comp_id;
-	tp->input_file_index++;
 
 	/* Set format from testbench command line*/
 	fileread->rate = tp->fs_in;
@@ -433,8 +434,9 @@ static int tb_register_filewrite(struct testbench_prm *tp,
 		return -EINVAL;
 	}
 	filewrite->fn = strdup(tp->output_file[tp->output_file_index]);
-	if (tp->output_file_index == 0)
-		tp->fw_id = ctx->comp_id;
+	tp->fw[tp->output_file_index].id = ctx->comp_id;
+	tp->fw[tp->output_file_index].instance_id = ctx->comp_id;
+	tp->fw[tp->output_file_index].pipeline_id = ctx->pipeline_id;
 	tp->output_file_index++;
 
 	/* Set format from testbench command line*/
@@ -641,9 +643,10 @@ exit:
 }
 
 /* parse topology file and set up pipeline */
-int tb_parse_topology(struct testbench_prm *tb, struct tplg_context *ctx)
+int tb_parse_topology(struct testbench_prm *tb)
 
 {
+	struct tplg_context *ctx = &tb->tplg;
 	struct snd_soc_tplg_hdr *hdr;
 	struct tplg_comp_info *comp_list_realloc = NULL;
 	char pipeline_string[256] = {0};
@@ -766,4 +769,3 @@ out:
 	free(ctx->tplg_base);
 	return ret;
 }
-

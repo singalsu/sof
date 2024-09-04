@@ -2,7 +2,9 @@
 //
 // Copyright(c) 2018-2024 Intel Corporation. All rights reserved.
 
+#include <platform/lib/ll_schedule.h>
 #include <sof/audio/component_ext.h>
+#include <module/module/base.h>
 #include <sof/audio/pipeline.h>
 #include <sof/ipc/driver.h>
 #include <sof/ipc/topology.h>
@@ -199,8 +201,7 @@ int tb_pipeline_reset(struct ipc *ipc, struct pipeline *p)
 }
 
 /* pipeline pcm params */
-int tb_pipeline_params(struct testbench_prm *tp, struct ipc *ipc, struct pipeline *p,
-		       struct tplg_context *ctx)
+int tb_pipeline_params(struct testbench_prm *tp, struct ipc *ipc, struct pipeline *p)
 {
 	struct comp_dev *cd;
 	struct sof_ipc_pcm_params params = {{0}};
@@ -301,4 +302,390 @@ void tb_getcycles(uint64_t *cycles)
 #else
 	*cycles = 0;
 #endif
+}
+
+int tb_set_running_state(struct testbench_prm *tp)
+{
+	return 0;
+}
+
+static struct pipeline *tb_get_pipeline_by_id(int id)
+{
+	struct ipc_comp_dev *pcm_dev;
+	struct ipc *ipc = sof_get()->ipc;
+
+	pcm_dev = ipc_get_ppl_src_comp(ipc, id);
+	return pcm_dev->cd->pipeline;
+}
+
+int tb_set_reset_state(struct testbench_prm *tp)
+{
+	struct pipeline *p;
+	struct ipc *ipc = sof_get()->ipc;
+	int ret = 0;
+	int i;
+
+	for (i = 0; i < tp->pipeline_num; i++) {
+		p = tb_get_pipeline_by_id(tp->pipelines[i]);
+		ret = tb_pipeline_reset(ipc, p);
+		if (ret < 0)
+			break;
+	}
+
+	return ret;
+}
+
+static void test_pipeline_free_comps(int pipeline_id)
+{
+	struct list_item *clist;
+	struct list_item *temp;
+	struct ipc_comp_dev *icd = NULL;
+	int err;
+
+	/* remove the components for this pipeline */
+	list_for_item_safe(clist, temp, &sof_get()->ipc->comp_list) {
+		icd = container_of(clist, struct ipc_comp_dev, list);
+
+		switch (icd->type) {
+		case COMP_TYPE_COMPONENT:
+			if (icd->cd->pipeline->pipeline_id != pipeline_id)
+				break;
+			err = ipc_comp_free(sof_get()->ipc, icd->id);
+			if (err)
+				fprintf(stderr, "failed to free comp %d\n",
+					icd->id);
+			break;
+		case COMP_TYPE_BUFFER:
+			if (buffer_pipeline_id(icd->cb) != pipeline_id)
+				break;
+			err = ipc_buffer_free(sof_get()->ipc, icd->id);
+			if (err)
+				fprintf(stderr, "failed to free buffer %d\n",
+					icd->id);
+			break;
+		default:
+			if (icd->pipeline->pipeline_id != pipeline_id)
+				break;
+			err = ipc_pipeline_free(sof_get()->ipc, icd->id);
+			if (err)
+				fprintf(stderr, "failed to free pipeline %d\n",
+					icd->id);
+			break;
+		}
+	}
+}
+
+int tb_free_all_pipelines(struct testbench_prm *tp)
+{
+	int i;
+
+	for (i = 0; i < tp->pipeline_num; i++)
+		test_pipeline_free_comps(tp->pipelines[i]);
+
+	return 0;
+}
+
+void tb_free_topology(struct testbench_prm *tp)
+{
+}
+
+static int test_pipeline_params(struct testbench_prm *tp)
+{
+	struct ipc_comp_dev *pcm_dev;
+	struct pipeline *p;
+	struct ipc *ipc = sof_get()->ipc;
+	int ret = 0;
+	int i;
+
+	/* Run pipeline until EOF from fileread */
+
+	for (i = 0; i < tp->pipeline_num; i++) {
+		pcm_dev = ipc_get_ppl_src_comp(ipc, tp->pipelines[i]);
+		if (!pcm_dev) {
+			fprintf(stderr, "error: pipeline %d has no source component\n",
+				tp->pipelines[i]);
+			return -EINVAL;
+		}
+
+		/* set up pipeline params */
+		p = pcm_dev->cd->pipeline;
+
+		/* input and output sample rate */
+		if (!tp->fs_in)
+			tp->fs_in = p->period * p->frames_per_sched;
+
+		if (!tp->fs_out)
+			tp->fs_out = p->period * p->frames_per_sched;
+
+		ret = tb_pipeline_params(tp, ipc, p);
+		if (ret < 0) {
+			fprintf(stderr, "error: pipeline params failed: %s\n",
+				strerror(ret));
+			return ret;
+		}
+	}
+
+	return 0;
+}
+
+static void tb_test_pipeline_set_test_limits(int pipeline_id, int max_copies,
+					     int max_samples)
+{
+	struct list_item *clist;
+	struct list_item *temp;
+	struct ipc_comp_dev *icd = NULL;
+	struct comp_dev *cd;
+	struct dai_data *dd;
+	struct file_comp_data *fcd;
+
+	/* set the test limits for this pipeline */
+	list_for_item_safe(clist, temp, &sof_get()->ipc->comp_list) {
+		icd = container_of(clist, struct ipc_comp_dev, list);
+
+		switch (icd->type) {
+		case COMP_TYPE_COMPONENT:
+			cd = icd->cd;
+			if (cd->pipeline->pipeline_id != pipeline_id)
+				break;
+
+			switch (cd->drv->type) {
+			case SOF_COMP_HOST:
+			case SOF_COMP_DAI:
+			case SOF_COMP_FILEREAD:
+			case SOF_COMP_FILEWRITE:
+				/* only file limits supported today. TODO: add others */
+				dd = comp_get_drvdata(cd);
+				fcd = comp_get_drvdata(dd->dai);
+				fcd->max_samples = max_samples;
+				fcd->max_copies = max_copies;
+				break;
+			default:
+				break;
+			}
+			break;
+		case COMP_TYPE_BUFFER:
+		default:
+			break;
+		}
+	}
+}
+
+static int test_pipeline_start(struct testbench_prm *tp)
+{
+	struct pipeline *p;
+	struct ipc *ipc = sof_get()->ipc;
+	int i;
+
+	/* Run pipeline until EOF from fileread */
+	for (i = 0; i < tp->pipeline_num; i++) {
+		p = tb_get_pipeline_by_id(tp->pipelines[i]);
+
+		/* do we need to apply copy count limit ? */
+		if (tp->copy_check)
+			tb_test_pipeline_set_test_limits(tp->pipelines[i], tp->copy_iterations, 0);
+
+		/* set pipeline params and trigger start */
+		if (tb_pipeline_start(ipc, p) < 0) {
+			fprintf(stderr, "error: pipeline params\n");
+			return -EINVAL;
+		}
+	}
+
+	return 0;
+}
+
+int tb_set_up_all_pipelines(struct testbench_prm *tp)
+{
+	int ret;
+
+	ret = test_pipeline_params(tp);
+	if (ret < 0) {
+		fprintf(stderr, "error: pipeline params failed %d\n", ret);
+		return ret;
+	}
+
+	ret = test_pipeline_start(tp);
+	if (ret < 0) {
+		fprintf(stderr, "error: pipeline failed %d\n", ret);
+		return ret;
+	}
+
+	return 0;
+}
+
+int tb_load_topology(struct testbench_prm *tp)
+{
+	struct tplg_context *ctx = &tp->tplg;
+	int ret;
+
+	/* setup the thread virtual core config */
+	memset(ctx, 0, sizeof(*ctx));
+	ctx->comp_id = 1;
+	ctx->core_id = 0;
+	ctx->sof = sof_get();
+	ctx->tplg_file = tp->tplg_file;
+	ctx->ipc_major = tp->ipc_version;
+
+	/* parse topology file and create pipeline */
+	ret = tb_parse_topology(tp);
+	if (ret < 0)
+		fprintf(stderr, "error: parsing topology\n");
+
+	debug_print("topology parsing complete\n");
+	return 0;
+}
+
+int tb_find_file_components(struct testbench_prm *tp)
+{
+	struct ipc_comp_dev *icd;
+	struct processing_module *mod;
+	struct file_comp_data *fcd;
+	int i;
+
+	for (i = 0; i < tp->input_file_num; i++) {
+		if (!tb_is_pipeline_enabled(tp, tp->fr[i].pipeline_id)) {
+			tp->fr[i].id = -1;
+			continue;
+		}
+
+		icd = ipc_get_comp_by_id(sof_get()->ipc, tp->fr[i].id);
+		if (!icd) {
+			tp->fr[i].state = NULL;
+			continue;
+		}
+
+		if (!icd->cd) {
+			fprintf(stderr, "error: null cd.\n");
+			return -EINVAL;
+		}
+
+		mod = comp_mod(icd->cd);
+		if (!mod) {
+			fprintf(stderr, "error: null module.\n");
+			return -EINVAL;
+		}
+		fcd = module_get_private_data(mod);
+		tp->fr[i].state = &fcd->fs;
+	}
+
+	for (i = 0; i < tp->output_file_num; i++) {
+		if (!tb_is_pipeline_enabled(tp, tp->fw[i].pipeline_id)) {
+			tp->fw[i].id = -1;
+			continue;
+		}
+
+		icd = ipc_get_comp_by_id(sof_get()->ipc, tp->fw[i].id);
+		if (!icd) {
+			tp->fr[i].state = NULL;
+			continue;
+		}
+
+		if (!icd->cd) {
+			fprintf(stderr, "error: null cd.\n");
+			return -EINVAL;
+		}
+
+		mod = comp_mod(icd->cd);
+		if (!mod) {
+			fprintf(stderr, "error: null module.\n");
+			return -EINVAL;
+		}
+
+		fcd = module_get_private_data(mod);
+		tp->fw[i].state = &fcd->fs;
+	}
+
+	return 0;
+}
+
+static bool tb_is_file_component_at_eof(struct testbench_prm *tp)
+{
+	int i;
+
+	for (i = 0; i < tp->input_file_num; i++) {
+		if (!tp->fr[i].state)
+			continue;
+
+		if (tp->fr[i].state->reached_eof || tp->fr[i].state->copy_timeout)
+			return true;
+	}
+
+	for (i = 0; i < tp->output_file_num; i++) {
+		if (!tp->fw[i].state)
+			continue;
+
+		if (tp->fw[i].state->reached_eof || tp->fw[i].state->copy_timeout ||
+		    tp->fw[i].state->write_failed)
+			return true;
+	}
+
+	return false;
+}
+
+bool tb_schedule_pipeline_check_state(struct testbench_prm *tp)
+{
+	uint64_t cycles0, cycles1;
+
+	tb_getcycles(&cycles0);
+
+	schedule_ll_run_tasks();
+
+	tb_getcycles(&cycles1);
+	tp->total_cycles += cycles1 - cycles0;
+
+	/* Check if all file components are running */
+	return tb_is_file_component_at_eof(tp);
+}
+
+void tb_show_file_stats(struct testbench_prm *tp, int pipeline_id)
+{
+	struct ipc_comp_dev *icd;
+	struct comp_dev *dev;
+	struct processing_module *mod;
+	struct file_comp_data *fcd;
+	int i;
+
+	for (i = 0; i < tp->input_file_num; i++) {
+		if (tp->fr[i].id < 0 || tp->fr[i].pipeline_id != pipeline_id)
+			continue;
+
+		icd = ipc_get_comp_by_id(sof_get()->ipc, tp->fr[i].id);
+		if (!icd)
+			continue;
+
+		dev = icd->cd;
+		mod = comp_mod(dev);
+		fcd = module_get_private_data(mod);
+		printf("file %s: id %d: type %d: samples %d copies %d\n",
+		       fcd->fs.fn, dev->ipc_config.id, dev->drv->type, fcd->fs.n,
+		       fcd->fs.copy_count);
+	}
+
+	for (i = 0; i < tp->output_file_num; i++) {
+		if (tp->fw[i].id < 0 || tp->fw[i].pipeline_id != pipeline_id)
+			continue;
+
+		icd = ipc_get_comp_by_id(sof_get()->ipc, tp->fw[i].id);
+		if (!icd)
+			continue;
+
+		dev = icd->cd;
+		mod = comp_mod(dev);
+		fcd = module_get_private_data(mod);
+		printf("file %s: id %d: type %d: samples %d copies %d\n",
+		       fcd->fs.fn, dev->ipc_config.id, dev->drv->type, fcd->fs.n,
+		       fcd->fs.copy_count);
+	}
+}
+
+bool tb_is_pipeline_enabled(struct testbench_prm *tp, int pipeline_id)
+{
+	int i;
+
+	for (i = 0; i < tp->pipeline_num; i++) {
+		if (tp->pipelines[i] == pipeline_id)
+			return true;
+	}
+
+	return false;
 }
