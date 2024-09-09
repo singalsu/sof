@@ -632,6 +632,7 @@ static int file_init(struct processing_module *mod)
 
 	cd->fs.reached_eof = false;
 	cd->fs.write_failed = false;
+	cd->fs.copy_timeout = false;
 	cd->fs.n = 0;
 	cd->fs.copy_count = 0;
 	cd->fs.cycles_count = 0;
@@ -675,7 +676,7 @@ static int file_process(struct processing_module *mod,
 	struct comp_buffer *buffer;
 	uint32_t frames;
 	uint64_t cycles0, cycles1;
-	int samples;
+	int samples = 0;
 	int ret = 0;
 
 	if (cd->fs.reached_eof)
@@ -713,6 +714,16 @@ static int file_process(struct processing_module *mod,
 		cd->fs.reached_eof = 1;
 		debug_print("file_process(): reached EOF");
 		schedule_task_cancel(mod->dev->pipeline->pipe_task);
+	}
+
+	if (samples) {
+		cd->copies_timeout_count = 0;
+	} else {
+		cd->copies_timeout_count++;
+		if (cd->copies_timeout_count == FILE_MAX_COPIES_TIMEOUT) {
+			debug_print("file_process(): copies_timeout reached\n");
+			cd->fs.copy_timeout = true;
+		}
 	}
 
 	tb_getcycles(&cycles1);
