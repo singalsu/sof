@@ -71,7 +71,7 @@ int tb_setup(struct sof *sof, struct testbench_prm *tp)
 		return -EINVAL;
 	}
 
-	debug_print("ipc and scheduler initialized\n");
+	tb_debug_print("ipc and scheduler initialized\n");
 
 	return 0;
 }
@@ -170,7 +170,7 @@ int tb_pipeline_params(struct testbench_prm *tp, struct ipc *ipc, struct pipelin
 	/* Compute period from sample rates */
 	fs_period = (int)(0.9999 + tp->fs_in * period / 1e6);
 	sprintf(message, "period sample count %d\n", fs_period);
-	debug_print(message);
+	tb_debug_print(message);
 
 	/* set pcm params */
 	params.comp_id = p->comp_id;

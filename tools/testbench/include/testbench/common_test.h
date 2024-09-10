@@ -95,45 +95,26 @@ struct testbench_prm {
 
 extern int debug;
 
-int tb_parse_topology(struct testbench_prm *tp);
-
-int edf_scheduler_init(void);
-
-int tb_setup(struct sof *sof, struct testbench_prm *tp);
-void tb_free(struct sof *sof);
-
-int tb_pipeline_start(struct ipc *ipc, struct pipeline *p);
-
-int tb_pipeline_params(struct testbench_prm *tp, struct ipc *ipc, struct pipeline *p);
-
-int tb_pipeline_stop(struct ipc *ipc, struct pipeline *p);
-
-int tb_pipeline_reset(struct ipc *ipc, struct pipeline *p);
-
-void debug_print(char *message);
-
-void tb_gettime(struct timespec *td);
-
-void tb_getcycles(uint64_t *cycles);
-
-int tb_load_topology(struct testbench_prm *tp);
-
-int tb_set_up_all_pipelines(struct testbench_prm *tp);
-
-void tb_show_file_stats(struct testbench_prm *tp, int pipeline_id);
-
-bool tb_schedule_pipeline_check_state(struct testbench_prm *tp);
-
-bool tb_is_pipeline_enabled(struct testbench_prm *tp, int pipeline_id);
-
+// int tb_edf_scheduler_init(void);
 int tb_find_file_components(struct testbench_prm *tp);
-
-int tb_set_running_state(struct testbench_prm *tp);
-
-int tb_set_reset_state(struct testbench_prm *tp);
-
 int tb_free_all_pipelines(struct testbench_prm *tp);
-
+int tb_load_topology(struct testbench_prm *tp);
+int tb_parse_topology(struct testbench_prm *tp);
+int tb_pipeline_params(struct testbench_prm *tp, struct ipc *ipc, struct pipeline *p);
+int tb_pipeline_reset(struct ipc *ipc, struct pipeline *p);
+int tb_pipeline_start(struct ipc *ipc, struct pipeline *p);
+int tb_pipeline_stop(struct ipc *ipc, struct pipeline *p);
+int tb_set_reset_state(struct testbench_prm *tp);
+int tb_set_running_state(struct testbench_prm *tp);
+int tb_set_up_all_pipelines(struct testbench_prm *tp);
+int tb_setup(struct sof *sof, struct testbench_prm *tp);
+bool tb_is_pipeline_enabled(struct testbench_prm *tp, int pipeline_id);
+bool tb_schedule_pipeline_check_state(struct testbench_prm *tp);
+void tb_debug_print(char *message);
+void tb_free(struct sof *sof);
 void tb_free_topology(struct testbench_prm *tp);
+void tb_getcycles(uint64_t *cycles);
+void tb_gettime(struct timespec *td);
+void tb_show_file_stats(struct testbench_prm *tp, int pipeline_id);
 
 #endif
