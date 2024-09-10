@@ -9,17 +9,17 @@
 #include <sof/ipc/driver.h>
 #include <sof/ipc/topology.h>
 #include <sof/list.h>
-#include <getopt.h>
 #include <tplg_parser/topology.h>
+
 #include "testbench/trace.h"
 #include "testbench/file.h"
-#include <limits.h>
-#include <stdlib.h>
-#include <stdbool.h>
+#include "testbench/common_test.h"
 
-#if CONFIG_IPC_MAJOR_3
-#include "testbench/common_test_ipc3.h"
-#endif
+#include <getopt.h>
+#include <limits.h>
+#include <stdbool.h>
+#include <stdlib.h>
+
 
 #define TESTBENCH_NCH	2
 

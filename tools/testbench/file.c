@@ -22,7 +22,7 @@
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
-#include "testbench/common_test_ipc3.h"
+#include "testbench/common_test.h"
 #include "testbench/file.h"
 
 SOF_DEFINE_REG_UUID(file);

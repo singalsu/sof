@@ -29,7 +29,7 @@
 #include <stdlib.h>
 #include <time.h>
 
-#include "testbench/common_test_ipc3.h"
+#include "testbench/common_test.h"
 #include "testbench/trace.h"
 #include "testbench/file.h"
 
