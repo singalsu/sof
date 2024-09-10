@@ -2,40 +2,21 @@
 //
 // Copyright(c) 2018-2024 Intel Corporation. All rights reserved.
 
-#include <platform/lib/ll_schedule.h>
 #include <sof/audio/component_ext.h>
-#include <module/module/base.h>
-#include <sof/audio/pipeline.h>
-#include <sof/ipc/driver.h>
-#include <sof/ipc/topology.h>
-#include <sof/lib/agent.h>
-#include <sof/lib/dai.h>
-#include <sof/lib/dma.h>
 #include <sof/lib/notifier.h>
 #include <sof/schedule/edf_schedule.h>
-#include <sof/schedule/ll_schedule.h>
 #include <sof/schedule/ll_schedule_domain.h>
-#include <sof/schedule/schedule.h>
-#include <rtos/alloc.h>
-#include <rtos/sof.h>
-#include <rtos/string.h>
-#include <rtos/task.h>
-#include <rtos/wait.h>
-#include <tplg_parser/topology.h>
-#include <math.h>
-#include <stddef.h>
+#include <platform/lib/ll_schedule.h>
+
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
-#include <time.h>
+
+#if CONFIG_IPC_MAJOR_3
 
 #include "testbench/common_test.h"
-#include "testbench/trace.h"
 #include "testbench/file.h"
 
-#if defined __XCC__
-#include <xtensa/tie/xt_timer.h>
-#endif
 
 /* testbench helper functions for pipeline setup and trigger */
 
@@ -93,37 +74,6 @@ int tb_setup(struct sof *sof, struct testbench_prm *tp)
 	debug_print("ipc and scheduler initialized\n");
 
 	return 0;
-}
-
-struct ipc_data {
-	struct ipc_data_host_buffer dh_buffer;
-};
-
-void tb_free(struct sof *sof)
-{
-	struct schedule_data *sch;
-	struct schedulers **schedulers;
-	struct list_item *slist, *_slist;
-	struct notify **notify = arch_notify_get();
-	struct ipc_data *iipc;
-
-	free(*notify);
-
-	/* free all scheduler data */
-	schedule_free(0);
-	schedulers = arch_schedulers_get();
-	list_for_item_safe(slist, _slist, &(*schedulers)->list) {
-		sch = container_of(slist, struct schedule_data, list);
-		free(sch);
-	}
-	free(*arch_schedulers_get());
-
-	/* free IPC data */
-	iipc = sof->ipc->private;
-	free(sof->ipc->comp_data);
-	free(iipc->dh_buffer.page_table);
-	free(iipc);
-	free(sof->ipc);
 }
 
 /* Get pipeline host component */
@@ -266,42 +216,6 @@ int tb_pipeline_params(struct testbench_prm *tp, struct ipc *ipc, struct pipelin
 		fprintf(stderr, "error: pipeline_params\n");
 
 	return ret;
-}
-
-/* print debug messages */
-void debug_print(char *message)
-{
-	if (host_trace_level >= LOG_LEVEL_DEBUG)
-		printf("debug: %s", message);
-}
-
-/* enable trace in testbench */
-void tb_enable_trace(unsigned int log_level)
-{
-	host_trace_level = log_level;
-	if (host_trace_level)
-		debug_print("trace print enabled\n");
-	else
-		debug_print("trace print disabled\n");
-}
-
-void tb_gettime(struct timespec *td)
-{
-#if !defined __XCC__
-	clock_gettime(CLOCK_MONOTONIC, td);
-#else
-	td->tv_nsec = 0;
-	td->tv_sec = 0;
-#endif
-}
-
-void tb_getcycles(uint64_t *cycles)
-{
-#if defined __XCC__
-	*cycles = XT_RSR_CCOUNT();
-#else
-	*cycles = 0;
-#endif
 }
 
 int tb_set_running_state(struct testbench_prm *tp)
@@ -513,179 +427,5 @@ int tb_set_up_all_pipelines(struct testbench_prm *tp)
 	return 0;
 }
 
-int tb_load_topology(struct testbench_prm *tp)
-{
-	struct tplg_context *ctx = &tp->tplg;
-	int ret;
 
-	/* setup the thread virtual core config */
-	memset(ctx, 0, sizeof(*ctx));
-	ctx->comp_id = 1;
-	ctx->core_id = 0;
-	ctx->sof = sof_get();
-	ctx->tplg_file = tp->tplg_file;
-	ctx->ipc_major = tp->ipc_version;
-
-	/* parse topology file and create pipeline */
-	ret = tb_parse_topology(tp);
-	if (ret < 0)
-		fprintf(stderr, "error: parsing topology\n");
-
-	debug_print("topology parsing complete\n");
-	return 0;
-}
-
-int tb_find_file_components(struct testbench_prm *tp)
-{
-	struct ipc_comp_dev *icd;
-	struct processing_module *mod;
-	struct file_comp_data *fcd;
-	int i;
-
-	for (i = 0; i < tp->input_file_num; i++) {
-		if (!tb_is_pipeline_enabled(tp, tp->fr[i].pipeline_id)) {
-			tp->fr[i].id = -1;
-			continue;
-		}
-
-		icd = ipc_get_comp_by_id(sof_get()->ipc, tp->fr[i].id);
-		if (!icd) {
-			tp->fr[i].state = NULL;
-			continue;
-		}
-
-		if (!icd->cd) {
-			fprintf(stderr, "error: null cd.\n");
-			return -EINVAL;
-		}
-
-		mod = comp_mod(icd->cd);
-		if (!mod) {
-			fprintf(stderr, "error: null module.\n");
-			return -EINVAL;
-		}
-		fcd = module_get_private_data(mod);
-		tp->fr[i].state = &fcd->fs;
-	}
-
-	for (i = 0; i < tp->output_file_num; i++) {
-		if (!tb_is_pipeline_enabled(tp, tp->fw[i].pipeline_id)) {
-			tp->fw[i].id = -1;
-			continue;
-		}
-
-		icd = ipc_get_comp_by_id(sof_get()->ipc, tp->fw[i].id);
-		if (!icd) {
-			tp->fr[i].state = NULL;
-			continue;
-		}
-
-		if (!icd->cd) {
-			fprintf(stderr, "error: null cd.\n");
-			return -EINVAL;
-		}
-
-		mod = comp_mod(icd->cd);
-		if (!mod) {
-			fprintf(stderr, "error: null module.\n");
-			return -EINVAL;
-		}
-
-		fcd = module_get_private_data(mod);
-		tp->fw[i].state = &fcd->fs;
-	}
-
-	return 0;
-}
-
-static bool tb_is_file_component_at_eof(struct testbench_prm *tp)
-{
-	int i;
-
-	for (i = 0; i < tp->input_file_num; i++) {
-		if (!tp->fr[i].state)
-			continue;
-
-		if (tp->fr[i].state->reached_eof || tp->fr[i].state->copy_timeout)
-			return true;
-	}
-
-	for (i = 0; i < tp->output_file_num; i++) {
-		if (!tp->fw[i].state)
-			continue;
-
-		if (tp->fw[i].state->reached_eof || tp->fw[i].state->copy_timeout ||
-		    tp->fw[i].state->write_failed)
-			return true;
-	}
-
-	return false;
-}
-
-bool tb_schedule_pipeline_check_state(struct testbench_prm *tp)
-{
-	uint64_t cycles0, cycles1;
-
-	tb_getcycles(&cycles0);
-
-	schedule_ll_run_tasks();
-
-	tb_getcycles(&cycles1);
-	tp->total_cycles += cycles1 - cycles0;
-
-	/* Check if all file components are running */
-	return tb_is_file_component_at_eof(tp);
-}
-
-void tb_show_file_stats(struct testbench_prm *tp, int pipeline_id)
-{
-	struct ipc_comp_dev *icd;
-	struct comp_dev *dev;
-	struct processing_module *mod;
-	struct file_comp_data *fcd;
-	int i;
-
-	for (i = 0; i < tp->input_file_num; i++) {
-		if (tp->fr[i].id < 0 || tp->fr[i].pipeline_id != pipeline_id)
-			continue;
-
-		icd = ipc_get_comp_by_id(sof_get()->ipc, tp->fr[i].id);
-		if (!icd)
-			continue;
-
-		dev = icd->cd;
-		mod = comp_mod(dev);
-		fcd = module_get_private_data(mod);
-		printf("file %s: id %d: type %d: samples %d copies %d\n",
-		       fcd->fs.fn, dev->ipc_config.id, dev->drv->type, fcd->fs.n,
-		       fcd->fs.copy_count);
-	}
-
-	for (i = 0; i < tp->output_file_num; i++) {
-		if (tp->fw[i].id < 0 || tp->fw[i].pipeline_id != pipeline_id)
-			continue;
-
-		icd = ipc_get_comp_by_id(sof_get()->ipc, tp->fw[i].id);
-		if (!icd)
-			continue;
-
-		dev = icd->cd;
-		mod = comp_mod(dev);
-		fcd = module_get_private_data(mod);
-		printf("file %s: id %d: type %d: samples %d copies %d\n",
-		       fcd->fs.fn, dev->ipc_config.id, dev->drv->type, fcd->fs.n,
-		       fcd->fs.copy_count);
-	}
-}
-
-bool tb_is_pipeline_enabled(struct testbench_prm *tp, int pipeline_id)
-{
-	int i;
-
-	for (i = 0; i < tp->pipeline_num; i++) {
-		if (tp->pipelines[i] == pipeline_id)
-			return true;
-	}
-
-	return false;
-}
+#endif /* CONFIG_IPC_MAJOR_3 */

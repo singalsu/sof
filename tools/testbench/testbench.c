@@ -19,7 +19,7 @@
 #include <limits.h>
 #include <stdbool.h>
 #include <stdlib.h>
-
+#include <time.h>
 
 #define TESTBENCH_NCH	2
 

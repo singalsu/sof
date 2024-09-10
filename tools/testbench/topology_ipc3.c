@@ -24,6 +24,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 
+#if CONFIG_IPC_MAJOR_3
 
 #define MAX_TPLG_OBJECT_SIZE	4096
 
@@ -772,3 +773,5 @@ out:
 	free(ctx->tplg_base);
 	return ret;
 }
+
+#endif /* CONFIG_IPC_MAJOR_3 */

@@ -6,18 +6,9 @@
 #ifndef _COMMON_TEST_H
 #define _COMMON_TEST_H
 
-#include <stdint.h>
-#include <stddef.h>
-#include <stdbool.h>
-#include <time.h>
-#include <stdio.h>
-#include <rtos/sof.h>
 #include <tplg_parser/topology.h>
-#include <sof/audio/component_ext.h>
-#include <sof/math/numbers.h>
-#include <sof/audio/format.h>
-
-#include <sof/lib/uuid.h>
+#include <stdint.h>
+#include <stdbool.h>
 
 #define SOF_TESTBENCH_IPC_VERSION 3
 
