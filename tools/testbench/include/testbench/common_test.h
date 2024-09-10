@@ -29,6 +29,31 @@ struct file_comp_lookup {
 	struct file_state *state;
 };
 
+
+#if CONFIG_IPC_MAJOR_4
+
+#define TB_NAME_SIZE	256
+#define TB_MAX_CONFIG	128
+
+struct tb_mq_desc {
+	/* IPC message queue */
+	//mqd_t mq;
+	//struct mq_attr attr;
+	char queue_name[TB_NAME_SIZE];
+};
+
+struct tb_config {
+	char name[44];
+	unsigned long buffer_frames;
+	unsigned long buffer_time;
+	unsigned long period_frames;
+	unsigned long period_time;
+	int rate;
+	int channels;
+	unsigned long format;
+};
+#endif
+
 /*
  * Global testbench data.
  *
