@@ -130,21 +130,6 @@ static bool tb_is_file_component_at_eof(struct testbench_prm *tp)
 	return false;
 }
 
-bool tb_schedule_pipeline_check_state(struct testbench_prm *tp)
-{
-	uint64_t cycles0, cycles1;
-
-	tb_getcycles(&cycles0);
-
-	schedule_ll_run_tasks();
-
-	tb_getcycles(&cycles1);
-	tp->total_cycles += cycles1 - cycles0;
-
-	/* Check if all file components are running */
-	return tb_is_file_component_at_eof(tp);
-}
-
 void tb_show_file_stats(struct testbench_prm *tp, int pipeline_id)
 {
 	struct ipc_comp_dev *icd;
@@ -196,6 +181,21 @@ bool tb_is_pipeline_enabled(struct testbench_prm *tp, int pipeline_id)
 	}
 
 	return false;
+}
+
+bool tb_schedule_pipeline_check_state(struct testbench_prm *tp)
+{
+	uint64_t cycles0, cycles1;
+
+	tb_getcycles(&cycles0);
+
+	schedule_ll_run_tasks();
+
+	tb_getcycles(&cycles1);
+	tp->total_cycles += cycles1 - cycles0;
+
+	/* Check if all file components are running */
+	return tb_is_file_component_at_eof(tp);
 }
 
 struct ipc_data {

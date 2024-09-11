@@ -15,7 +15,6 @@
 #if CONFIG_IPC_MAJOR_4
 
 #include "testbench/common_test.h"
-#include "testbench/topology.h"
 #include "testbench/topology_ipc4.h"
 #include "testbench/file.h"
 #include "testbench/file_ipc4.h"
@@ -295,6 +294,7 @@ int tb_match_audio_format(struct testbench_prm *tb, struct tplg_comp_info *comp_
 		config_valid_bits = 24;
 		break;
 	default:
+		return -EINVAL;
 		break;
 	}
 
@@ -441,6 +441,153 @@ int tb_pipelines_set_state(struct testbench_prm *tb, int state, int dir)
 /*
  * Topology widgets
  */
+
+static int tb_new_src(struct testbench_prm *tb)
+{
+	struct tplg_context *ctx = &tb->tplg;
+	char tplg_object[MAX_TPLG_OBJECT_SIZE] = {0};
+	struct sof_ipc_comp_src *src = (struct sof_ipc_comp_src *)tplg_object;
+	struct snd_soc_tplg_ctl_hdr *tplg_ctl;
+	int ret;
+
+	tplg_ctl = calloc(ctx->hdr->payload_size, 1);
+	if (!tplg_ctl)
+		return -ENOMEM;
+
+	ret = tplg_new_src(ctx, &src->comp, MAX_TPLG_OBJECT_SIZE, tplg_ctl, ctx->hdr->payload_size);
+	if (ret < 0) {
+		fprintf(stderr, "error: failed to create SRC\n");
+		goto out;
+	}
+
+out:
+	free(tplg_ctl);
+	return ret;
+}
+
+static int tb_new_asrc(struct testbench_prm *tb)
+{
+	struct tplg_context *ctx = &tb->tplg;
+	char tplg_object[MAX_TPLG_OBJECT_SIZE] = {0};
+	struct sof_ipc_comp_asrc *asrc = (struct sof_ipc_comp_asrc *)tplg_object;
+	struct snd_soc_tplg_ctl_hdr *tplg_ctl;
+	int ret;
+
+	tplg_ctl = calloc(ctx->hdr->payload_size, 1);
+	if (!tplg_ctl)
+		return -ENOMEM;
+
+	ret = tplg_new_asrc(ctx, &asrc->comp, MAX_TPLG_OBJECT_SIZE,
+			    tplg_ctl, ctx->hdr->payload_size);
+	if (ret < 0) {
+		fprintf(stderr, "error: failed to create ASRC\n");
+		goto out;
+	}
+
+out:
+	free(tplg_ctl);
+	return ret;
+}
+
+static int tb_new_mixer(struct testbench_prm *tb)
+{
+	struct tplg_context *ctx = &tb->tplg;
+	struct tplg_comp_info *comp_info = ctx->current_comp_info;
+	char tplg_object[MAX_TPLG_OBJECT_SIZE] = {0};
+	struct sof_ipc_comp_mixer *mixer = (struct sof_ipc_comp_mixer *)tplg_object;
+	struct snd_soc_tplg_ctl_hdr *tplg_ctl;
+	int ret;
+
+	tplg_ctl = calloc(ctx->hdr->payload_size, 1);
+	if (!tplg_ctl)
+		return -ENOMEM;
+
+	comp_info->instance_id = tb->instance_ids[SND_SOC_TPLG_DAPM_MIXER]++;
+	comp_info->ipc_size = sizeof(struct ipc4_base_module_cfg);
+	comp_info->ipc_payload = calloc(comp_info->ipc_size, 1);
+	if (!comp_info->ipc_payload)
+		return -ENOMEM;
+
+	ret = tplg_new_mixer(ctx, &mixer->comp, MAX_TPLG_OBJECT_SIZE,
+			     tplg_ctl, ctx->hdr->payload_size);
+	if (ret < 0) {
+		fprintf(stderr, "error: failed to create mixer\n");
+		goto out;
+	}
+
+	if (strstr(comp_info->name, "mixin")) {
+		comp_info->module_id = 0x2;
+		tb_setup_widget_ipc_msg(comp_info);
+	} else {
+		comp_info->module_id = 0x3;
+		tb_setup_widget_ipc_msg(comp_info);
+	}
+out:
+	free(tplg_ctl);
+	return ret;
+}
+
+static int tb_new_pipeline(struct testbench_prm *tb)
+{
+	struct tplg_pipeline_info *pipe_info;
+	struct sof_ipc_pipe_new pipeline = {{0}};
+	struct snd_soc_tplg_ctl_hdr *tplg_ctl;
+	struct tplg_context *ctx = &tb->tplg;
+	int ret = 0;
+
+	tplg_ctl = calloc(ctx->hdr->payload_size, 1);
+	if (!tplg_ctl)
+		return -ENOMEM;
+
+	pipe_info = calloc(sizeof(struct tplg_pipeline_info), 1);
+	if (!pipe_info) {
+		ret = -ENOMEM;
+		goto out;
+	}
+
+	pipe_info->name = strdup(ctx->widget->name);
+	if (!pipe_info->name) {
+		free(pipe_info);
+		goto out;
+	}
+
+	pipe_info->id = ctx->pipeline_id;
+
+	ret = tplg_new_pipeline(ctx, &pipeline, sizeof(pipeline), tplg_ctl);
+	if (ret < 0) {
+		fprintf(stderr, "error: failed to create pipeline\n");
+		free(pipe_info->name);
+		free(pipe_info);
+		goto out;
+	}
+
+	list_item_append(&pipe_info->item, &tb->pipeline_list);
+	tplg_debug("loading pipeline %s\n", pipe_info->name);
+out:
+	free(tplg_ctl);
+	return ret;
+}
+
+static int tb_new_buffer(struct testbench_prm *tb)
+{
+	struct ipc4_copier_module_cfg *copier = calloc(sizeof(struct ipc4_copier_module_cfg), 1);
+	struct tplg_context *ctx = &tb->tplg;
+	struct tplg_comp_info *comp_info = ctx->current_comp_info;
+	int ret;
+
+	if (!copier)
+		return -ENOMEM;
+
+	comp_info->ipc_payload = copier;
+
+	ret = tplg_new_buffer(ctx, copier, sizeof(copier), NULL, 0);
+	if (ret < 0) {
+		fprintf(stderr, "error: failed to create pipeline\n");
+		free(copier);
+	}
+
+	return ret;
+}
 
 int tb_new_aif_in_out(struct testbench_prm *tb, int dir)
 {
@@ -664,6 +811,345 @@ out:
 	free(comp_info->ipc_payload);
 	return ret;
 
+}
+
+static int tb_register_graph(struct testbench_prm *tb, int count)
+{
+	struct tplg_context *ctx = &tb->tplg;
+	int ret = 0;
+	int i;
+
+	for (i = 0; i < count; i++) {
+		ret = tplg_parse_graph(ctx, &tb->widget_list, &tb->route_list);
+		if (ret < 0)
+			return ret;
+	}
+
+	return ret;
+}
+
+static int tb_parse_pcm(struct testbench_prm *tb, int count)
+{
+	struct tplg_context *ctx = &tb->tplg;
+	int ret, i;
+
+	for (i = 0; i < count; i++) {
+		ret = tplg_parse_pcm(ctx, &tb->widget_list, &tb->pcm_list);
+		if (ret < 0)
+			return ret;
+	}
+
+	return 0;
+}
+
+/*
+ * create a list with all widget info
+ * containing mapping between component names and ids
+ * which will be used for setting up component connections
+ */
+static inline int tb_insert_comp(struct testbench_prm *tp)
+{
+	struct tplg_context *ctx = &tp->tplg;
+	struct tplg_comp_info *comp_info;
+	int comp_id = ctx->comp_id;
+	int ret;
+
+	if (ctx->widget->id == SND_SOC_TPLG_DAPM_SCHEDULER)
+		return 0;
+
+	comp_info = calloc(sizeof(struct tplg_comp_info), 1);
+	if (!comp_info)
+		return -ENOMEM;
+
+	comp_info->name = strdup(ctx->widget->name);
+	if (!comp_info->name) {
+		ret = -ENOMEM;
+		goto err;
+	}
+
+	comp_info->stream_name = strdup(ctx->widget->sname);
+	if (!comp_info->stream_name) {
+		ret = -ENOMEM;
+		goto sname_err;
+	}
+
+	comp_info->id = comp_id;
+	comp_info->type = ctx->widget->id;
+	comp_info->pipeline_id = ctx->pipeline_id;
+	ctx->current_comp_info = comp_info;
+
+	// TODO IPC3
+	if (ctx->ipc_major == 4) {
+		ret = tb_parse_ipc4_comp_tokens(tp, &comp_info->basecfg);
+		if (ret < 0)
+			goto sname_err;
+	}
+
+	list_item_append(&comp_info->item, &tp->widget_list);
+
+	printf("debug: loading comp_id %d: widget %s type %d size %d at offset %ld is_pages %d\n",
+	       comp_id, ctx->widget->name, ctx->widget->id, ctx->widget->size,
+	       ctx->tplg_offset, comp_info->basecfg.is_pages);
+
+	return 0;
+
+sname_err:
+	free(comp_info->name);
+
+err:
+	free(comp_info);
+	return ret;
+}
+
+/* load dapm widget */
+static int tb_load_widget(struct testbench_prm *tb)
+{
+	struct tplg_context *ctx = &tb->tplg;
+	int ret = 0;
+
+	/* get next widget */
+	ctx->widget = tplg_get_widget(ctx);
+	ctx->widget_size = ctx->widget->size;
+
+	/* insert widget into mapping */
+	ret = tb_insert_comp(tb);
+	if (ret < 0) {
+		fprintf(stderr, "tb_load_widget: invalid widget index\n");
+		return ret;
+	}
+
+	/* load widget based on type */
+	switch (tb->tplg.widget->id) {
+	/* load pga widget */
+	case SND_SOC_TPLG_DAPM_PGA:
+		if (tb_new_pga(tb) < 0) {
+			fprintf(stderr, "error: load pga\n");
+			ret = -EINVAL;
+			goto exit;
+		}
+		break;
+	case SND_SOC_TPLG_DAPM_AIF_IN:
+		if (tb_new_aif_in_out(tb, SOF_IPC_STREAM_PLAYBACK) < 0) {
+			fprintf(stderr, "error: load AIF IN failed\n");
+			ret = -EINVAL;
+			goto exit;
+		}
+		break;
+	case SND_SOC_TPLG_DAPM_AIF_OUT:
+		if (tb_new_aif_in_out(tb, SOF_IPC_STREAM_CAPTURE) < 0) {
+			fprintf(stderr, "error: load AIF OUT failed\n");
+			ret = -EINVAL;
+			goto exit;
+		}
+		break;
+	case SND_SOC_TPLG_DAPM_DAI_IN:
+		if (tb_new_dai_in_out(tb, SOF_IPC_STREAM_PLAYBACK) < 0) {
+			fprintf(stderr, "error: load filewrite\n");
+			ret = -EINVAL;
+			goto exit;
+		}
+		break;
+	case SND_SOC_TPLG_DAPM_DAI_OUT:
+		if (tb_new_dai_in_out(tb, SOF_IPC_STREAM_CAPTURE) < 0) {
+			fprintf(stderr, "error: load filewrite\n");
+			ret = -EINVAL;
+			goto exit;
+		}
+		break;
+	case SND_SOC_TPLG_DAPM_BUFFER:
+		if (tb_new_buffer(tb) < 0) {
+			fprintf(stderr, "error: load buffer\n");
+			ret = -EINVAL;
+			goto exit;
+		}
+		break;
+
+	case SND_SOC_TPLG_DAPM_SCHEDULER:
+		if (tb_new_pipeline(tb) < 0) {
+			fprintf(stderr, "error: load pipeline\n");
+			ret = -EINVAL;
+			goto exit;
+		}
+		break;
+
+	case SND_SOC_TPLG_DAPM_SRC:
+		if (tb_new_src(tb) < 0) {
+			fprintf(stderr, "error: load src\n");
+			ret = -EINVAL;
+			goto exit;
+		}
+		break;
+	case SND_SOC_TPLG_DAPM_ASRC:
+		if (tb_new_asrc(tb) < 0) {
+			fprintf(stderr, "error: load src\n");
+			ret = -EINVAL;
+			goto exit;
+		}
+		break;
+	case SND_SOC_TPLG_DAPM_MIXER:
+		if (tb_new_mixer(tb) < 0) {
+			fprintf(stderr, "error: load mixer\n");
+			ret = -EINVAL;
+			goto exit;
+		}
+		break;
+	case SND_SOC_TPLG_DAPM_EFFECT:
+		if (tb_new_process(tb) < 0) {
+			fprintf(stderr, "error: load effect\n");
+			ret = -EINVAL;
+			goto exit;
+		}
+		break;
+
+	/* unsupported widgets */
+	default:
+		printf("info: Widget %s id %d unsupported and skipped: size %d priv size %d\n",
+		       ctx->widget->name, ctx->widget->id,
+		       ctx->widget->size, ctx->widget->priv.size);
+		break;
+	}
+
+	ret = 1;
+
+exit:
+	return ret;
+}
+
+/* parse topology file and set up pipeline */
+int tb_parse_topology(struct testbench_prm *tb)
+
+{
+	struct tplg_context *ctx = &tb->tplg;
+	struct snd_soc_tplg_hdr *hdr;
+	struct list_item *item;
+	int i;
+	int ret = 0;
+	FILE *file;
+
+	/* open topology file */
+	file = fopen(ctx->tplg_file, "rb");
+	if (!file) {
+		fprintf(stderr, "error: can't open topology %s : %s\n", ctx->tplg_file,
+			strerror(errno));
+		return -errno;
+	}
+
+	/* file size */
+	if (fseek(file, 0, SEEK_END)) {
+		fprintf(stderr, "error: can't seek to end of topology: %s\n",
+			strerror(errno));
+		fclose(file);
+		return -errno;
+	}
+	ctx->tplg_size = ftell(file);
+	if (fseek(file, 0, SEEK_SET)) {
+		fprintf(stderr, "error: can't seek to beginning of topology: %s\n",
+			strerror(errno));
+		fclose(file);
+		return -errno;
+	}
+
+	/* load whole topology into memory */
+	ctx->tplg_base = calloc(ctx->tplg_size, 1);
+	if (!ctx->tplg_base) {
+		fprintf(stderr, "error: can't alloc buffer for topology %zu bytes\n",
+			ctx->tplg_size);
+		fclose(file);
+		return -ENOMEM;
+	}
+	ret = fread(ctx->tplg_base, ctx->tplg_size, 1, file);
+	if (ret != 1) {
+		fprintf(stderr, "error: can't read topology: %s\n", strerror(errno));
+		free(ctx->tplg_base);
+		fclose(file);
+		return -errno;
+	}
+	fclose(file);
+
+	/* initialize widget, route, pipeline and pcm lists */
+	list_init(&tb->widget_list);
+	list_init(&tb->route_list);
+	list_init(&tb->pcm_list);
+	list_init(&tb->pipeline_list);
+
+	while (ctx->tplg_offset < ctx->tplg_size) {
+
+		/* read next topology header */
+		hdr = tplg_get_hdr(ctx);
+
+		tplg_debug("type: %x, size: 0x%x count: %d index: %d\n",
+			   hdr->type, hdr->payload_size, hdr->count, hdr->index);
+
+		ctx->hdr = hdr;
+
+		/* parse header and load the next block based on type */
+		switch (hdr->type) {
+		/* load dapm widget */
+		case SND_SOC_TPLG_TYPE_DAPM_WIDGET:
+
+			tplg_debug("number of DAPM widgets %d\n", hdr->count);
+
+			/* update max pipeline_id */
+			ctx->pipeline_id = hdr->index;
+
+			for (i = 0; i < hdr->count; i++) {
+				ret = tb_load_widget(tb);
+				if (ret < 0) {
+					fprintf(stderr, "error: loading widget\n");
+					return ret;
+				}
+				ctx->comp_id++;
+			}
+			break;
+
+		/* set up component connections from pipeline graph */
+		case SND_SOC_TPLG_TYPE_DAPM_GRAPH:
+			if (tb_register_graph(tb, hdr->count) < 0) {
+				fprintf(stderr, "error: pipeline graph\n");
+				ret = -EINVAL;
+				goto out;
+			}
+			break;
+
+		case SND_SOC_TPLG_TYPE_PCM:
+			ret = tb_parse_pcm(tb, hdr->count);
+			if (ret < 0)
+				goto out;
+			break;
+
+		default:
+			tplg_skip_hdr_payload(ctx);
+			break;
+		}
+	}
+
+	/* assign pipeline to every widget in the widget list */
+	list_for_item(item, &tb->widget_list) {
+		struct tplg_comp_info *comp_info = container_of(item, struct tplg_comp_info, item);
+		struct list_item *pipe_item;
+
+		list_for_item(pipe_item, &tb->pipeline_list) {
+			struct tplg_pipeline_info *pipe_info;
+
+			pipe_info = container_of(pipe_item, struct tplg_pipeline_info, item);
+			if (pipe_info->id == comp_info->pipeline_id) {
+				comp_info->pipe_info = pipe_info;
+				break;
+			}
+		}
+
+		if (!comp_info->pipe_info) {
+			fprintf(stderr, "warning: failed  assigning pipeline for %s\n",
+				comp_info->name);
+		}
+	}
+
+out:
+	/* free all data */
+
+	// TODO: Check this
+	// free(ctx->tplg_base);
+	return ret;
 }
 
 /*

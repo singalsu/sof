@@ -2,37 +2,35 @@
 //
 // Copyright(c) 2018-2024 Intel Corporation. All rights reserved.
 
-#include <platform/lib/ll_schedule.h>
-#include <module/module/base.h>
+//#include <platform/lib/ll_schedule.h>
+//#include <module/module/base.h>
 #include <sof/audio/component_ext.h>
-#include <sof/audio/pipeline.h>
-#include <sof/ipc/driver.h>
-#include <sof/ipc/topology.h>
-#include <sof/lib/agent.h>
-#include <sof/lib/dai.h>
-#include <sof/lib/dma.h>
+//#include <sof/audio/pipeline.h>
+//#include <sof/ipc/driver.h>
+//#include <sof/ipc/topology.h>
+//#include <sof/lib/agent.h>
+//#include <sof/lib/dai.h>
+//#include <sof/lib/dma.h>
 #include <sof/lib/notifier.h>
 #include <sof/schedule/edf_schedule.h>
 #include <sof/schedule/ll_schedule.h>
 #include <sof/schedule/ll_schedule_domain.h>
-#include <sof/schedule/schedule.h>
-#include <rtos/alloc.h>
-#include <rtos/sof.h>
-#include <rtos/string.h>
-#include <rtos/task.h>
-#include <rtos/wait.h>
-#include <tplg_parser/topology.h>
-#include <math.h>
+//#include <sof/schedule/schedule.h>
+//#include <rtos/alloc.h>
+//#include <rtos/sof.h>
+//#include <rtos/string.h>
+//#include <rtos/task.h>
+//#include <rtos/wait.h>
+//#include <tplg_parser/topology.h>
+//#include <math.h>
+
 #include <stdbool.h>
-#include <stddef.h>
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
-#include <time.h>
 
 #include "testbench/common_test.h"
 #include "testbench/file.h"
-#include "testbench/trace.h"
 #include "testbench/topology_ipc4.h"
 
 #if CONFIG_IPC_MAJOR_4
@@ -108,148 +106,287 @@ int tb_setup(struct sof *sof, struct testbench_prm *tp)
 	return 0;
 }
 
-struct ipc_data {
-	struct ipc_data_host_buffer dh_buffer;
-};
-
-void tb_free(struct sof *sof)
+static int tb_prepare_widget(struct testbench_prm *tb, struct tplg_pcm_info *pcm_info,
+			     struct tplg_comp_info *comp_info, int dir)
 {
-	struct schedule_data *sch;
-	struct schedulers **schedulers;
-	struct list_item *slist, *_slist;
-	struct notify **notify = arch_notify_get();
-	struct ipc_data *iipc;
-
-	free(*notify);
-
-	/* free all scheduler data */
-	schedule_free(0);
-	schedulers = arch_schedulers_get();
-	list_for_item_safe(slist, _slist, &(*schedulers)->list) {
-		sch = container_of(slist, struct schedule_data, list);
-		free(sch);
-	}
-	free(*arch_schedulers_get());
-
-	/* free IPC data */
-	iipc = sof->ipc->private;
-	free(sof->ipc->comp_data);
-	free(iipc->dh_buffer.page_table);
-	free(iipc);
-	free(sof->ipc);
-}
-
-/* print debug messages */
-void tb_debug_print(char *message)
-{
-	if (host_trace_level >= LOG_LEVEL_DEBUG)
-		printf("debug: %s", message);
-}
-
-/* enable trace in testbench */
-void tb_enable_trace(unsigned int log_level)
-{
-	host_trace_level = log_level;
-	if (host_trace_level)
-		tb_debug_print("trace print enabled\n");
-	else
-		tb_debug_print("trace print disabled\n");
-}
-
-void tb_gettime(struct timespec *td)
-{
-#if !defined __XCC__
-	clock_gettime(CLOCK_MONOTONIC, td);
-#else
-	td->tv_nsec = 0;
-	td->tv_sec = 0;
-#endif
-}
-
-void tb_getcycles(uint64_t *cycles)
-{
-#if defined __XCC__
-	*cycles = XT_RSR_CCOUNT();
-#else
-	*cycles = 0;
-#endif
-}
-
-#if DISABLED_CODE
-static int tb_get_pipeline_instance_id(struct testbench_prm *tp, int id)
-{
-	struct tplg_pipeline_info *pipe_info;
 	struct tplg_pipeline_list *pipeline_list;
-	int i;
+	int ret, i;
 
-	pipeline_list = &tp->pcm_info->playback_pipeline_list;
+	if (dir)
+		pipeline_list = &pcm_info->capture_pipeline_list;
+	else
+		pipeline_list = &pcm_info->playback_pipeline_list;
+
+	/* populate base config */
+	ret = tb_set_up_widget_base_config(tb, comp_info);
+	if (ret < 0)
+		return ret;
+
+	tb_pipeline_update_resource_usage(tb, comp_info);
+
+	/* add pipeline to pcm pipeline_list if needed */
 	for (i = 0; i < pipeline_list->count; i++) {
-		pipe_info = pipeline_list->pipelines[i];
-		if (pipe_info->id == id)
-			return pipe_info->instance_id;
+		struct tplg_pipeline_info *pipe_info = pipeline_list->pipelines[i];
+
+		if (pipe_info == comp_info->pipe_info)
+			break;
 	}
 
-	pipeline_list = &tp->pcm_info->capture_pipeline_list;
-	for (i = 0; i < pipeline_list->count; i++) {
-		pipe_info = pipeline_list->pipelines[i];
-		if (pipe_info->id == id)
-			return pipe_info->instance_id;
+	if (i == pipeline_list->count) {
+		pipeline_list->pipelines[pipeline_list->count] = comp_info->pipe_info;
+		pipeline_list->count++;
 	}
 
-	return -EINVAL;
+	return 0;
 }
 
-static struct pipeline *tb_get_pipeline_by_id(struct testbench_prm *tb, int pipeline_id)
+static int tb_prepare_widgets(struct testbench_prm *tb, struct tplg_pcm_info *pcm_info,
+			      struct tplg_comp_info *starting_comp_info,
+			      struct tplg_comp_info *current_comp_info)
 {
-	struct ipc_comp_dev *pipe_dev;
-	struct ipc *ipc = sof_get()->ipc;
-	int id = tb_get_pipeline_instance_id(tb, pipeline_id);
+	struct list_item *item;
+	int ret;
 
-	pipe_dev = ipc_get_comp_by_ppl_id(ipc, COMP_TYPE_PIPELINE, id, IPC_COMP_IGNORE_REMOTE);
-	return pipe_dev->pipeline;
+	/* for playback */
+	list_for_item(item, &tb->route_list) {
+		struct tplg_route_info *route_info = container_of(item, struct tplg_route_info,
+								  item);
+
+		if (route_info->source != current_comp_info)
+			continue;
+
+		/* set up source widget if it is the starting widget */
+		if (starting_comp_info == current_comp_info) {
+			ret = tb_prepare_widget(tb, pcm_info, current_comp_info, 0);
+			if (ret < 0)
+				return ret;
+		}
+
+		/* set up the sink widget */
+		ret = tb_prepare_widget(tb, pcm_info, route_info->sink, 0);
+		if (ret < 0)
+			return ret;
+
+		/* and then continue down the path */
+		if (route_info->sink->type != SND_SOC_TPLG_DAPM_DAI_IN ||
+		    route_info->sink->type != SND_SOC_TPLG_DAPM_DAI_OUT) {
+			ret = tb_prepare_widgets(tb, pcm_info, starting_comp_info,
+						 route_info->sink);
+			if (ret < 0)
+				return ret;
+		}
+	}
+
+	return 0;
 }
-#endif
 
-void tb_show_file_stats(struct testbench_prm *tb, int pipeline_id)
+static int tb_prepare_widgets_capture(struct testbench_prm *tb, struct tplg_pcm_info *pcm_info,
+				      struct tplg_comp_info *starting_comp_info,
+				      struct tplg_comp_info *current_comp_info)
 {
-	struct ipc_comp_dev *icd;
-	struct comp_dev *dev;
-	struct processing_module *mod;
-	struct file_comp_data *fcd;
-	int i;
+	struct list_item *item;
+	int ret;
 
-	for (i = 0; i < tb->input_file_num; i++) {
-		if (tb->fr[i].id < 0 || tb->fr[i].pipeline_id != pipeline_id)
+	/* for capture */
+	list_for_item(item, &tb->route_list) {
+		struct tplg_route_info *route_info = container_of(item, struct tplg_route_info,
+								  item);
+
+		if (route_info->sink != current_comp_info)
 			continue;
 
-		icd = ipc_get_comp_by_id(sof_get()->ipc, tb->fr[i].id);
-		if (!icd)
-			continue;
+		/* set up sink widget if it is the starting widget */
+		if (starting_comp_info == current_comp_info) {
+			ret = tb_prepare_widget(tb, pcm_info, current_comp_info, 1);
+			if (ret < 0)
+				return ret;
+		}
 
-		dev = icd->cd;
-		mod = comp_mod(dev);
-		fcd = module_get_private_data(mod);
-		printf("file %s: id %d: type %d: samples %d copies %d\n",
-		       fcd->fs.fn, dev->ipc_config.id, dev->drv->type, fcd->fs.n,
-		       fcd->fs.copy_count);
+		/* set up the source widget */
+		ret = tb_prepare_widget(tb, pcm_info, route_info->source, 1);
+		if (ret < 0)
+			return ret;
+
+		/* and then continue up the path */
+		if (route_info->source->type != SND_SOC_TPLG_DAPM_DAI_IN &&
+		    route_info->source->type != SND_SOC_TPLG_DAPM_DAI_OUT) {
+			ret = tb_prepare_widgets_capture(tb, pcm_info, starting_comp_info,
+							 route_info->source);
+			if (ret < 0)
+				return ret;
+		}
 	}
 
-	for (i = 0; i < tb->output_file_num; i++) {
-		if (tb->fw[i].id < 0 || tb->fw[i].pipeline_id != pipeline_id)
-			continue;
+	return 0;
+}
 
-		icd = ipc_get_comp_by_id(sof_get()->ipc, tb->fw[i].id);
-		if (!icd)
-			continue;
 
-		dev = icd->cd;
-		mod = comp_mod(dev);
-		fcd = module_get_private_data(mod);
-		printf("file %s: id %d: type %d: samples %d copies %d\n",
-		       fcd->fs.fn, dev->ipc_config.id, dev->drv->type, fcd->fs.n,
-		       fcd->fs.copy_count);
+static int tb_set_up_widget(struct testbench_prm *tb, struct tplg_comp_info *comp_info)
+{
+	struct tplg_pipeline_info *pipe_info = comp_info->pipe_info;
+	int ret;
+
+	pipe_info->usage_count++;
+
+	/* first set up pipeline if needed, only done once for the first pipeline widget */
+	if (pipe_info->usage_count == 1) {
+		ret = tb_set_up_pipeline(tb, pipe_info);
+		if (ret < 0) {
+			pipe_info->usage_count--;
+			return ret;
+		}
 	}
 
+	/* now set up the widget */
+	ret = tb_set_up_widget_ipc(tb, comp_info);
+	if (ret < 0)
+		return ret;
+
+	return 0;
+}
+
+static int tb_set_up_widgets(struct testbench_prm *tb, struct tplg_comp_info *starting_comp_info,
+			     struct tplg_comp_info *current_comp_info)
+{
+	struct list_item *item;
+	int ret;
+
+	/* for playback */
+	list_for_item(item, &tb->route_list) {
+		struct tplg_route_info *route_info = container_of(item, struct tplg_route_info,
+								  item);
+
+		if (route_info->source != current_comp_info)
+			continue;
+
+		/* set up source widget if it is the starting widget */
+		if (starting_comp_info == current_comp_info) {
+			ret = tb_set_up_widget(tb, current_comp_info);
+			if (ret < 0)
+				return ret;
+		}
+
+		/* set up the sink widget */
+		ret = tb_set_up_widget(tb, route_info->sink);
+		if (ret < 0)
+			return ret;
+
+		/* source and sink widgets are up, so set up route now */
+		ret = tb_set_up_route(tb, route_info);
+		if (ret < 0)
+			return ret;
+
+		/* and then continue down the path */
+		if (route_info->sink->type != SND_SOC_TPLG_DAPM_DAI_IN ||
+		    route_info->sink->type != SND_SOC_TPLG_DAPM_DAI_OUT) {
+			ret = tb_set_up_widgets(tb, starting_comp_info, route_info->sink);
+			if (ret < 0)
+				return ret;
+		}
+	}
+
+	return 0;
+}
+
+static int tb_set_up_widgets_capture(struct testbench_prm *tb,
+				     struct tplg_comp_info *starting_comp_info,
+				     struct tplg_comp_info *current_comp_info)
+{
+	struct list_item *item;
+	int ret;
+
+	/* for playback */
+	list_for_item(item, &tb->route_list) {
+		struct tplg_route_info *route_info = container_of(item, struct tplg_route_info,
+								  item);
+
+		if (route_info->sink != current_comp_info)
+			continue;
+
+		/* set up source widget if it is the starting widget */
+		if (starting_comp_info == current_comp_info) {
+			ret = tb_set_up_widget(tb, current_comp_info);
+			if (ret < 0)
+				return ret;
+		}
+
+		/* set up the sink widget */
+		ret = tb_set_up_widget(tb, route_info->source);
+		if (ret < 0)
+			return ret;
+
+		/* source and sink widgets are up, so set up route now */
+		ret = tb_set_up_route(tb, route_info);
+		if (ret < 0)
+			return ret;
+
+		/* and then continue down the path */
+		if (route_info->source->type != SND_SOC_TPLG_DAPM_DAI_IN &&
+		    route_info->source->type != SND_SOC_TPLG_DAPM_DAI_OUT) {
+			ret = tb_set_up_widgets_capture(tb, starting_comp_info, route_info->source);
+			if (ret < 0)
+				return ret;
+		}
+	}
+
+	return 0;
+}
+
+static int tb_set_up_pipelines(struct testbench_prm *tb, int dir)
+{
+	struct tplg_comp_info *host = NULL;
+	struct tplg_pcm_info *pcm_info;
+	struct list_item *item;
+	int ret;
+
+	// TODO tb->pcm_id is not defined?
+	list_for_item(item, &tb->pcm_list) {
+		pcm_info = container_of(item, struct tplg_pcm_info, item);
+
+		if (pcm_info->id == tb->pcm_id) {
+			if (dir)
+				host = pcm_info->capture_host;
+			else
+				host = pcm_info->playback_host;
+			break;
+		}
+	}
+
+	if (!host) {
+		fprintf(stderr, "No host component found for PCM ID: %d\n", tb->pcm_id);
+		return -EINVAL;
+	}
+
+	if (!tb_is_pipeline_enabled(tb, host->pipeline_id))
+		return 0;
+
+	tb->pcm_info = pcm_info; //  TODO must be an array
+
+	if (dir) {
+		ret = tb_prepare_widgets_capture(tb, pcm_info, host, host);
+		if (ret < 0)
+			return ret;
+
+		ret = tb_set_up_widgets_capture(tb, host, host);
+		if (ret < 0)
+			return ret;
+
+		tb_debug_print("Setting up capture pipelines complete\n");
+
+		return 0;
+	}
+
+	ret = tb_prepare_widgets(tb, pcm_info, host, host);
+	if (ret < 0)
+		return ret;
+
+	ret = tb_set_up_widgets(tb, host, host);
+	if (ret < 0)
+		return ret;
+
+	tb_debug_print("Setting up playback pipelines complete\n");
+
+	return 0;
 }
 
 int tb_set_up_all_pipelines(struct testbench_prm *tb)
@@ -272,145 +409,164 @@ int tb_set_up_all_pipelines(struct testbench_prm *tb)
 	return 0;
 }
 
-int tb_load_topology(struct testbench_prm *tb)
+static int tb_free_widgets(struct testbench_prm *tb, struct tplg_comp_info *starting_comp_info,
+			   struct tplg_comp_info *current_comp_info)
 {
-	struct tplg_context *ctx = &tb->tplg;
+	struct tplg_route_info *route_info;
+	struct list_item *item;
 	int ret;
 
-	/* setup the thread virtual core config */
-	memset(ctx, 0, sizeof(*ctx));
-	ctx->comp_id = 1;
-	ctx->core_id = 0;
-	ctx->sof = sof_get();
-	ctx->tplg_file = tb->tplg_file;
-	if (tb->ipc_version < 3 || tb->ipc_version > 4) {
-		fprintf(stderr, "error: illegal ipc version\n");
-		return -EINVAL;
-	}
-
-	ctx->ipc_major = tb->ipc_version;
-
-	/* parse topology file and create pipeline */
-	ret = tb_parse_topology(tb);
-	if (ret < 0)
-		fprintf(stderr, "error: parsing topology\n");
-
-	tb_debug_print("topology parsing complete\n");
-	return 0;
-}
-
-static bool tb_is_file_component_at_eof(struct testbench_prm *tp)
-{
-	int i;
-
-	for (i = 0; i < tp->input_file_num; i++) {
-		if (!tp->fr[i].state)
+	/* for playback */
+	list_for_item(item, &tb->route_list) {
+		route_info = container_of(item, struct tplg_route_info, item);
+		if (route_info->source != current_comp_info)
 			continue;
 
-		if (tp->fr[i].state->reached_eof || tp->fr[i].state->copy_timeout)
-			return true;
-	}
+		/* Widgets will be freed when the pipeline is deleted, so just unbind modules */
+		ret = tb_free_route(tb, route_info);
+		if (ret < 0)
+			return ret;
 
-	for (i = 0; i < tp->output_file_num; i++) {
-		if (!tp->fw[i].state)
-			continue;
-
-		if (tp->fw[i].state->reached_eof || tp->fw[i].state->copy_timeout ||
-		    tp->fw[i].state->write_failed)
-			return true;
-	}
-
-	return false;
-}
-
-bool tb_schedule_pipeline_check_state(struct testbench_prm *tp)
-{
-	uint64_t cycles0, cycles1;
-
-	tb_getcycles(&cycles0);
-
-	schedule_ll_run_tasks();
-
-	tb_getcycles(&cycles1);
-	tp->total_cycles += cycles1 - cycles0;
-
-	/* Check if all file components are running */
-	return tb_is_file_component_at_eof(tp);
-}
-
-bool tb_is_pipeline_enabled(struct testbench_prm *tb, int pipeline_id)
-{
-	int i;
-
-	for (i = 0; i < tb->pipeline_num; i++) {
-		if (tb->pipelines[i] == pipeline_id)
-			return true;
-	}
-
-	return false;
-}
-
-int tb_find_file_components(struct testbench_prm *tb)
-{
-	struct ipc_comp_dev *icd;
-	struct processing_module *mod;
-	struct file_comp_data *fcd;
-	int i;
-
-	for (i = 0; i < tb->input_file_num; i++) {
-		if (!tb_is_pipeline_enabled(tb, tb->fr[i].pipeline_id)) {
-			tb->fr[i].id = -1;
-			continue;
+		/* and then continue down the path */
+		if (route_info->sink->type != SND_SOC_TPLG_DAPM_DAI_IN ||
+		    route_info->sink->type != SND_SOC_TPLG_DAPM_DAI_OUT) {
+			ret = tb_free_widgets(tb, starting_comp_info, route_info->sink);
+			if (ret < 0)
+				return ret;
 		}
-
-		icd = ipc_get_comp_by_id(sof_get()->ipc, tb->fr[i].id);
-		if (!icd) {
-			tb->fr[i].state = NULL;
-			continue;
-		}
-
-		if (!icd->cd) {
-			fprintf(stderr, "error: null cd.\n");
-			return -EINVAL;
-		}
-
-		mod = comp_mod(icd->cd);
-		if (!mod) {
-			fprintf(stderr, "error: null module.\n");
-			return -EINVAL;
-		}
-		fcd = module_get_private_data(mod);
-		tb->fr[i].state = &fcd->fs;
-	}
-
-	for (i = 0; i < tb->output_file_num; i++) {
-		if (!tb_is_pipeline_enabled(tb, tb->fw[i].pipeline_id)) {
-			tb->fw[i].id = -1;
-			continue;
-		}
-
-		icd = ipc_get_comp_by_id(sof_get()->ipc, tb->fw[i].id);
-		if (!icd) {
-			tb->fr[i].state = NULL;
-			continue;
-		}
-
-		if (!icd->cd) {
-			fprintf(stderr, "error: null cd.\n");
-			return -EINVAL;
-		}
-
-		mod = comp_mod(icd->cd);
-		if (!mod) {
-			fprintf(stderr, "error: null module.\n");
-			return -EINVAL;
-		}
-
-		fcd = module_get_private_data(mod);
-		tb->fw[i].state = &fcd->fs;
 	}
 
 	return 0;
+}
+
+static int tb_free_widgets_capture(struct testbench_prm *tb,
+				   struct tplg_comp_info *starting_comp_info,
+				   struct tplg_comp_info *current_comp_info)
+{
+	struct tplg_route_info *route_info;
+	struct list_item *item;
+	int ret;
+
+	/* for playback */
+	list_for_item(item, &tb->route_list) {
+		route_info = container_of(item, struct tplg_route_info, item);
+		if (route_info->sink != current_comp_info)
+			continue;
+
+		/* Widgets will be freed when the pipeline is deleted, so just unbind modules */
+		ret = tb_free_route(tb, route_info);
+		if (ret < 0)
+			return ret;
+
+		/* and then continue down the path */
+		if (route_info->sink->type != SND_SOC_TPLG_DAPM_DAI_IN &&
+		    route_info->sink->type != SND_SOC_TPLG_DAPM_DAI_OUT) {
+			ret = tb_free_widgets_capture(tb, starting_comp_info, route_info->source);
+			if (ret < 0)
+				return ret;
+		}
+	}
+
+	return 0;
+}
+
+static int tb_free_pipelines(struct testbench_prm *tb, int dir)
+{
+	struct tplg_pipeline_list *pipeline_list;
+	struct tplg_pcm_info *pcm_info;
+	struct list_item *item;
+	struct tplg_comp_info *host = NULL;
+	int ret, i;
+
+	list_for_item(item, &tb->pcm_list) {
+		pcm_info = container_of(item, struct tplg_pcm_info, item);
+		if (dir)
+			host = pcm_info->capture_host;
+		else
+			host = pcm_info->playback_host;
+
+		if (!host || !tb_is_pipeline_enabled(tb, host->pipeline_id))
+			continue;
+
+		if (dir) {
+			pipeline_list = &tb->pcm_info->capture_pipeline_list;
+			ret = tb_free_widgets_capture(tb, host, host);
+			if (ret < 0) {
+				fprintf(stderr, "failed to free widgets for capture PCM\n");
+				return ret;
+			}
+		} else {
+			pipeline_list = &tb->pcm_info->playback_pipeline_list;
+			ret = tb_free_widgets(tb, host, host);
+			if (ret < 0) {
+				fprintf(stderr, "failed to free widgets for playback PCM\n");
+				return ret;
+			}
+		}
+		for (i = 0; i < pipeline_list->count; i++) {
+			struct tplg_pipeline_info *pipe_info = pipeline_list->pipelines[i];
+
+			ret = tb_delete_pipeline(tb, pipe_info);
+			if (ret < 0)
+				return ret;
+		}
+	}
+
+	tb->instance_ids[SND_SOC_TPLG_DAPM_SCHEDULER] = 0;
+	return 0;
+}
+
+int tb_free_all_pipelines(struct testbench_prm *tb)
+{
+	tb_debug_print("freeing playback direction\n");
+	tb_free_pipelines(tb, SOF_IPC_STREAM_PLAYBACK);
+
+	tb_debug_print("freeing capture direction\n");
+	tb_free_pipelines(tb, SOF_IPC_STREAM_CAPTURE);
+	return 0;
+}
+
+void tb_free_topology(struct testbench_prm *tb)
+{
+	struct tplg_pcm_info *pcm_info;
+	struct tplg_comp_info *comp_info;
+	struct tplg_route_info *route_info;
+	struct tplg_pipeline_info *pipe_info;
+	struct tplg_context *ctx = &tb->tplg;
+	struct sof_ipc4_available_audio_format *available_fmts;
+	struct list_item *item, *_item;
+
+	list_for_item_safe(item, _item, &tb->pcm_list) {
+		pcm_info = container_of(item, struct tplg_pcm_info, item);
+		free(pcm_info->name);
+		free(pcm_info);
+	}
+
+	list_for_item_safe(item, _item, &tb->widget_list) {
+		comp_info = container_of(item, struct tplg_comp_info, item);
+		available_fmts = &comp_info->available_fmt;
+		free(available_fmts->output_pin_fmts);
+		free(available_fmts->input_pin_fmts);
+		free(comp_info->name);
+		free(comp_info->stream_name);
+		free(comp_info->ipc_payload);
+		free(comp_info);
+	}
+
+	list_for_item_safe(item, _item, &tb->route_list) {
+		route_info = container_of(item, struct tplg_route_info, item);
+		free(route_info);
+	}
+
+	list_for_item_safe(item, _item, &tb->pipeline_list) {
+		pipe_info = container_of(item, struct tplg_pipeline_info, item);
+		free(pipe_info->name);
+		free(pipe_info);
+	}
+
+	// TODO: Do here or earlier?
+	free(ctx->tplg_base);
+	tb_debug_print("freed all pipelines, widgets, routes and pcms\n");
 }
 
 #endif /* CONFIG_IPC_MAJOR_4 */
