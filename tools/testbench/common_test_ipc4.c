@@ -98,6 +98,10 @@ int tb_setup(struct sof *sof, struct testbench_prm *tp)
 	tp->config[0].channels = 2;
 	tp->config[0].format = SOF_IPC_FRAME_S32_LE;
 
+	tp->ipc_version = 4;
+	tp->period_size = 96;	// FIXME becomes somehow obs in tb_match_audio_format()
+	tp->pcm_id = 0;
+
 	return 0;
 }
 
