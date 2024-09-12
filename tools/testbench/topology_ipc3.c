@@ -7,6 +7,8 @@
 
 /* Topology loader to set up components and pipeline */
 
+#if CONFIG_IPC_MAJOR_3
+
 #include <sof/audio/component.h>
 #include <sof/ipc/driver.h>
 #include <sof/ipc/topology.h>
@@ -23,8 +25,6 @@
 #include <math.h>
 #include <stdio.h>
 #include <stdlib.h>
-
-#if CONFIG_IPC_MAJOR_3
 
 #define MAX_TPLG_OBJECT_SIZE	4096
 

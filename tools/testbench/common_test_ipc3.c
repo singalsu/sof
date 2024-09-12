@@ -2,6 +2,8 @@
 //
 // Copyright(c) 2018-2024 Intel Corporation. All rights reserved.
 
+#if CONFIG_IPC_MAJOR_3
+
 #include <sof/audio/component_ext.h>
 #include <sof/lib/notifier.h>
 #include <sof/schedule/edf_schedule.h>
@@ -12,11 +14,8 @@
 #include <stdio.h>
 #include <stdlib.h>
 
-#if CONFIG_IPC_MAJOR_3
-
 #include "testbench/common_test.h"
 #include "testbench/file.h"
-
 
 /* testbench helper functions for pipeline setup and trigger */
 
@@ -426,6 +425,5 @@ int tb_set_up_all_pipelines(struct testbench_prm *tp)
 
 	return 0;
 }
-
 
 #endif /* CONFIG_IPC_MAJOR_3 */
