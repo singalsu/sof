@@ -24,6 +24,7 @@
 #include <stdlib.h>
 #include "testbench/common_test.h"
 #include "testbench/file.h"
+#include "testbench/file_ipc4.h"
 
 SOF_DEFINE_REG_UUID(file);
 DECLARE_TR_CTX(file_tr, SOF_UUID(file_uuid), LOG_LEVEL_INFO);
@@ -552,10 +553,18 @@ static int file_init(struct processing_module *mod)
 {
 	struct comp_dev *dev = mod->dev;
 	struct module_data *mod_data = &mod->priv;
-	const struct ipc_comp_file *ipc_file =
-		(const struct ipc_comp_file *)mod_data->cfg.init_data;
 	struct file_comp_data *cd;
 	int ret;
+
+#if CONFIG_IPC_MAJOR_4
+	const struct ipc4_file_module_cfg *module_cfg =
+		(const struct ipc4_file_module_cfg *)mod_data->cfg.init_data;
+
+	const struct ipc4_file_config *ipc_file = &module_cfg->config;
+#else
+	const struct ipc_comp_file *ipc_file =
+		(const struct ipc_comp_file *)mod_data->cfg.init_data;
+#endif
 
 	tb_debug_print("file_init()\n");
 
