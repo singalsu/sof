@@ -87,6 +87,17 @@ int tb_setup(struct sof *sof, struct testbench_prm *tp)
 
 	tb_debug_print("ipc and scheduler initialized\n");
 
+	// TODO move somewhere else and integrate with command line
+	tp->num_configs = 1;
+	strcpy(tp->config[0].name, "48k2c32b");
+	tp->config[0].buffer_frames = 24000;
+	tp->config[0].buffer_time = 0;
+	tp->config[0].period_frames = 6000;
+	tp->config[0].period_time = 0;
+	tp->config[0].rate = 48000;
+	tp->config[0].channels = 2;
+	tp->config[0].format = SOF_IPC_FRAME_S32_LE;
+
 	return 0;
 }
 
