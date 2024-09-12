@@ -6,13 +6,13 @@
 //         Liam Girdwood <liam.r.girdwood@linux.intel.com>
 //	   Seppo Ingalsuo <seppo.ingalsuo@linux.intel.com>
 
+#if CONFIG_IPC_MAJOR_4
+
 #include <ipc4/header.h>
 #include <tplg_parser/tokens.h>
 #include <tplg_parser/topology.h>
 #include <stdio.h>
 #include <stdlib.h>
-
-#if CONFIG_IPC_MAJOR_4
 
 #include "testbench/common_test.h"
 #include "testbench/topology_ipc4.h"

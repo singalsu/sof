@@ -2,27 +2,13 @@
 //
 // Copyright(c) 2018-2024 Intel Corporation. All rights reserved.
 
-//#include <platform/lib/ll_schedule.h>
-//#include <module/module/base.h>
+#if CONFIG_IPC_MAJOR_4
+
 #include <sof/audio/component_ext.h>
-//#include <sof/audio/pipeline.h>
-//#include <sof/ipc/driver.h>
-//#include <sof/ipc/topology.h>
-//#include <sof/lib/agent.h>
-//#include <sof/lib/dai.h>
-//#include <sof/lib/dma.h>
 #include <sof/lib/notifier.h>
 #include <sof/schedule/edf_schedule.h>
 #include <sof/schedule/ll_schedule.h>
 #include <sof/schedule/ll_schedule_domain.h>
-//#include <sof/schedule/schedule.h>
-//#include <rtos/alloc.h>
-//#include <rtos/sof.h>
-//#include <rtos/string.h>
-//#include <rtos/task.h>
-//#include <rtos/wait.h>
-//#include <tplg_parser/topology.h>
-//#include <math.h>
 
 #include <stdbool.h>
 #include <stdint.h>
@@ -32,8 +18,6 @@
 #include "testbench/common_test.h"
 #include "testbench/file.h"
 #include "testbench/topology_ipc4.h"
-
-#if CONFIG_IPC_MAJOR_4
 
 #if defined __XCC__
 #include <xtensa/tie/xt_timer.h>
