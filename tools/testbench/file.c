@@ -637,6 +637,13 @@ static int file_init(struct processing_module *mod)
 	/* open file handle(s) depending on mode */
 	switch (cd->fs.mode) {
 	case FILE_READ:
+		cd->fs.rfh = fopen(cd->fs.fn, "r");
+		if (!cd->fs.rfh) {
+			fprintf(stderr, "error: opening file %s for reading - %s\n",
+				cd->fs.fn, strerror(errno));
+			goto error;
+		}
+
 		/* Change to DAI type is needed to avoid uninitialized hw params in
 		 * pipeline_params, A file host can be left as SOF_COMP_MODULE_ADAPTER
 		 */
@@ -648,15 +655,15 @@ static int file_init(struct processing_module *mod)
 				goto error;
 			}
 		}
-
-		cd->fs.rfh = fopen(cd->fs.fn, "r");
-		if (!cd->fs.rfh) {
-			fprintf(stderr, "error: opening file %s for reading - %s\n",
+		break;
+	case FILE_WRITE:
+		cd->fs.wfh = fopen(cd->fs.fn, "w+");
+		if (!cd->fs.wfh) {
+			fprintf(stderr, "error: opening file %s for writing - %s\n",
 				cd->fs.fn, strerror(errno));
 			goto error;
 		}
-		break;
-	case FILE_WRITE:
+
 		/* Change to DAI type is needed to avoid uninitialized hw params in
 		 * pipeline_params, A file host can be left as SOF_COMP_MODULE_ADAPTER
 		 */
@@ -669,12 +676,6 @@ static int file_init(struct processing_module *mod)
 			}
 		}
 
-		cd->fs.wfh = fopen(cd->fs.fn, "w+");
-		if (!cd->fs.wfh) {
-			fprintf(stderr, "error: opening file %s for writing - %s\n",
-				cd->fs.fn, strerror(errno));
-			goto error;
-		}
 		break;
 	default:
 		/* TODO: duplex mode */
@@ -708,10 +709,10 @@ static int file_free(struct processing_module *mod)
 	else
 		fclose(cd->fs.wfh);
 
+	file_free_dai_data(mod);
 	free(cd->fs.fn);
 	free(cd);
 	free(ccd);
-	file_free_dai_data(mod);
 	return 0;
 }
 
@@ -765,9 +766,8 @@ static int file_process(struct processing_module *mod,
 
 	cd->fs.copy_count++;
 	if (cd->fs.reached_eof || (cd->max_copies && cd->fs.copy_count >= cd->max_copies)) {
-		cd->fs.reached_eof = 1;
+		cd->fs.reached_eof = true;
 		tb_debug_print("file_process(): reached EOF");
-		schedule_task_cancel(mod->dev->pipeline->pipe_task);
 	}
 
 	if (samples) {
@@ -834,15 +834,16 @@ static int file_prepare(struct processing_module *mod,
 
 static int file_reset(struct processing_module *mod)
 {
-	tb_debug_print("file_reset()");
+	struct file_comp_data *cd = module_get_private_data(mod);
 
+	tb_debug_print("file_reset()");
+	cd->copies_timeout_count = 0;
 	return 0;
 }
 
 static int file_trigger(struct comp_dev *dev, int cmd)
 {
-	tb_debug_print("asrc_trigger()");
-
+	tb_debug_print("file_trigger()");
 	return comp_set_state(dev, cmd);
 }
 

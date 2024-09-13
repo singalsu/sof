@@ -11,7 +11,12 @@
 #ifndef _TESTBENCH_FILE_H
 #define _TESTBENCH_FILE_H
 
+#include <sof/audio/audio_stream.h>
+#include <ipc/stream.h>
+#include <stdbool.h>
 #include <stdint.h>
+#include <stdio.h>
+#include "../../../../src/audio/copier/copier.h"
 
 #define FILE_MAX_COPIES_TIMEOUT	3
 

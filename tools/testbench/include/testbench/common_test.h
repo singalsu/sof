@@ -10,8 +10,6 @@
 #include <stdint.h>
 #include <stdbool.h>
 
-#define SOF_TESTBENCH_IPC_VERSION 3
-
 #define DEBUG_MSG_LEN		1024
 #define MAX_LIB_NAME_LEN	1024
 

@@ -2,7 +2,7 @@
 //
 // Copyright(c) 2018-2024 Intel Corporation. All rights reserved.
 
-#include <module/module/base.h>
+#include <sof/audio/module_adapter/module/generic.h>
 #include <platform/lib/ll_schedule.h>
 #include <sof/audio/component.h>
 #include <sof/ipc/topology.h>
