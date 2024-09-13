@@ -423,103 +423,91 @@ static int pipline_test(struct testbench_prm *tp)
 
 int main(int argc, char **argv)
 {
-	struct testbench_prm tp;
-	int i, err;
+	struct testbench_prm *tp;
+	int i, ret;
+
+	tp = calloc(1, sizeof(struct testbench_prm));
+	if (!tp)
+		return EXIT_FAILURE;
 
 	/* initialize input and output sample rates, files, etc. */
-	tp.total_cycles = 0;
-	tp.fs_in = 0;
-	tp.fs_out = 0;
-	tp.bits_in = 0;
-	tp.tplg_file = NULL;
-	tp.input_file_num = 0;
-	tp.output_file_num = 0;
-	tp.input_file_index = 0;
-	tp.output_file_index = 0;
-	for (i = 0; i < MAX_OUTPUT_FILE_NUM; i++)
-		tp.output_file[i] = NULL;
-
-	for (i = 0; i < MAX_INPUT_FILE_NUM; i++)
-		tp.input_file[i] = NULL;
-
-	tp.ipc_version = SOF_TESTBENCH_IPC_VERSION;
-	tp.info_index = 0;
-	tp.info_elems = 0;
-	tp.info = NULL;
-	tp.channels_in = TESTBENCH_NCH;
-	tp.channels_out = 0;
-	tp.copy_check = false;
-	tp.quiet = 0;
-	tp.dynamic_pipeline_iterations = 1;
-	tp.pipeline_string = calloc(1, DEBUG_MSG_LEN);
-	tp.pipelines[0] = 1;
-	tp.pipeline_num = 1;
-	tp.tick_period_us = 0; /* Execute fast non-real time, for 1 ms tick use -T 1000 */
-	tp.pipeline_duration_ms = 5000;
-	tp.copy_iterations = 1;
+	tp->channels_in = TESTBENCH_NCH;
+	tp->copy_check = false;
+	tp->dynamic_pipeline_iterations = 1;
+	tp->pipeline_string = calloc(1, DEBUG_MSG_LEN);
+	tp->pipelines[0] = 1;
+	tp->pipeline_num = 1;
+	tp->pipeline_duration_ms = 5000;
+	tp->copy_iterations = 1;
 
 	/* command line arguments*/
-	err = parse_input_args(argc, argv, &tp);
-	if (err < 0)
+	ret = parse_input_args(argc, argv, tp);
+	if (ret < 0)
 		goto out;
 
-	if (!tp.channels_out)
-		tp.channels_out = tp.channels_in;
+	if (!tp->channels_out)
+		tp->channels_out = tp->channels_in;
 
 	/* check mandatory args */
-	if (!tp.tplg_file) {
+	if (!tp->tplg_file) {
 		fprintf(stderr, "topology file not specified, use -t file.tplg\n");
 		print_usage(argv[0]);
-		exit(EXIT_FAILURE);
+		ret = EXIT_FAILURE;
+		goto out;
 	}
 
-	if (!tp.input_file_num) {
+	if (!tp->input_file_num) {
 		fprintf(stderr, "input files not specified, use -i file1,file2\n");
 		print_usage(argv[0]);
-		exit(EXIT_FAILURE);
+		ret = EXIT_FAILURE;
+		goto out;
 	}
 
-	if (!tp.output_file_num) {
+	if (!tp->output_file_num) {
 		fprintf(stderr, "output files not specified, use -o file1,file2\n");
 		print_usage(argv[0]);
-		exit(EXIT_FAILURE);
+		ret = EXIT_FAILURE;
+		goto out;
 	}
 
-	if (!tp.bits_in) {
+	if (!tp->bits_in) {
 		fprintf(stderr, "input format not specified, use -b format\n");
 		print_usage(argv[0]);
-		exit(EXIT_FAILURE);
+		ret = EXIT_FAILURE;
+		goto out;
 	}
 
-	if (tp.quiet)
+	if (tp->quiet)
 		tb_enable_trace(0); /* reduce trace output */
 	else
 		tb_enable_trace(1);
 
 
 	/* initialize ipc and scheduler */
-	if (tb_setup(sof_get(), &tp) < 0) {
+	if (tb_setup(sof_get(), tp) < 0) {
 		fprintf(stderr, "error: pipeline init\n");
-		exit(EXIT_FAILURE);
+		ret = EXIT_FAILURE;
+		goto out;
 	}
 
 	/* build, run and teardown pipelines */
-	pipline_test(&tp);
+	pipline_test(tp);
 
 	/* free other core FW services */
 	tb_free(sof_get());
+	ret = EXIT_SUCCESS;
 
 out:
 	/* free all other data */
-	free(tp.bits_in);
-	free(tp.tplg_file);
-	for (i = 0; i < tp.output_file_num; i++)
-		free(tp.output_file[i]);
+	free(tp->bits_in);
+	free(tp->tplg_file);
+	for (i = 0; i < tp->output_file_num; i++)
+		free(tp->output_file[i]);
 
-	for (i = 0; i < tp.input_file_num; i++)
-		free(tp.input_file[i]);
+	for (i = 0; i < tp->input_file_num; i++)
+		free(tp->input_file[i]);
 
-	free(tp.pipeline_string);
-
-	return EXIT_SUCCESS;
+	free(tp->pipeline_string);
+	free(tp);
+	return ret;
 }
