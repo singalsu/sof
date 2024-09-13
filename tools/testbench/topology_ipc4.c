@@ -148,7 +148,7 @@ int tb_set_up_route(struct testbench_prm *tb, struct tplg_route_info *route_info
 {
 	struct tplg_comp_info *src_comp_info = route_info->source;
 	struct tplg_comp_info *sink_comp_info = route_info->sink;
-	struct ipc4_module_bind_unbind bu;
+	struct ipc4_module_bind_unbind bu = {0};
 	struct ipc4_message_reply reply;
 	int ret;
 
@@ -1229,7 +1229,7 @@ int tb_set_reset_state(struct testbench_prm *tb)
 
 int tb_delete_pipeline(struct testbench_prm *tb, struct tplg_pipeline_info *pipe_info)
 {
-	struct ipc4_pipeline_delete msg;
+	struct ipc4_pipeline_delete msg = {0};
 	struct ipc4_message_reply reply;
 	int ret;
 
@@ -1260,7 +1260,7 @@ int tb_free_route(struct testbench_prm *tb, struct tplg_route_info *route_info)
 {
 	struct tplg_comp_info *src_comp_info = route_info->source;
 	struct tplg_comp_info *sink_comp_info = route_info->sink;
-	struct ipc4_module_bind_unbind bu;
+	struct ipc4_module_bind_unbind bu = {0};
 	struct ipc4_message_reply reply;
 	int ret;
 
