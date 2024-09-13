@@ -25,6 +25,8 @@
 #include "testbench/common_test.h"
 #include "testbench/file.h"
 #include "testbench/file_ipc4.h"
+#include "../../src/audio/copier/copier.h"
+
 
 SOF_DEFINE_REG_UUID(file);
 DECLARE_TR_CTX(file_tr, SOF_UUID(file_uuid), LOG_LEVEL_INFO);
@@ -525,9 +527,37 @@ static enum file_format get_file_format(char *filename)
 	return FILE_RAW;
 }
 
-static int file_init_set_dai_data(struct comp_dev *dev)
+#if CONFIG_IPC_MAJOR_4
+/* Minimal support for IPC4 pipeline_comp_trigger()'s dai_get_init_delay_ms() */
+static int file_init_set_dai_data(struct processing_module *mod)
 {
 	struct dai_data *dd;
+	struct copier_data *ccd = module_get_private_data(mod);
+
+	dd = rzalloc(SOF_MEM_ZONE_RUNTIME_SHARED, 0, SOF_MEM_CAPS_RAM, sizeof(*dd));
+	if (!dd)
+		return -ENOMEM;
+
+	/* Member dd->dai remains NULL. It's sufficient for dai_get_init_delay_ms().
+	 * In such case the functions returns zero delay. Testbench currently has
+	 * no use for the feature.
+	 */
+	ccd->dd[0] = dd;
+	return 0;
+}
+
+static void file_free_dai_data(struct processing_module *mod)
+{
+	struct copier_data *ccd = module_get_private_data(mod);
+
+	free(ccd->dd[0]);
+}
+#else
+/* Minimal support for IPC3 pipeline_comp_trigger()'s dai_get_init_delay_ms() */
+static int file_init_set_dai_data(struct processing_module *mod)
+{
+	struct dai_data *dd;
+	struct comp_dev *dev = mod->dev;
 
 	dd = rzalloc(SOF_MEM_ZONE_RUNTIME_SHARED, 0, SOF_MEM_CAPS_RAM, sizeof(*dd));
 	if (!dd)
@@ -541,18 +571,22 @@ static int file_init_set_dai_data(struct comp_dev *dev)
 	return 0;
 }
 
-static void file_free_dai_data(struct comp_dev *dev)
+static void file_free_dai_data(struct processing_module *mod)
 {
 	struct dai_data *dd;
+	struct comp_dev *dev = mod->dev;
+
 
 	dd = comp_get_drvdata(dev);
 	free(dd);
 }
+#endif
 
 static int file_init(struct processing_module *mod)
 {
 	struct comp_dev *dev = mod->dev;
 	struct module_data *mod_data = &mod->priv;
+	struct copier_data *ccd;
 	struct file_comp_data *cd;
 	int ret;
 
@@ -568,11 +602,20 @@ static int file_init(struct processing_module *mod)
 
 	tb_debug_print("file_init()\n");
 
-	cd = rzalloc(SOF_MEM_ZONE_RUNTIME_SHARED, 0, SOF_MEM_CAPS_RAM, sizeof(*cd));
-	if (!cd)
+	ccd = rzalloc(SOF_MEM_ZONE_RUNTIME_SHARED, 0, SOF_MEM_CAPS_RAM, sizeof(*ccd));
+	if (!ccd)
 		return -ENOMEM;
 
-	mod_data->private = cd;
+	mod_data->private = ccd;
+
+	/* File component data is placed to copier's gtw_cfg */
+	cd = rzalloc(SOF_MEM_ZONE_RUNTIME_SHARED, 0, SOF_MEM_CAPS_RAM, sizeof(*cd));
+	if (!cd) {
+		free(ccd);
+		return -ENOMEM;
+	}
+
+	file_set_comp_data(ccd, cd);
 
 	/* default function for processing samples */
 	cd->file_func = file_default;
@@ -585,7 +628,6 @@ static int file_init(struct processing_module *mod)
 
 	/* set file comp mode */
 	cd->fs.mode = ipc_file->mode;
-
 	cd->rate = ipc_file->rate;
 	cd->channels = ipc_file->channels;
 	cd->frame_fmt = ipc_file->frame_fmt;
@@ -600,7 +642,7 @@ static int file_init(struct processing_module *mod)
 		 */
 		if (dev->direction == SOF_IPC_STREAM_CAPTURE) {
 			dev->ipc_config.type = SOF_COMP_DAI;
-			ret = file_init_set_dai_data(dev);
+			ret = file_init_set_dai_data(mod);
 			if (ret) {
 				fprintf(stderr, "error: failed set dai data.\n");
 				goto error;
@@ -620,7 +662,7 @@ static int file_init(struct processing_module *mod)
 		 */
 		if (dev->direction == SOF_IPC_STREAM_PLAYBACK) {
 			dev->ipc_config.type = SOF_COMP_DAI;
-			ret = file_init_set_dai_data(dev);
+			ret = file_init_set_dai_data(mod);
 			if (ret) {
 				fprintf(stderr, "error: failed set dai data.\n");
 				goto error;
@@ -646,17 +688,18 @@ static int file_init(struct processing_module *mod)
 	cd->fs.n = 0;
 	cd->fs.copy_count = 0;
 	cd->fs.cycles_count = 0;
-
 	return 0;
 
 error:
 	free(cd);
+	free(ccd);
 	return -EINVAL;
 }
 
 static int file_free(struct processing_module *mod)
 {
-	struct file_comp_data *cd = module_get_private_data(mod);
+	struct copier_data *ccd = module_get_private_data(mod);
+	struct file_comp_data *cd = get_file_comp_data(ccd);
 
 	tb_debug_print("file_free()");
 
@@ -667,7 +710,8 @@ static int file_free(struct processing_module *mod)
 
 	free(cd->fs.fn);
 	free(cd);
-	file_free_dai_data(mod->dev);
+	free(ccd);
+	file_free_dai_data(mod);
 	return 0;
 }
 
@@ -680,7 +724,7 @@ static int file_process(struct processing_module *mod,
 			struct output_stream_buffer *output_buffers, int num_output_buffers)
 {
 	struct comp_dev *dev = mod->dev;
-	struct file_comp_data *cd = module_get_private_data(mod);
+	struct file_comp_data *cd = get_file_comp_data(module_get_private_data(mod));
 	struct audio_stream *source;
 	struct audio_stream *sink;
 	struct comp_buffer *buffer;
@@ -748,7 +792,7 @@ static int file_prepare(struct processing_module *mod,
 	struct audio_stream *stream;
 	struct comp_buffer *buffer;
 	struct comp_dev *dev = mod->dev;
-	struct file_comp_data *cd = module_get_private_data(mod);
+	struct file_comp_data *cd = get_file_comp_data(module_get_private_data(mod));
 
 	tb_debug_print("file_prepare()");
 
@@ -806,7 +850,7 @@ static int file_get_hw_params(struct comp_dev *dev,
 			      struct sof_ipc_stream_params *params, int dir)
 {
 	struct processing_module *mod = comp_mod(dev);
-	struct file_comp_data *cd = module_get_private_data(mod);
+	struct file_comp_data *cd = get_file_comp_data(module_get_private_data(mod));
 
 	tb_debug_print("file_hw_params()");
 	params->direction = dir;

@@ -72,7 +72,7 @@ int tb_find_file_components(struct testbench_prm *tp)
 			fprintf(stderr, "error: null module.\n");
 			return -EINVAL;
 		}
-		fcd = module_get_private_data(mod);
+		fcd = get_file_comp_data(module_get_private_data(mod));
 		tp->fr[i].state = &fcd->fs;
 	}
 
@@ -99,7 +99,7 @@ int tb_find_file_components(struct testbench_prm *tp)
 			return -EINVAL;
 		}
 
-		fcd = module_get_private_data(mod);
+		fcd = get_file_comp_data(module_get_private_data(mod));
 		tp->fw[i].state = &fcd->fs;
 	}
 
@@ -148,7 +148,7 @@ void tb_show_file_stats(struct testbench_prm *tp, int pipeline_id)
 
 		dev = icd->cd;
 		mod = comp_mod(dev);
-		fcd = module_get_private_data(mod);
+		fcd = get_file_comp_data(module_get_private_data(mod));
 		printf("file %s: id %d: type %d: samples %d copies %d\n",
 		       fcd->fs.fn, dev->ipc_config.id, dev->drv->type, fcd->fs.n,
 		       fcd->fs.copy_count);
@@ -164,7 +164,7 @@ void tb_show_file_stats(struct testbench_prm *tp, int pipeline_id)
 
 		dev = icd->cd;
 		mod = comp_mod(dev);
-		fcd = module_get_private_data(mod);
+		fcd = get_file_comp_data(module_get_private_data(mod));
 		printf("file %s: id %d: type %d: samples %d copies %d\n",
 		       fcd->fs.fn, dev->ipc_config.id, dev->drv->type, fcd->fs.n,
 		       fcd->fs.copy_count);
