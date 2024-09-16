@@ -40,7 +40,7 @@ int tb_load_topology(struct testbench_prm *tp)
 		fprintf(stderr, "error: parsing topology\n");
 
 	tb_debug_print("topology parsing complete\n");
-	return 0;
+	return ret;
 }
 
 int tb_find_file_components(struct testbench_prm *tp)
