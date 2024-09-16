@@ -804,6 +804,11 @@ int tb_new_process(struct testbench_prm *tb)
 	}
 
 	tb_setup_widget_ipc_msg(comp_info);
+
+	/* TODO: drop tplg_ctl to avoid memory leak. Need to store and handle this
+	 * to support controls.
+	 */
+	free(tplg_ctl);
 	return 0;
 
 out:
