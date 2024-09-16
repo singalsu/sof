@@ -74,13 +74,15 @@ void sys_comp_module_file_interface_init(void);
 /* Get file comp data from copier data */
 static inline struct file_comp_data *get_file_comp_data(struct copier_data *ccd)
 {
-	return ccd->gtw_cfg;
+	struct file_comp_data *cd = (struct file_comp_data *)ccd->ipcgtw_data;
+
+	return cd;
 }
 
 /* Set file comp data to copier data */
 static inline void file_set_comp_data(struct copier_data *ccd, struct file_comp_data *cd)
 {
-	ccd->gtw_cfg = cd;
+	ccd->ipcgtw_data = (struct ipcgtw_data *)cd;
 }
 
 #endif /* _TESTBENCH_FILE */

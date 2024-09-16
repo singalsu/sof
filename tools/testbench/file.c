@@ -608,7 +608,7 @@ static int file_init(struct processing_module *mod)
 
 	mod_data->private = ccd;
 
-	/* File component data is placed to copier's gtw_cfg */
+	/* File component data is placed to copier's ipcgtw_data */
 	cd = rzalloc(SOF_MEM_ZONE_RUNTIME_SHARED, 0, SOF_MEM_CAPS_RAM, sizeof(*cd));
 	if (!cd) {
 		free(ccd);
