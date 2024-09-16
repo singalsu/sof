@@ -79,7 +79,7 @@ static int tb_mq_cmd_tx_rx(struct tb_mq_desc *ipc_tx, struct tb_mq_desc *ipc_rx,
 	return 0;
 }
 
-int tb_parse_ipc4_comp_tokens(struct testbench_prm *tp,
+static int tb_parse_ipc4_comp_tokens(struct testbench_prm *tp,
 				     struct ipc4_base_module_cfg *base_cfg)
 {
 	struct tplg_context *ctx = &tp->tplg;
@@ -97,7 +97,7 @@ int tb_parse_ipc4_comp_tokens(struct testbench_prm *tp,
 			       ARRAY_SIZE(comp_ext_tokens), array, size);
 }
 
-void tb_setup_widget_ipc_msg(struct tplg_comp_info *comp_info)
+static void tb_setup_widget_ipc_msg(struct tplg_comp_info *comp_info)
 {
 	struct ipc4_module_init_instance *module_init = &comp_info->module_init;
 

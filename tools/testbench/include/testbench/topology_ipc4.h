@@ -21,19 +21,11 @@ int tb_new_pga(struct testbench_prm *tb);
 
 int tb_new_process(struct testbench_prm *tb);
 
-//int tb_free_pipelines(struct testbench_prm *tb, int dir);
-
 void tb_free_topology(struct testbench_prm *tb);
 
 int tb_get_instance_id_from_pipeline_id(struct testbench_prm *tp, int id);
 
-//int tb_set_up_pipelines(struct testbench_prm *tb, int dir);
-
 int tb_free_all_pipelines(struct testbench_prm *tb);
-
-int tb_parse_ipc4_comp_tokens(struct testbench_prm *tp, struct ipc4_base_module_cfg *base_cfg);
-
-void tb_setup_widget_ipc_msg(struct tplg_comp_info *comp_info);
 
 int tb_set_up_widget_ipc(struct testbench_prm *tb, struct tplg_comp_info *comp_info);
 
@@ -42,12 +34,12 @@ int tb_set_up_route(struct testbench_prm *tb, struct tplg_route_info *route_info
 int tb_set_up_pipeline(struct testbench_prm *tb, struct tplg_pipeline_info *pipe_info);
 
 void tb_pipeline_update_resource_usage(struct testbench_prm *tb,
-					      struct tplg_comp_info *comp_info);
+				       struct tplg_comp_info *comp_info);
 
 int tb_is_single_format(struct sof_ipc4_pin_format *fmts, int num_formats);
 
 int tb_match_audio_format(struct testbench_prm *tb, struct tplg_comp_info *comp_info,
-				 struct tb_config *config);
+			  struct tb_config *config);
 
 int tb_set_up_widget_base_config(struct testbench_prm *tb, struct tplg_comp_info *comp_info);
 
