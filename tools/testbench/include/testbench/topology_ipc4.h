@@ -11,7 +11,6 @@
 
 #define MAX_TPLG_OBJECT_SIZE	4096
 #define IPC4_MAX_MSG_SIZE	384
-#define TB_FAKE_IPC	0
 
 int tb_new_aif_in_out(struct testbench_prm *tb, int dir);
 

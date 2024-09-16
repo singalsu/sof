@@ -56,23 +56,15 @@ static int tb_mq_cmd_tx_rx(struct tb_mq_desc *ipc_tx, struct tb_mq_desc *ipc_rx,
 	char mailbox[IPC4_MAX_MSG_SIZE];
 	struct ipc4_message_reply *reply_msg = reply;
 
-
 	if (len > IPC4_MAX_MSG_SIZE || rlen > IPC4_MAX_MSG_SIZE) {
 		fprintf(stderr, "ipc: message too big len=%zu rlen=%zu\n", len, rlen);
 		return -EINVAL;
 	}
 
-#if TB_FAKE_IPC
-	reply_msg->primary.r.status = IPC4_SUCCESS;
-#else
-
 	memset(mailbox, 0, IPC4_MAX_MSG_SIZE);
 	memcpy(mailbox, msg, len);
 	tb_ipc_message(mailbox, len);
-
 	memcpy(reply, mailbox, rlen);
-#endif
-
 	if (reply_msg->primary.r.status != IPC4_SUCCESS)
 		return -EINVAL;
 
