@@ -1680,6 +1680,7 @@ void ipc_cmd(struct ipc_cmd_hdr *_hdr)
 		}
 
 		/* copy contents of message received */
+		reply.primary.dat = 0;
 		reply.primary.r.rsp = SOF_IPC4_MESSAGE_DIR_MSG_REPLY;
 		reply.primary.r.msg_tgt = in->primary.r.msg_tgt;
 		reply.primary.r.type = in->primary.r.type;
