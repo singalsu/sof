@@ -336,13 +336,12 @@ out:
 
 int tb_set_up_widget_base_config(struct testbench_prm *tb, struct tplg_comp_info *comp_info)
 {
-	char *config_name = "48k2c32b"; // TODO
-	int num_configs = 1; // TODO
+	char *config_name = tb->config[0].name;
 	struct tb_config *config;
 	bool config_found = false;
 	int ret, i;
 
-	for (i = 0; i < num_configs; i++) {
+	for (i = 0; i < tb->num_configs; i++) {
 		config = &tb->config[i];
 
 		if (!strcmp(config->name, config_name)) {

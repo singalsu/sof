@@ -6,9 +6,11 @@
 
 #include <sof/audio/component_ext.h>
 #include <sof/lib/notifier.h>
+#include <sof/audio/component_ext.h>
 #include <sof/schedule/edf_schedule.h>
 #include <sof/schedule/ll_schedule.h>
 #include <sof/schedule/ll_schedule_domain.h>
+#include <ipc/stream.h>
 
 #include <stdbool.h>
 #include <stdint.h>
@@ -32,6 +34,8 @@ LOG_MODULE_REGISTER(testbench, CONFIG_SOF_LOG_LEVEL);
 int tb_setup(struct sof *sof, struct testbench_prm *tp)
 {
 	struct ll_schedule_domain domain = {0};
+	int bits;
+	int krate;
 
 	domain.next_tick = tp->tick_period_us;
 
@@ -87,18 +91,38 @@ int tb_setup(struct sof *sof, struct testbench_prm *tp)
 
 	tb_debug_print("ipc and scheduler initialized\n");
 
-	// TODO move somewhere else and integrate with command line
+	/* setup IPC4 audio format */
 	tp->num_configs = 1;
-	strcpy(tp->config[0].name, "48k2c32b");
-	tp->config[0].buffer_frames = 24000;
-	tp->config[0].buffer_time = 0;
-	tp->config[0].period_frames = 6000;
-	tp->config[0].period_time = 0;
-	tp->config[0].rate = 48000;
-	tp->config[0].channels = 2;
-	tp->config[0].format = SOF_IPC_FRAME_S32_LE;
+	krate = tp->fs_in / 1000;
+	switch (tp->frame_fmt) {
+	case SOF_IPC_FRAME_S16_LE:
+		bits = 16;
+		break;
+	case SOF_IPC_FRAME_S24_4LE:
+		bits = 24;
+		break;
+	case SOF_IPC_FRAME_S32_LE:
+		bits = 32;
+		break;
+	default:
+		fprintf(stderr, "error: unsupported frame format %d\n", tp->frame_fmt);
+		return -EINVAL;
+	}
 
-	tp->period_size = 96;	// FIXME becomes somehow obs in tb_match_audio_format()
+	/* TODO 44.1 kHz like rates */
+	snprintf(tp->config[0].name, TB_MAX_CONFIG_NAME_SIZE, "%dk%dc%db",
+		 krate, tp->channels_in, bits);
+	tp->num_configs = 1;
+	tp->config[0].buffer_frames = 2 * krate;
+	tp->config[0].buffer_time = 0;
+	tp->config[0].period_frames = krate;
+	tp->config[0].period_time = 0;
+	tp->config[0].rate = tp->fs_in;
+	tp->config[0].channels = tp->channels_in;
+	tp->config[0].format = tp->frame_fmt;
+	tp->period_size = 2 * krate;
+
+	/* TODO used for what? determine from topology and enabled pipelines if need */
 	tp->pcm_id = 0;
 
 	return 0;
