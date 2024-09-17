@@ -32,7 +32,6 @@ int tb_load_topology(struct testbench_prm *tp)
 	ctx->core_id = 0;
 	ctx->sof = sof_get();
 	ctx->tplg_file = tp->tplg_file;
-	ctx->ipc_major = tp->ipc_version;
 
 	/* parse topology file and create pipeline */
 	ret = tb_parse_topology(tp);

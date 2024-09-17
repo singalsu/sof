@@ -659,6 +659,8 @@ int tb_parse_topology(struct testbench_prm *tb)
 	FILE *file;
 	size_t size;
 
+	ctx->ipc_major = 3;
+
 	/* open topology file */
 	file = fopen(ctx->tplg_file, "rb");
 	if (!file) {
