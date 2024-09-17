@@ -95,7 +95,6 @@ struct testbench_prm {
 	uint32_t channels_in;
 	uint32_t channels_out;
 	enum sof_ipc_frame frame_fmt;
-	int ipc_version;
 
 	/* topology */
 	struct tplg_context tplg;

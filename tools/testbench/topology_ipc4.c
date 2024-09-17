@@ -875,12 +875,9 @@ static inline int tb_insert_comp(struct testbench_prm *tp)
 	comp_info->pipeline_id = ctx->pipeline_id;
 	ctx->current_comp_info = comp_info;
 
-	// TODO IPC3
-	if (ctx->ipc_major == 4) {
-		ret = tb_parse_ipc4_comp_tokens(tp, &comp_info->basecfg);
-		if (ret < 0)
-			goto sname_err;
-	}
+	ret = tb_parse_ipc4_comp_tokens(tp, &comp_info->basecfg);
+	if (ret < 0)
+		goto sname_err;
 
 	list_item_append(&comp_info->item, &tp->widget_list);
 
@@ -1022,6 +1019,8 @@ int tb_parse_topology(struct testbench_prm *tb)
 	int i;
 	int ret = 0;
 	FILE *file;
+
+	ctx->ipc_major = 4;
 
 	/* open topology file */
 	file = fopen(ctx->tplg_file, "rb");
