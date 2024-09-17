@@ -606,18 +606,21 @@ int tb_new_aif_in_out(struct testbench_prm *tb, int dir)
 		file->config.channels = tb->channels_in;
 		file->config.frame_fmt = tb->frame_fmt;
 		file->config.direction = dir;
-		if (tb->input_file_index >= tb->input_file_num) {
-			fprintf(stderr, "error: not enough input files\n");
-			return -EINVAL;
-		}
 
-		file->config.fn = tb->input_file[tb->input_file_index];
 		comp_info->instance_id = tb->instance_ids[SND_SOC_TPLG_DAPM_AIF_IN]++;
 		comp_info->module_id = 0x9a;
-		tb->fr[tb->input_file_index].id = comp_info->module_id;
-		tb->fr[tb->input_file_index].instance_id = comp_info->instance_id;
-		tb->fr[tb->input_file_index].pipeline_id = ctx->pipeline_id;
-		tb->input_file_index++;
+		if (tb_is_pipeline_enabled(tb, ctx->pipeline_id)) {
+			if (tb->input_file_index >= tb->input_file_num) {
+				fprintf(stderr, "error: not enough input files for aif\n");
+				return -EINVAL;
+			}
+			file->config.fn = tb->input_file[tb->input_file_index];
+			tb->fr[tb->input_file_index].id = comp_info->module_id;
+			tb->fr[tb->input_file_index].instance_id = comp_info->instance_id;
+			tb->fr[tb->input_file_index].pipeline_id = ctx->pipeline_id;
+			tb->input_file_index++;
+		}
+
 		tb_setup_widget_ipc_msg(comp_info);
 	} else {
 		file = (struct ipc4_file_module_cfg *)comp_info->ipc_payload;
@@ -626,18 +629,20 @@ int tb_new_aif_in_out(struct testbench_prm *tb, int dir)
 		file->config.channels = tb->channels_out;
 		file->config.frame_fmt = tb->frame_fmt;
 		file->config.direction = dir;
-		if (tb->output_file_index >= tb->output_file_num) {
-			fprintf(stderr, "error: not enough output files\n");
-			return -EINVAL;
-		}
 
-		file->config.fn = tb->output_file[tb->output_file_index];
 		comp_info->instance_id = tb->instance_ids[SND_SOC_TPLG_DAPM_AIF_OUT]++;
 		comp_info->module_id = 0x9b;
-		tb->fw[tb->output_file_index].id = comp_info->module_id;
-		tb->fw[tb->output_file_index].instance_id = comp_info->instance_id;
-		tb->fw[tb->output_file_index].pipeline_id = ctx->pipeline_id;
-		tb->output_file_index++;
+		if (tb_is_pipeline_enabled(tb, ctx->pipeline_id)) {
+			if (tb->output_file_index >= tb->output_file_num) {
+				fprintf(stderr, "error: not enough output files for aif\n");
+				return -EINVAL;
+			}
+			file->config.fn = tb->output_file[tb->output_file_index];
+			tb->fw[tb->output_file_index].id = comp_info->module_id;
+			tb->fw[tb->output_file_index].instance_id = comp_info->instance_id;
+			tb->fw[tb->output_file_index].pipeline_id = ctx->pipeline_id;
+			tb->output_file_index++;
+		}
 		tb_setup_widget_ipc_msg(comp_info);
 	}
 
@@ -669,18 +674,20 @@ int tb_new_dai_in_out(struct testbench_prm *tb, int dir)
 		file->config.channels = tb->channels_out;
 		file->config.frame_fmt = tb->frame_fmt;
 		file->config.direction = dir;
-		if (tb->output_file_index >= tb->output_file_num) {
-			fprintf(stderr, "error: not enough output files\n");
-			return -EINVAL;
-		}
 
-		file->config.fn = tb->output_file[tb->output_file_index];
 		comp_info->instance_id = tb->instance_ids[SND_SOC_TPLG_DAPM_DAI_OUT]++;
 		comp_info->module_id = 0x9c;
-		tb->fw[tb->output_file_index].id = comp_info->module_id;
-		tb->fw[tb->output_file_index].instance_id = comp_info->instance_id;
-		tb->fw[tb->output_file_index].pipeline_id = ctx->pipeline_id;
-		tb->output_file_index++;
+		if (tb_is_pipeline_enabled(tb, ctx->pipeline_id)) {
+			if (tb->output_file_index >= tb->output_file_num) {
+				fprintf(stderr, "error: not enough output files for dai\n");
+				return -EINVAL;
+			}
+			file->config.fn = tb->output_file[tb->output_file_index];
+			tb->fw[tb->output_file_index].id = comp_info->module_id;
+			tb->fw[tb->output_file_index].instance_id = comp_info->instance_id;
+			tb->fw[tb->output_file_index].pipeline_id = ctx->pipeline_id;
+			tb->output_file_index++;
+		}
 		tb_setup_widget_ipc_msg(comp_info);
 	} else {
 		file = (struct ipc4_file_module_cfg *)comp_info->ipc_payload;
@@ -689,18 +696,20 @@ int tb_new_dai_in_out(struct testbench_prm *tb, int dir)
 		file->config.channels = tb->channels_in;
 		file->config.frame_fmt = tb->frame_fmt;
 		file->config.direction = dir;
-		if (tb->input_file_index >= tb->input_file_num) {
-			fprintf(stderr, "error: not enough input files\n");
-			return -EINVAL;
-		}
 
-		file->config.fn = tb->input_file[tb->input_file_index];
 		comp_info->instance_id = tb->instance_ids[SND_SOC_TPLG_DAPM_DAI_IN]++;
 		comp_info->module_id = 0x9d;
-		tb->fr[tb->input_file_index].id = comp_info->module_id;
-		tb->fr[tb->input_file_index].instance_id = comp_info->instance_id;
-		tb->fr[tb->input_file_index].pipeline_id = ctx->pipeline_id;
-		tb->input_file_index++;
+		if (tb_is_pipeline_enabled(tb, ctx->pipeline_id)) {
+			if (tb->input_file_index >= tb->input_file_num) {
+				fprintf(stderr, "error: not enough input files for dai\n");
+				return -EINVAL;
+			}
+			file->config.fn = tb->input_file[tb->input_file_index];
+			tb->fr[tb->input_file_index].id = comp_info->module_id;
+			tb->fr[tb->input_file_index].instance_id = comp_info->instance_id;
+			tb->fr[tb->input_file_index].pipeline_id = ctx->pipeline_id;
+			tb->input_file_index++;
+		}
 		tb_setup_widget_ipc_msg(comp_info);
 	}
 
