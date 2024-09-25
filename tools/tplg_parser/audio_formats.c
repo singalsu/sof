@@ -41,8 +41,8 @@ static const struct sof_topology_token ipc4_in_audio_format_tokens[] = {
 	 offsetof(struct sof_ipc4_pin_format, audio_fmt.interleaving_style)},
 	{SOF_TKN_CAVS_AUDIO_FORMAT_IN_FMT_CFG, SND_SOC_TPLG_TUPLE_TYPE_WORD,
 	 tplg_token_get_uint32_t, offsetof(struct sof_ipc4_pin_format, audio_fmt.fmt_cfg)},
-	{SOF_TKN_CAVS_AUDIO_FORMAT_INPUT_PIN_INDEX, SND_SOC_TPLG_TUPLE_TYPE_WORD,
-	 tplg_token_get_uint32_t, offsetof(struct sof_ipc4_pin_format, pin_index)},
+	//{SOF_TKN_CAVS_AUDIO_FORMAT_INPUT_PIN_INDEX, SND_SOC_TPLG_TUPLE_TYPE_WORD,
+	// tplg_token_get_uint32_t, offsetof(struct sof_ipc4_pin_format, pin_index)},
 	{SOF_TKN_CAVS_AUDIO_FORMAT_IBS, SND_SOC_TPLG_TUPLE_TYPE_WORD,
 	 tplg_token_get_uint32_t, offsetof(struct sof_ipc4_pin_format, buffer_size)},
 };
@@ -62,8 +62,8 @@ static const struct sof_topology_token ipc4_out_audio_format_tokens[] = {
 	 offsetof(struct sof_ipc4_pin_format, audio_fmt.interleaving_style)},
 	{SOF_TKN_CAVS_AUDIO_FORMAT_OUT_FMT_CFG, SND_SOC_TPLG_TUPLE_TYPE_WORD,
 	 tplg_token_get_uint32_t, offsetof(struct sof_ipc4_pin_format, audio_fmt.fmt_cfg)},
-	{SOF_TKN_CAVS_AUDIO_FORMAT_OUTPUT_PIN_INDEX, SND_SOC_TPLG_TUPLE_TYPE_WORD,
-	 tplg_token_get_uint32_t, offsetof(struct sof_ipc4_pin_format, pin_index)},
+	//{SOF_TKN_CAVS_AUDIO_FORMAT_OUTPUT_PIN_INDEX, SND_SOC_TPLG_TUPLE_TYPE_WORD,
+	 //tplg_token_get_uint32_t, offsetof(struct sof_ipc4_pin_format, pin_index)},
 	{SOF_TKN_CAVS_AUDIO_FORMAT_OBS, SND_SOC_TPLG_TUPLE_TYPE_WORD, tplg_token_get_uint32_t,
 	 offsetof(struct sof_ipc4_pin_format, buffer_size)},
 };
