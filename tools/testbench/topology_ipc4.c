@@ -821,9 +821,9 @@ int tb_new_process(struct testbench_prm *tp)
 	comp_info->instance_id = tp->instance_ids[SND_SOC_TPLG_DAPM_EFFECT]++;
 	comp_info->module_id = TB_PROCESS_MODULE_ID;
 
-	/* skip kcontrols for now, set object to NULL */
+	/* set up kcontrols */
 	ret = tplg_create_controls(ctx, ctx->widget->num_kcontrols, tplg_ctl,
-				   ctx->hdr->payload_size, NULL);
+				   ctx->hdr->payload_size, comp_info);
 	if (ret < 0) {
 		fprintf(stderr, "error: loading controls\n");
 		goto out;
