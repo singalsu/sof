@@ -9,6 +9,7 @@
 #if CONFIG_IPC_MAJOR_4
 
 #include <ipc4/header.h>
+#include <kernel/header.h>
 #include <tplg_parser/tokens.h>
 #include <tplg_parser/topology.h>
 #include <stdio.h>
@@ -1030,6 +1031,53 @@ static int tb_load_widget(struct testbench_prm *tp)
 	return 0;
 }
 
+/* helper function to add new kcontrols to the list of kcontrols */
+static int tb_kcontrol_cb_new(struct snd_soc_tplg_ctl_hdr *tplg_ctl,
+			      void *comp, void *arg, int index)
+{
+	struct tplg_comp_info *comp_info = comp;
+	struct testbench_prm *tp = arg;
+	struct tb_glb_state *glb = &tp->glb_ctx;
+	struct tb_ctl *ctl;
+
+	if (glb->num_ctls >= TB_MAX_CTLS) {
+		fprintf(stderr, "Error: Too many controls already.\n");
+		return -EINVAL;
+	}
+
+	switch (tplg_ctl->ops.info) {
+	case SND_SOC_TPLG_CTL_VOLSW:
+	case SND_SOC_TPLG_CTL_VOLSW_SX:
+	case SND_SOC_TPLG_CTL_VOLSW_XR_SX:
+	case SND_SOC_TPLG_CTL_ENUM:
+	case SND_SOC_TPLG_CTL_ENUM_VALUE:
+	case SND_SOC_TPLG_CTL_RANGE:
+	case SND_SOC_TPLG_CTL_STROBE:
+		fprintf(stderr, "Warning: Not supported ctl type %d\n", tplg_ctl->type);
+		return 0;
+	case SND_SOC_TPLG_CTL_BYTES:
+	{
+		struct snd_soc_tplg_bytes_control *tplg_bytes =
+			(struct snd_soc_tplg_bytes_control *)tplg_ctl;
+
+		glb->size += sizeof(struct tb_ctl);
+		ctl = &glb->ctl[glb->num_ctls++];
+		ctl->module_id = comp_info->module_id;
+		ctl->instance_id = comp_info->instance_id;
+		ctl->bytes_ctl = *tplg_bytes;
+		ctl->index = index;
+		ctl->type = tplg_ctl->type;
+		memcpy(ctl->data, tplg_bytes->priv.data, tplg_bytes->priv.size);
+		break;
+	}
+	default:
+		fprintf(stderr, "Error: Invalid ctl type %d\n", tplg_ctl->type);
+		return -EINVAL;
+	}
+
+	return 0;
+}
+
 /* parse topology file and set up pipeline */
 int tb_parse_topology(struct testbench_prm *tp)
 
@@ -1042,6 +1090,13 @@ int tb_parse_topology(struct testbench_prm *tp)
 	FILE *file;
 
 	ctx->ipc_major = 4;
+	ctx->ctl_arg = tp;
+	ctx->ctl_cb = tb_kcontrol_cb_new;
+	tp->glb_ctx.ctl = calloc(TB_MAX_CTLS, sizeof(struct tb_ctl));
+	if (!tp->glb_ctx.ctl) {
+		fprintf(stderr, "error: failed to allocate for controls.\n");
+		return -ENOMEM;
+	}
 
 	/* open topology file */
 	file = fopen(ctx->tplg_file, "rb");
@@ -1313,6 +1368,62 @@ int tb_free_route(struct testbench_prm *tp, struct tplg_route_info *route_info)
 	}
 
 	tplg_debug("route %s -> %s freed\n", src_comp_info->name, sink_comp_info->name);
+
+	return 0;
+}
+
+static void tb_ctl_ipc_message(struct ipc4_module_large_config *config, int param_id,
+			       size_t size, uint32_t module_id, uint32_t instance_id,
+			       uint32_t type)
+{
+	config->primary.r.type = type;
+	config->primary.r.msg_tgt = SOF_IPC4_MESSAGE_TARGET_MODULE_MSG;
+	config->primary.r.rsp = SOF_IPC4_MESSAGE_DIR_MSG_REQUEST;
+	config->primary.r.module_id = module_id;
+	config->primary.r.instance_id = instance_id;
+
+	config->extension.r.data_off_size = size;
+	config->extension.r.large_param_id = param_id;
+}
+
+int tb_send_bytes_data(struct tb_mq_desc *ipc_tx, struct tb_mq_desc *ipc_rx,
+		       uint32_t module_id, uint32_t instance_id, struct sof_abi_hdr *abi)
+{
+	struct ipc4_module_large_config config = {{ 0 }};
+	struct ipc4_message_reply reply;
+	void *msg;
+	int msg_size;
+	int err;
+
+	/* configure the IPC message */
+	tb_ctl_ipc_message(&config, abi->type, abi->size, module_id, instance_id,
+			   SOF_IPC4_MOD_LARGE_CONFIG_SET);
+
+	config.extension.r.final_block = 1;
+	config.extension.r.init_block = 1;
+
+	/* allocate memory for IPC message */
+	msg_size = sizeof(config) + abi->size;
+	msg = calloc(msg_size, 1);
+	if (!msg)
+		return -ENOMEM;
+
+	/* set the IPC message data */
+	memcpy(msg, &config, sizeof(config));
+	memcpy(msg + sizeof(config), abi->data, abi->size);
+
+	/* send the message and check status */
+	err = tb_mq_cmd_tx_rx(ipc_tx, ipc_rx, msg, msg_size, &reply, sizeof(reply));
+	free(msg);
+	if (err < 0) {
+		fprintf(stderr, "Error: Failed to send IPC to set bytes data.\n");
+		return err;
+	}
+
+	if (reply.primary.r.status != IPC4_SUCCESS) {
+		fprintf(stderr, "Error: Failed with status %d.\n", reply.primary.r.status);
+		return -EINVAL;
+	}
 
 	return 0;
 }
