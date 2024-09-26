@@ -446,13 +446,14 @@ static int tb_new_src(struct testbench_prm *tp)
 		return -ENOMEM;
 
 	/* use base config variant with uuid */
-	comp_info->ipc_size = sizeof(struct ipc4_base_module_cfg_with_uuid);
+	comp_info->ipc_size = sizeof(struct ipc4_base_module_cfg) + sizeof(struct sof_uuid);
 	comp_info->ipc_payload = calloc(comp_info->ipc_size, 1);
 	if (!comp_info->ipc_payload)
 		return -ENOMEM;
 
 	comp_info->instance_id = tp->instance_ids[SND_SOC_TPLG_DAPM_EFFECT]++;
-	comp_info->module_id = TB_PROCESS_COMP_WITH_UUID_ID;
+	comp_info->module_id = TB_PROCESS_MODULE_ID;
+;
 
 	/* skip kcontrols for now, set object to NULL */
 	ret = tplg_create_controls(ctx, ctx->widget->num_kcontrols, tplg_ctl,
@@ -463,6 +464,9 @@ static int tb_new_src(struct testbench_prm *tp)
 	}
 
 	tb_setup_widget_ipc_msg(comp_info);
+	/* copy uuid to the end of the payload */
+	memcpy(comp_info->ipc_payload + sizeof(struct ipc4_base_module_cfg), &comp_info->uuid,
+	       sizeof(struct sof_uuid));
 
 out:
 	free(tplg_ctl);
@@ -656,7 +660,7 @@ int tb_new_aif_in_out(struct testbench_prm *tp, int dir)
 	}
 
 	tb_setup_widget_ipc_msg(comp_info);
-	memcpy(comp_info->ipc_payload + sizeof(ipc4_file_module_cfg), &file_uuid,
+	memcpy(comp_info->ipc_payload + sizeof(struct ipc4_file_module_cfg), &file_uuid,
 	       sizeof(struct sof_uuid));
 	return 0;
 }
@@ -726,7 +730,7 @@ int tb_new_dai_in_out(struct testbench_prm *tp, int dir)
 	}
 
 	tb_setup_widget_ipc_msg(comp_info);
-	memcpy(comp_info->ipc_payload + sizeof(ipc4_file_module_cfg), &file_uuid,
+	memcpy(comp_info->ipc_payload + sizeof(struct ipc4_file_module_cfg), &file_uuid,
 	       sizeof(struct sof_uuid));
 	return 0;
 }
