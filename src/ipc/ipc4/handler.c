@@ -1213,6 +1213,8 @@ static int ipc4_set_large_config_module_instance(struct ipc4_message_request *ip
 	struct comp_dev *dev = NULL;
 	const struct comp_driver *drv;
 	int ret = memcpy_s(&config, sizeof(config), ipc4, sizeof(*ipc4));
+	struct ipc_comp_dev *icd;
+	int comp_id;
 
 	if (ret < 0)
 		return IPC4_FAILURE;
@@ -1222,10 +1224,13 @@ static int ipc4_set_large_config_module_instance(struct ipc4_message_request *ip
 	tr_dbg(&ipc_tr, "ipc4_set_large_config_module_instance %x : %x",
 	       (uint32_t)config.primary.r.module_id, (uint32_t)config.primary.r.instance_id);
 
-	drv = ipc4_get_comp_drv(config.primary.r.module_id);
-	if (!drv)
+	comp_id = IPC4_COMP_ID(config.primary.r.module_id,
+			       config.primary.r.instance_id);
+	icd = ipc_get_comp_by_id(sof_get()->ipc, comp_id);
+	if (!icd)
 		return IPC4_MOD_INVALID_ID;
 
+	drv = icd->cd->drv;
 	if (!drv->ops.set_large_config)
 		return IPC4_INVALID_REQUEST;
 
