@@ -10,7 +10,7 @@
 #include "testbench/utils.h"
 
 #define TB_IPC4_MAX_TPLG_OBJECT_SIZE	4096
-#define TB_IPC4_MAX_MSG_SIZE		384
+#define TB_IPC4_MAX_MSG_SIZE		4096
 
 int tb_delete_pipeline(struct testbench_prm *tp, struct tplg_pipeline_info *pipe_info);
 int tb_free_all_pipelines(struct testbench_prm *tp);
