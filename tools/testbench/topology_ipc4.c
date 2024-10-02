@@ -436,6 +436,8 @@ static int tb_new_src(struct testbench_prm *tp)
 	struct tplg_context *ctx = &tp->tplg;
 	struct tplg_comp_info *comp_info = ctx->current_comp_info;
 	struct snd_soc_tplg_ctl_hdr *tplg_ctl;
+	struct ipc4_config_src *src;
+	size_t uuid_offset;
 	int ret;
 
 	ret = tplg_parse_widget_audio_formats(ctx);
@@ -446,15 +448,23 @@ static int tb_new_src(struct testbench_prm *tp)
 	if (!tplg_ctl)
 		return -ENOMEM;
 
-	/* use base config variant with uuid */
-	comp_info->ipc_size = sizeof(struct ipc4_base_module_cfg) + sizeof(struct sof_uuid);
+	comp_info->ipc_size = sizeof(struct ipc4_config_src_param);
+	comp_info->ipc_size += sizeof(struct ipc4_base_module_cfg);
+	uuid_offset = comp_info->ipc_size;
+	comp_info->ipc_size += sizeof(struct sof_uuid);
 	comp_info->ipc_payload = calloc(comp_info->ipc_size, 1);
 	if (!comp_info->ipc_payload)
 		return -ENOMEM;
 
 	comp_info->instance_id = tp->instance_ids[SND_SOC_TPLG_DAPM_EFFECT]++;
-	comp_info->module_id = TB_PROCESS_MODULE_ID;
-;
+	comp_info->module_id = TB_SRC_MODULE_ID;
+
+	ret = tplg_new_src(ctx, &src, sizeof(struct ipc4_config_src_param),
+			   tplg_ctl, ctx->hdr->payload_size);
+	if (ret < 0) {
+		fprintf(stderr, "error: failed to create SRC\n");
+		goto out;
+	}
 
 	/* skip kcontrols for now, set object to NULL */
 	ret = tplg_create_controls(ctx, ctx->widget->num_kcontrols, tplg_ctl,
@@ -464,10 +474,14 @@ static int tb_new_src(struct testbench_prm *tp)
 		goto out;
 	}
 
-	tb_setup_widget_ipc_msg(comp_info);
+	/* copy volume data to ipc_payload */
+	memcpy(comp_info->ipc_payload + sizeof(struct ipc4_base_module_cfg),
+	       &src, sizeof(struct ipc4_config_src_param));
+
 	/* copy uuid to the end of the payload */
-	memcpy(comp_info->ipc_payload + sizeof(struct ipc4_base_module_cfg), &comp_info->uuid,
-	       sizeof(struct sof_uuid));
+	memcpy(comp_info->ipc_payload + uuid_offset, &comp_info->uuid, sizeof(struct sof_uuid));
+
+	tb_setup_widget_ipc_msg(comp_info);
 
 out:
 	free(tplg_ctl);

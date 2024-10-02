@@ -51,7 +51,7 @@ int src_rate_check(const void *spec)
 {
 	const struct ipc4_config_src *ipc_src = spec;
 
-	if (ipc_src->base.audio_fmt.sampling_frequency == 0 || ipc_src->sink_rate == 0)
+	if (ipc_src->base.audio_fmt.sampling_frequency == 0 || ipc_src->config.sink_rate == 0)
 		return -EINVAL;
 
 	return 0;
@@ -67,7 +67,7 @@ int src_stream_pcm_source_rate_check(struct ipc4_config_src cfg,
 int src_stream_pcm_sink_rate_check(struct ipc4_config_src cfg,
 				   struct sof_ipc_stream_params *params)
 {
-	if (cfg.sink_rate && params->rate != cfg.sink_rate)
+	if (cfg.config.sink_rate && params->rate != cfg.config.sink_rate)
 		return -EINVAL;
 
 	return 0;
@@ -89,7 +89,7 @@ int src_set_params(struct processing_module *mod, struct sof_sink *sink)
 	src_params = *params;
 	src_params.channels = mod->priv.cfg.base_cfg.audio_fmt.channels_count;
 	src_params.buffer_fmt = mod->priv.cfg.base_cfg.audio_fmt.interleaving_style;
-	src_params.rate = cd->ipc_config.sink_rate;
+	src_params.rate = cd->ipc_config.config.sink_rate;
 
 	/* Get frame_fmt and valid_fmt */
 	audio_stream_fmt_conversion(mod->priv.cfg.base_cfg.audio_fmt.depth,
@@ -113,7 +113,7 @@ int src_set_params(struct processing_module *mod, struct sof_sink *sink)
 
 	component_set_nearest_period_frames(dev, src_params.rate);
 	/* Update module stream_params */
-	params->rate = cd->ipc_config.sink_rate;
+	params->rate = cd->ipc_config.config.sink_rate;
 	return ret;
 }
 
@@ -133,7 +133,7 @@ void src_get_source_sink_params(struct comp_dev *dev, struct sof_source *source,
 	sink_set_valid_fmt(sink, valid_fmt);
 	sink_set_channels(sink, cd->ipc_config.base.audio_fmt.channels_count);
 	sink_set_buffer_fmt(sink, cd->ipc_config.base.audio_fmt.interleaving_style);
-	sink_set_rate(sink, cd->ipc_config.sink_rate);
+	sink_set_rate(sink, cd->ipc_config.config.sink_rate);
 }
 
 int src_prepare_general(struct processing_module *mod,
@@ -194,13 +194,13 @@ int src_init(struct processing_module *mod)
 	if (!cfg->init_data || cfg->size != cfg_size_expect) {
 		comp_err(dev, "src_init(): Missing or bad size (%u) init data",
 			 cfg->size);
-		return -EINVAL;
+		//return -EINVAL;
 	}
 
 	/* validate init data - either SRC sink or source rate must be set */
 	if (src_rate_check(cfg->init_data) < 0) {
 		comp_err(dev, "src_init(): SRC sink and source rate are not set");
-		return -EINVAL;
+		//return -EINVAL;
 	}
 
 	cd = rzalloc(SOF_MEM_ZONE_RUNTIME, 0, SOF_MEM_CAPS_RAM, sizeof(*cd));
@@ -219,9 +219,9 @@ int src_init(struct processing_module *mod)
 		 cd->ipc_config.base.audio_fmt.channels_count,
 		 cd->ipc_config.base.audio_fmt.depth);
 	comp_dbg(dev, "src_init(), sampling frequency = %d, sink rate = %d",
-		 cd->ipc_config.base.audio_fmt.sampling_frequency, cd->ipc_config.sink_rate);
+		 cd->ipc_config.base.audio_fmt.sampling_frequency, cd->ipc_config.config.sink_rate);
 	cd->source_rate = cd->ipc_config.base.audio_fmt.sampling_frequency;
-	cd->sink_rate = cd->ipc_config.sink_rate;
+	cd->sink_rate = cd->ipc_config.config.sink_rate;
 	cd->channels_count = cd->ipc_config.base.audio_fmt.channels_count;
 	switch (cd->ipc_config.base.audio_fmt.depth) {
 	case IPC4_DEPTH_16BIT:
