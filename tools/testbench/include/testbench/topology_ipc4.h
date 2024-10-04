@@ -10,7 +10,13 @@
 #include "testbench/utils.h"
 
 #define TB_IPC4_MAX_TPLG_OBJECT_SIZE	4096
-#define TB_IPC4_MAX_MSG_SIZE		384
+
+/* See module_set_large_config() where message fragment is
+ * MAILBOX_DSPBOX_SIZE. The add of header size (8) is because
+ * testbench and plugin have the set large config header in
+ * same memory as the payload.
+ */
+#define TB_IPC4_MAX_MSG_SIZE	(MAILBOX_DSPBOX_SIZE + sizeof(struct ipc4_module_large_config))
 
 #define TB_MIXIN_MODULE_ID		0x2
 #define TB_MIXOUT_MODULE_ID		0x3

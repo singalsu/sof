@@ -1553,7 +1553,7 @@ int tb_free_route(struct testbench_prm *tp, struct tplg_route_info *route_info)
 }
 
 static void tb_ctl_ipc_message(struct ipc4_module_large_config *config, int param_id,
-			       size_t size, uint32_t module_id, uint32_t instance_id,
+			       size_t offset_or_size, uint32_t module_id, uint32_t instance_id,
 			       uint32_t type)
 {
 	config->primary.r.type = type;
@@ -1562,7 +1562,7 @@ static void tb_ctl_ipc_message(struct ipc4_module_large_config *config, int para
 	config->primary.r.module_id = module_id;
 	config->primary.r.instance_id = instance_id;
 
-	config->extension.r.data_off_size = size;
+	config->extension.r.data_off_size = offset_or_size;
 	config->extension.r.large_param_id = param_id;
 }
 
@@ -1572,40 +1572,65 @@ int tb_send_bytes_data(struct tb_mq_desc *ipc_tx, struct tb_mq_desc *ipc_rx,
 	struct ipc4_module_large_config config = {{ 0 }};
 	struct ipc4_message_reply reply;
 	void *msg;
-	int msg_size;
-	int err;
-
-	/* configure the IPC message */
-	tb_ctl_ipc_message(&config, abi->type, abi->size, module_id, instance_id,
-			   SOF_IPC4_MOD_LARGE_CONFIG_SET);
-
-	config.extension.r.final_block = 1;
-	config.extension.r.init_block = 1;
+	int ret;
+	size_t chunk_size;
+	size_t msg_size;
+	size_t msg_size_full = sizeof(config) + abi->size;
+	size_t remaining = abi->size;
+	size_t payload_limit = TB_IPC4_MAX_MSG_SIZE - sizeof(config);
+	size_t offset = 0;
 
 	/* allocate memory for IPC message */
-	msg_size = sizeof(config) + abi->size;
+	msg_size = MIN(msg_size_full, TB_IPC4_MAX_MSG_SIZE);
 	msg = calloc(msg_size, 1);
 	if (!msg)
 		return -ENOMEM;
 
-	/* set the IPC message data */
-	memcpy(msg, &config, sizeof(config));
-	memcpy(msg + sizeof(config), abi->data, abi->size);
+	config.extension.r.init_block = 1;
 
-	/* send the message and check status */
-	err = tb_mq_cmd_tx_rx(ipc_tx, ipc_rx, msg, msg_size, &reply, sizeof(reply));
+	/* configure the IPC message */
+	tb_ctl_ipc_message(&config, abi->type, remaining, module_id, instance_id,
+			   SOF_IPC4_MOD_LARGE_CONFIG_SET);
+
+	do {
+		if (remaining > payload_limit) {
+			chunk_size = payload_limit;
+		} else {
+			chunk_size = remaining;
+			config.extension.r.final_block = 1;
+		}
+
+		if (offset) {
+			config.extension.r.init_block = 0;
+			tb_ctl_ipc_message(&config, abi->type, offset, module_id, instance_id,
+					   SOF_IPC4_MOD_LARGE_CONFIG_SET);
+		}
+
+		/* set the IPC message data */
+		memcpy(msg, &config, sizeof(config));
+		memcpy(msg + sizeof(config), (char *)abi->data + offset, chunk_size);
+
+		/* send the message and check status */
+		ret = tb_mq_cmd_tx_rx(ipc_tx, ipc_rx, msg, chunk_size + sizeof(config),
+				      &reply, sizeof(reply));
+		if (ret < 0) {
+			fprintf(stderr, "Error: Failed to send IPC to set bytes data.\n");
+			goto out;
+		}
+
+		if (reply.primary.r.status != IPC4_SUCCESS) {
+			fprintf(stderr, "Error: Failed with status %d.\n", reply.primary.r.status);
+			ret = -EINVAL;
+			goto out;
+		}
+
+		offset += chunk_size;
+		remaining -= chunk_size;
+	} while (remaining);
+
+out:
 	free(msg);
-	if (err < 0) {
-		fprintf(stderr, "Error: Failed to send IPC to set bytes data.\n");
-		return err;
-	}
-
-	if (reply.primary.r.status != IPC4_SUCCESS) {
-		fprintf(stderr, "Error: Failed with status %d.\n", reply.primary.r.status);
-		return -EINVAL;
-	}
-
-	return 0;
+	return ret;
 }
 
 #endif /* CONFIG_IPC_MAJOR_4 */
