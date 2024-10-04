@@ -10,7 +10,7 @@
 #include "testbench/utils.h"
 
 #define TB_IPC4_MAX_TPLG_OBJECT_SIZE	4096
-#define TB_IPC4_MAX_MSG_SIZE		384
+#define TB_IPC4_MAX_MSG_SIZE		MAILBOX_DSPBOX_SIZE /* See module_set_large_config() */
 
 #define TB_MIXIN_MODULE_ID		0x2
 #define TB_MIXOUT_MODULE_ID		0x3

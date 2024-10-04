@@ -114,10 +114,16 @@ int module_set_large_config(struct comp_dev *dev, uint32_t param_id, bool first_
 		break;
 	case MODULE_CFG_FRAGMENT_MIDDLE:
 		fragment_size = MAILBOX_DSPBOX_SIZE;
+#if CONFIG_LIBRARY
+		fragment_size -= sizeof(struct ipc4_module_large_config);
+#endif
 		break;
 	case MODULE_CFG_FRAGMENT_FIRST:
 		md->new_cfg_size = data_offset_size;
 		fragment_size = MAILBOX_DSPBOX_SIZE;
+#if CONFIG_LIBRARY
+		fragment_size -= sizeof(struct ipc4_module_large_config);
+#endif
 		break;
 	case MODULE_CFG_FRAGMENT_LAST:
 		fragment_size = md->new_cfg_size - data_offset_size;
