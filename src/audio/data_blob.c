@@ -274,6 +274,20 @@ int comp_data_blob_set(struct comp_data_blob_handler *blob_handler,
 	blob_handler->data_pos += fragment_size;
 
 	if (pos == MODULE_CFG_FRAGMENT_SINGLE || pos == MODULE_CFG_FRAGMENT_LAST) {
+		uint32_t checksum = 0;
+		uint32_t *item = blob_handler->data_new;
+		int num_items = blob_handler->new_data_size / sizeof(uint32_t);
+		int i;
+		FILE *fh = fopen("debug2.txt", "w");
+
+		for (i = 0; i < num_items; i++) {
+			checksum += item[i];
+			fprintf(fh, "%u\n", item[i]);
+		}
+
+		fclose(fh);
+		comp_info(blob_handler->dev, "Blob data checksum = %u", checksum);
+
 		comp_dbg(blob_handler->dev, "comp_data_blob_set_cmd(): final package received");
 		if (blob_handler->validator) {
 			comp_dbg(blob_handler->dev, "comp_data_blob_set_cmd(): validating new data...");

@@ -1580,6 +1580,19 @@ int tb_send_bytes_data(struct tb_mq_desc *ipc_tx, struct tb_mq_desc *ipc_rx,
 	size_t payload_limit = TB_IPC4_MAX_MSG_SIZE - sizeof(config);
 	size_t offset = 0;
 
+	uint32_t checksum = 0;
+	int num_items = abi->size / sizeof(uint32_t);
+	int i;
+	FILE *fh = fopen("debug1.txt", "w");
+
+	for (i = 0; i < num_items; i++) {
+		checksum += abi->data[i];
+		fprintf(fh, "%u\n", abi->data[i]);
+	}
+
+	fclose(fh);
+	fprintf(stderr, "Debug: byte control checksum is %u\n", checksum);
+
 	/* allocate memory for IPC message */
 	msg_size = MIN(msg_size_full, TB_IPC4_MAX_MSG_SIZE);
 	msg = calloc(msg_size, 1);
