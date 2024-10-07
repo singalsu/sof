@@ -250,6 +250,7 @@ int comp_data_blob_set(struct comp_data_blob_handler *blob_handler,
 		blob_handler->new_data_size = data_offset_size;
 		blob_handler->data_ready = false;
 		blob_handler->data_pos = 0;
+		comp_info(blob_handler->dev, "new_data_size = %d", blob_handler->new_data_size);
 	}
 
 	/* return an error in case when we do not have allocated memory for model data */
@@ -257,6 +258,10 @@ int comp_data_blob_set(struct comp_data_blob_handler *blob_handler,
 		comp_err(blob_handler->dev, "comp_data_blob_set_cmd(): buffer not allocated");
 		return -ENOMEM;
 	}
+
+	comp_info(blob_handler->dev, "data_pos = %d, dest_size = %d, fragmend_size = %d",
+		  blob_handler->data_pos, blob_handler->new_data_size - blob_handler->data_pos,
+		  fragment_size);
 
 	ret = memcpy_s((char *)blob_handler->data_new + blob_handler->data_pos,
 		       blob_handler->new_data_size - blob_handler->data_pos,
