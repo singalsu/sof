@@ -331,10 +331,84 @@ out:
 	return 0;
 }
 
+static int tb_set_pin_formats(struct tplg_comp_info *comp_info,
+			      struct ipc4_base_module_cfg *base_cfg,
+			      struct ipc4_base_module_cfg_ext *base_cfg_ext, int pin_type)
+{
+	struct sof_ipc4_pin_format *formats_array;
+	struct sof_ipc4_pin_format *pin_format_item;
+	struct sof_ipc4_pin_format *pin_format;
+	struct sof_ipc4_pin_format *base_cfg_ext_pin_formats =
+		(struct sof_ipc4_pin_format *)base_cfg_ext->pin_formats;
+	int format_list_count;
+	int num_pins;
+	int i, j;
+	int pin_format_offset = 0;
+
+	if (pin_type == 0) {
+		num_pins = base_cfg_ext->nb_input_pins;
+		formats_array = comp_info->available_fmt.input_pin_fmts;
+		format_list_count = comp_info->available_fmt.num_input_formats;
+	} else {
+		num_pins = base_cfg_ext->nb_output_pins;
+		pin_format_offset = base_cfg_ext->nb_input_pins;
+		formats_array = comp_info->available_fmt.output_pin_fmts;
+		format_list_count = comp_info->available_fmt.num_output_formats;
+	}
+
+	for (i = pin_format_offset; i < num_pins + pin_format_offset; i++) {
+		pin_format = &base_cfg_ext_pin_formats[i];
+
+		if (i == pin_format_offset) {
+			if (pin_type == 0) {
+				pin_format->buffer_size = base_cfg->ibs;
+				/* Note: Copy "struct ipc4_audio_format" to
+				 * "struct sof_ipc4_pin_format". They are same
+				 * but separate definitions. The last member fmt_cfg
+				 * is defined with bitfields for channels_count, valid_bit_depth,
+				 * s_type, reservedin ipc4_audio_format.
+				 */
+				memcpy(&pin_format->audio_fmt, &base_cfg->audio_fmt,
+				       sizeof(pin_format->audio_fmt));
+			} else {
+				pin_format->buffer_size = base_cfg->obs;
+				/* TODO: Using workaround, need to find out how to do this. This
+				 * is copied kernel function sof_ipc4_process_set_pin_formats()
+				 * from process->output_format. It's set in
+				 * sof_ipc4_prepare_process_module().
+				 */
+				memcpy(&pin_format->audio_fmt, &base_cfg->audio_fmt,
+				       sizeof(pin_format->audio_fmt));
+			}
+			continue;
+		}
+
+		for (j = 0; j < format_list_count; j++) {
+			pin_format_item = &formats_array[j];
+			if (pin_format_item->pin_index == i - pin_format_offset) {
+				*pin_format = *pin_format_item;
+				break;
+			}
+		}
+
+		if (j == format_list_count) {
+			fprintf(stderr, "%s pin %d format not found for %s\n",
+				(pin_type == 0) ? "input" : "output",
+				i - pin_format_offset, comp_info->name);
+			return -EINVAL;
+		}
+	}
+
+	return 0;
+}
+
 int tb_set_up_widget_base_config(struct testbench_prm *tp, struct tplg_comp_info *comp_info)
 {
 	char *config_name = tp->config[0].name;
+	struct ipc4_base_module_cfg *base_cfg;
+	struct ipc4_base_module_cfg_ext *base_cfg_ext;
 	struct tb_config *config;
+	struct tplg_pins_info *pins = &comp_info->pins_info;
 	bool config_found = false;
 	int ret, i;
 
@@ -359,6 +433,16 @@ int tb_set_up_widget_base_config(struct testbench_prm *tp, struct tplg_comp_info
 
 	/* copy the basecfg into the ipc payload */
 	memcpy(comp_info->ipc_payload, &comp_info->basecfg, sizeof(struct ipc4_base_module_cfg));
+
+	/* Copy ext config for process type */
+	if (comp_info->module_id == TB_PROCESS_MODULE_ID) {
+		base_cfg = comp_info->ipc_payload;
+		base_cfg_ext = comp_info->ipc_payload + sizeof(*base_cfg);
+		base_cfg_ext->nb_input_pins = pins->num_input_pins;
+		base_cfg_ext->nb_output_pins = pins->num_output_pins;
+		tb_set_pin_formats(comp_info, base_cfg, base_cfg_ext, 0);
+		tb_set_pin_formats(comp_info, base_cfg, base_cfg_ext, 1);
+	}
 
 	return 0;
 }
@@ -829,10 +913,8 @@ int tb_new_process(struct testbench_prm *tp)
 	struct tplg_context *ctx = &tp->tplg;
 	struct tplg_comp_info *comp_info = ctx->current_comp_info;
 	struct snd_soc_tplg_ctl_hdr *tplg_ctl;
-	struct ipc4_base_module_cfg_ext *base_cfg_ext;
 	struct tplg_pins_info *pins = &comp_info->pins_info;
 	size_t ext_size;
-	size_t ext_offset;
 	size_t uuid_offset;
 	int ret;
 
@@ -849,7 +931,6 @@ int tb_new_process(struct testbench_prm *tp)
 
 	/* use base config variant with uuid */
 	comp_info->ipc_size = sizeof(struct ipc4_base_module_cfg);
-	ext_offset = comp_info->ipc_size;
 	comp_info->ipc_size += ext_size;
 	uuid_offset =  comp_info->ipc_size;
 	comp_info->ipc_size += sizeof(struct sof_uuid);
@@ -872,11 +953,6 @@ int tb_new_process(struct testbench_prm *tp)
 	}
 
 	tb_setup_widget_ipc_msg(comp_info);
-
-	/* Set ext config */
-	base_cfg_ext = comp_info->ipc_payload + ext_offset;
-	base_cfg_ext->nb_input_pins = pins->num_input_pins;
-	base_cfg_ext->nb_output_pins = pins->num_output_pins;
 
 	/* copy uuid to the end of the payload */
 	memcpy(comp_info->ipc_payload + uuid_offset, &comp_info->uuid, sizeof(struct sof_uuid));
