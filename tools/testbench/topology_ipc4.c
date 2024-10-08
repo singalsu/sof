@@ -12,6 +12,7 @@
 #include <kernel/header.h>
 #include <tplg_parser/tokens.h>
 #include <tplg_parser/topology.h>
+#include <module/ipc4/base-config.h>
 #include <stdio.h>
 #include <stdlib.h>
 
@@ -828,6 +829,11 @@ int tb_new_process(struct testbench_prm *tp)
 	struct tplg_context *ctx = &tp->tplg;
 	struct tplg_comp_info *comp_info = ctx->current_comp_info;
 	struct snd_soc_tplg_ctl_hdr *tplg_ctl;
+	struct ipc4_base_module_cfg_ext *base_cfg_ext;
+	struct tplg_pins_info *pins = &comp_info->pins_info;
+	size_t ext_size;
+	size_t ext_offset;
+	size_t uuid_offset;
 	int ret;
 
 	ret = tplg_parse_widget_audio_formats(ctx);
@@ -838,8 +844,15 @@ int tb_new_process(struct testbench_prm *tp)
 	if (!tplg_ctl)
 		return -ENOMEM;
 
+	/* Ext config size */
+	ext_size = ipc4_calc_base_module_cfg_ext_size(pins->num_input_pins, pins->num_output_pins);
+
 	/* use base config variant with uuid */
-	comp_info->ipc_size = sizeof(struct ipc4_base_module_cfg) + sizeof(struct sof_uuid);
+	comp_info->ipc_size = sizeof(struct ipc4_base_module_cfg);
+	ext_offset = comp_info->ipc_size;
+	comp_info->ipc_size += ext_size;
+	uuid_offset =  comp_info->ipc_size;
+	comp_info->ipc_size += sizeof(struct sof_uuid);
 	comp_info->ipc_payload = calloc(comp_info->ipc_size, 1);
 	if (!comp_info->ipc_payload) {
 		ret = ENOMEM;
@@ -860,9 +873,13 @@ int tb_new_process(struct testbench_prm *tp)
 
 	tb_setup_widget_ipc_msg(comp_info);
 
+	/* Set ext config */
+	base_cfg_ext = comp_info->ipc_payload + ext_offset;
+	base_cfg_ext->nb_input_pins = pins->num_input_pins;
+	base_cfg_ext->nb_output_pins = pins->num_output_pins;
+
 	/* copy uuid to the end of the payload */
-	memcpy(comp_info->ipc_payload + sizeof(struct ipc4_base_module_cfg), &comp_info->uuid,
-	       sizeof(struct sof_uuid));
+	memcpy(comp_info->ipc_payload + uuid_offset, &comp_info->uuid, sizeof(struct sof_uuid));
 
 	/* TODO: drop tplg_ctl to avoid memory leak. Need to store and handle this
 	 * to support controls.
