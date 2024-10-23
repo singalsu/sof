@@ -16,10 +16,10 @@ inline void aria_algo_calc_gain(struct aria_data *cd, size_t gain_idx,
 	/* detecting maximum value in data chunk */
 	ae_int32x2 in_sample;
 	ae_int32x2 max_data = AE_ZERO32();
+	ae_int32x2 max_data_tmp;
 	int32_t att = cd->att;
 	ae_valign inu = AE_ZALIGN64();
 	uint64_t gain = (1ULL << (att + 32)) - 1;
-	int32_t *max_ptr = (int32_t *)&max_data;
 	int32_t max;
 	int samples = frames * audio_stream_get_channels(source);
 	ae_int32x2 *in = audio_stream_get_rptr(source);
@@ -32,13 +32,14 @@ inline void aria_algo_calc_gain(struct aria_data *cd, size_t gain_idx,
 		inu = AE_LA64_PP(in);
 		for (i = 0; i < m; i++) {
 			AE_LA32X2_IP(in_sample, inu, in);
-			max_data = AE_MAXABS32S(max_data, in_sample);
+			max_data = AE_MAXABS32S(max_data, AE_SLAI32(in_sample, 8));
 		}
 		if (n & 1) {
 			AE_L32_IP(in_sample, (ae_int32 *)in, sizeof(ae_int32));
-			max_data = AE_MAXABS32S(max_data, in_sample);
+			max_data = AE_MAXABS32S(max_data, AE_SLAI32(in_sample, 8));
 		}
-		max = MAX(max_ptr[0], max_ptr[1]);
+		max_data_tmp = AE_SEL32_LH(max_data, max_data);
+		max = AE_SRAI32(AE_MAX32(max_data, max_data_tmp), 8);
 		in = audio_stream_wrap(source, in);
 		samples -= n;
 	}
@@ -93,6 +94,7 @@ static void aria_algo_get_data_odd_channel(struct processing_module *mod,
 			/*process data one by one if ch_n is odd*/
 			for (ch = 0; ch < ch_n; ch++) {
 				AE_L32_XP(in_sample, (ae_int32 *)in, inc);
+				in_sample = AE_SRAI32(AE_SLAI32(in_sample, 8), 8);
 				out1 = AE_MUL32_HH(in_sample, gain);
 				out1 = AE_SRAA64(out1, shift_bits);
 				out_sample = AE_ROUND24X2F48SSYM(out1, out1);
@@ -150,6 +152,7 @@ static void aria_algo_get_data_even_channel(struct processing_module *mod,
 			/*process 2 samples per time if ch_n is even*/
 			for (ch = 0; ch < ch_n; ch += 2) {
 				AE_LA32X2_IP(in_sample, inu, in);
+				in_sample = AE_SRAI32(AE_SLAI32(in_sample, 8), 8);
 				out1 = AE_MUL32_HH(in_sample, gain);
 				out1 = AE_SRAA64(out1, shift_bits);
 				out2 = AE_MUL32_LL(in_sample, gain);
