@@ -137,9 +137,10 @@ static int aria_init(struct processing_module *mod)
 	sgc = ibs / sgs;
 	req_mem = get_required_emory(chc, sgc);
 	att = aria->attenuation;
+	comp_dbg(dev, "aria_init(): att = %u, sgc = %d", att, sgc);
 
 	if (aria->attenuation > ARIA_MAX_ATT) {
-		comp_warn(dev, "init_aria(): Attenuation value %d must not be greater than %d",
+		comp_warn(dev, "aria_init(): Attenuation value %d must not be greater than %d",
 			  att, ARIA_MAX_ATT);
 		att = ARIA_MAX_ATT;
 	}
@@ -149,7 +150,7 @@ static int aria_init(struct processing_module *mod)
 
 	if (!buf) {
 		rfree(cd);
-		comp_err(dev, "init_aria(): allocation failed for size %d", req_mem);
+		comp_err(dev, "aria_init(): allocation failed for size %d", req_mem);
 		return -ENOMEM;
 	}
 
