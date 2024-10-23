@@ -326,8 +326,8 @@ out:
 		(fmt->audio_fmt.fmt_cfg & MASK(15, 8)) >> 8;
 	base_cfg->audio_fmt.s_type =
 		(fmt->audio_fmt.fmt_cfg & MASK(23, 16)) >> 16;
-	base_cfg->ibs = tp->period_size * 2;
-	base_cfg->obs = tp->period_size * 2;
+	base_cfg->ibs = tp->period_size * (fmt->audio_fmt.bit_depth >> 3);
+	base_cfg->obs = tp->period_size * (fmt->audio_fmt.bit_depth >> 3);
 
 	return 0;
 }
