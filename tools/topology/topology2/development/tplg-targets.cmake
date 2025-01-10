@@ -162,6 +162,16 @@ NUM_DMICS=4,PDM1_MIC_A_ENABLE=1,PDM1_MIC_B_ENABLE=1,DMIC1_ENABLE=passthrough,DMI
 PREPROCESS_PLUGINS=nhlt,NHLT_BIN=nhlt-sof-hda-generic-ace1-4ch-48k-16k.bin,\
 NUM_DMICS=4,PDM1_MIC_A_ENABLE=1,PDM1_MIC_B_ENABLE=1,DMIC1_ENABLE=passthrough,DMIC1_RATE=16000"
 
+# With 16 kHz stereo on DMIC1
+"sof-hda-generic\;sof-hda-generic-ace1-4ch-48k-1ch-16k\;HDA_CONFIG=mix,PLATFORM=mtl,\
+PREPROCESS_PLUGINS=nhlt,NHLT_BIN=nhlt-sof-hda-generic-ace1-4ch-48k-1ch-16k.bin,\
+NUM_DMICS=4,\
+PDM0_MIC_A_ENABLE=1,PDM0_MIC_B_ENABLE=1,\
+PDM1_MIC_A_ENABLE=1,PDM1_MIC_B_ENABLE=1,\
+DMIC1_ENABLE=passthrough,DMIC1_RATE=16000,DMIC1_NUM_DMICS=1,\
+DMIC1_PDM0_MIC_A_ENABLE=1,DMIC1_PDM0_MIC_B_ENABLE=0,\
+DMIC1_PDM1_MIC_A_ENABLE=0,DMIC1_PDM1_MIC_B_ENABLE=0"
+
 # With 4ch 96 kHz DMIC1 and HDA
 "sof-hda-generic\;sof-hda-generic-cavs25-4ch-48k-96k\;HDA_CONFIG=mix,\
 PREPROCESS_PLUGINS=nhlt,NHLT_BIN=nhlt-sof-hda-generic-cavs25-4ch-48k-96k.bin,\
