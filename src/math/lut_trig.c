@@ -13,6 +13,13 @@
 #define SOFM_LUT_SINE_NQUART	512		/* Must be 2^N */
 #define SOFM_LUT_SINE_SIZE	(SOFM_LUT_SINE_NQUART + 1)
 
+#if defined __XCC__
+#if XCHAL_HAVE_HIFI3
+#define SOFM_LUT_TRIG_HIFI3
+#include <xtensa/tie/xt_hifi3.h>
+#endif
+#endif
+
 /* Sine values 0 to pi/2, calculated with Octave
  *	w = linspace(0, pi/2, 513);
  *	s = 2^16;
@@ -87,6 +94,29 @@ static inline int32_t sofm_sine_lookup_16b(int idx)
 }
 
 /* Compute fixed point sine with table lookup and interpolation */
+#if SOFM_LUT_TRIG_HIFI3
+int16_t sofm_lut_sin_fixed_16b(int32_t w)
+{
+	ae_int64 p;
+	ae_int32 frac;
+	ae_int32 delta;
+	ae_int32x2 s0;
+	ae_int32 s1;
+	int idx;
+
+	/* Q4.28 x Q12.20 -> Q16.48 --> Q15.32*/
+	p = AE_SRAI64(AE_MUL32_LL(w, SOFM_LUT_SINE_C_Q20), 16);
+	idx = (int)AE_TRUNCI32F64S(p, 0); /* integer part as Q32.0 */
+	p = AE_SRLI64(AE_SLAI64(p, 32), 1); /* fraction as Q1.63 */
+	frac = AE_TRUNCI32F64S(p, 0); /* fraction as Q1.31 */
+	s0 = sofm_sine_lookup_16b(idx); /* Q1.16 */
+	s1 = sofm_sine_lookup_16b(idx + 1);
+	delta = s1 - s0; /* Q1.16 */
+	AE_MULAFP32X2RS(s0, frac, delta);
+	s0 = AE_SLAI32S(s0, 15);
+	return AE_ROUND16X4F32SASYM(s0, s0); /* Round to Q1.15 */
+}
+#else
 int16_t sofm_lut_sin_fixed_16b(int32_t w)
 {
 	int64_t idx;
@@ -107,4 +137,5 @@ int16_t sofm_lut_sin_fixed_16b(int32_t w)
 	sine = s0 + q_mults_32x32(frac, delta, Q_SHIFT_BITS_64(31, 16, 16)); /* Q1.16 */
 	return sat_int16((sine + 1) >> 1); /* Round to Q1.15 */
 }
+#endif
 EXPORT_SYMBOL(sofm_lut_sin_fixed_16b);
