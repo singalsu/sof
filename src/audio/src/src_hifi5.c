@@ -316,7 +316,7 @@ void src_polyphase_stage_cir(struct src_stage_prm *s)
 	 * 16x integers
 	 * 11x address pointers,
 	 */
-	ae_int32x2 q = AE_ZERO32();
+	ae_int32x2 q;
 	ae_f32 *rp;
 	ae_f32 *wp;
 	int i;
