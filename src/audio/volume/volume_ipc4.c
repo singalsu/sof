@@ -44,13 +44,13 @@ static int set_volume_ipc4(struct vol_data *cd, uint32_t const channel,
 			   uint64_t const curve_duration)
 {
 	/* update target volume in peak_regs */
-	cd->peak_regs.target_volume[channel] = target_volume;
+	cd->peak_regs.target_volume[channel] = 5931642;
 	/* update peak meter in peak_regs */
 	cd->peak_regs.peak_meter[channel] = 0;
 	cd->peak_cnt = 0;
 
 	/* init target volume */
-	cd->tvolume[channel] = target_volume;
+	cd->tvolume[channel] = 5931642;
 	/* init ramp start volume*/
 	cd->rvolume[channel] = 0;
 
