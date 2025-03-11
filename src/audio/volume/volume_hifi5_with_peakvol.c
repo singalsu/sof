@@ -297,31 +297,33 @@ static void vol_s32_to_s24_s32(struct processing_module *mod, struct input_strea
 			temp1 = AE_MAXABS32S(in_sample1, temp1);
 			AE_S32X2X2_XC1(temp, temp1, peakvol, inc);
 #if COMP_VOLUME_Q8_16
-			/* Q8.16 x Q1.31 << 1 -> Q9.48 */
-			mult0 = AE_MULF32S_HH(volume, in_sample);
-			mult0 = AE_SRAI64(mult0, 1);			/* Q9.47 */
-			mult1 = AE_MULF32S_LL(volume, in_sample);
-			mult1 = AE_SRAI64(mult1, 1);
-			out_sample = AE_ROUND32X2F48SSYM(mult0, mult1);	/* Q9.47 -> Q1.31 */
-
-			mult0 = AE_MULF32S_HH(volume1, in_sample1);
-			mult0 = AE_SRAI64(mult0, 1);			/* Q9.47 */
-			mult1 = AE_MULF32S_LL(volume1, in_sample1);
-			mult1 = AE_SRAI64(mult1, 1);
-			out_sample1 = AE_ROUND32X2F48SSYM(mult0, mult1);	/* Q9.47 -> Q1.31 */
-#elif COMP_VOLUME_Q1_23
-			/* Q1.23 x Q1.31 << 1 -> Q2.55 */
-			mult0 = AE_MULF32S_HH(volume, in_sample);
-			mult0 = AE_SRAI64(mult0, 8);			/* Q2.47 */
-			mult1 = AE_MULF32S_LL(volume, in_sample);
-			mult1 = AE_SRAI64(mult1, 8);
+			/* With Q1.31 x Q1.31 -> Q17.47 HiFi multiplications the result is
+			 * Q8.16 x Q1.31 << 1 >> 16 -> Q9.32,
+			 * to restore to Q17.47 needs shift left by 15.
+			 */
+			AE_MULF32X2R_HH_LL(mult0, mult1, volume, in_sample);
+			mult0 = AE_SLAI64(mult0, 15);
+			mult1 = AE_SLAI64(mult1, 15);
 			out_sample = AE_ROUND32X2F48SSYM(mult0, mult1);	/* Q2.47 -> Q1.31 */
 
-			mult0 = AE_MULF32S_HH(volume1, in_sample1);
-			mult0 = AE_SRAI64(mult0, 8);			/* Q2.47 */
-			mult1 = AE_MULF32S_LL(volume1, in_sample1);
-			mult1 = AE_SRAI64(mult1, 8);
-			out_sample1 = AE_ROUND32X2F48SSYM(mult0, mult1);	/* Q2.47 -> Q1.31 */
+			AE_MULF32X2R_HH_LL(mult0, mult1, volume1, in_sample1);
+			mult0 = AE_SLAI64(mult0, 15);
+			mult1 = AE_SLAI64(mult1, 15);
+			out_sample1 = AE_ROUND32X2F48SSYM(mult0, mult1); /* Q2.47 -> Q1.31 */
+#elif COMP_VOLUME_Q1_23
+			/* With Q1.31 x Q1.31 -> Q17.47 HiFi multiplications the result is
+			 * Q1.23 x Q1.31 << 1 >> 16 -> Q2.39,
+			 * to restore to Q17.47 needs shift left by 8.
+			 */
+			AE_MULF32X2R_HH_LL(mult0, mult1, volume, in_sample);
+			mult0 = AE_SLAI64(mult0, 8);
+			mult1 = AE_SLAI64(mult1, 8);
+			out_sample = AE_ROUND32X2F48SSYM(mult0, mult1);	/* Q2.47 -> Q1.31 */
+
+			AE_MULF32X2R_HH_LL(mult0, mult1, volume1, in_sample1);
+			mult0 = AE_SLAI64(mult0, 8);
+			mult1 = AE_SLAI64(mult1, 8);
+			out_sample1 = AE_ROUND32X2F48SSYM(mult0, mult1); /* Q2.47 -> Q1.31 */
 #else
 #error "Need CONFIG_COMP_VOLUME_Qx_y"
 #endif
