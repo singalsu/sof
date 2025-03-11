@@ -21,6 +21,13 @@ LOG_MODULE_DECLARE(volume, CONFIG_SOF_LOG_LEVEL);
 
 #include "volume.h"
 
+/* With Q1.31 x Q1.31 -> Q17.47 HiFi multiplications the result is
+ * Q8.16 x Q1.31 << 1 >> 16 -> Q9.32, shift left by 15 for Q17.47
+ *
+ * With Q1.31 x Q1.31 -> Q17.47 HiFi multiplications the result is
+ * Q1.23 x Q1.31 << 1 >> 16 -> Q2.39, shift left by 8 for Q17.47
+ */
+
 #if SOF_USE_HIFI(5, VOLUME)
 
 #if CONFIG_COMP_PEAK_VOL
@@ -296,36 +303,24 @@ static void vol_s32_to_s24_s32(struct processing_module *mod, struct input_strea
 			temp = AE_MAXABS32S(in_sample, temp);
 			temp1 = AE_MAXABS32S(in_sample1, temp1);
 			AE_S32X2X2_XC1(temp, temp1, peakvol, inc);
-#if COMP_VOLUME_Q8_16
-			/* With Q1.31 x Q1.31 -> Q17.47 HiFi multiplications the result is
-			 * Q8.16 x Q1.31 << 1 >> 16 -> Q9.32,
-			 * to restore to Q17.47 needs shift left by 15.
-			 */
-			AE_MULF32X2R_HH_LL(mult0, mult1, volume, in_sample);
-			mult0 = AE_SLAI64(mult0, 15);
-			mult1 = AE_SLAI64(mult1, 15);
-			out_sample = AE_ROUND32X2F48SSYM(mult0, mult1);	/* Q2.47 -> Q1.31 */
-
-			AE_MULF32X2R_HH_LL(mult0, mult1, volume1, in_sample1);
-			mult0 = AE_SLAI64(mult0, 15);
-			mult1 = AE_SLAI64(mult1, 15);
-			out_sample1 = AE_ROUND32X2F48SSYM(mult0, mult1); /* Q2.47 -> Q1.31 */
-#elif COMP_VOLUME_Q1_23
-			/* With Q1.31 x Q1.31 -> Q17.47 HiFi multiplications the result is
-			 * Q1.23 x Q1.31 << 1 >> 16 -> Q2.39,
-			 * to restore to Q17.47 needs shift left by 8.
-			 */
-			AE_MULF32X2R_HH_LL(mult0, mult1, volume, in_sample);
-			mult0 = AE_SLAI64(mult0, 8);
-			mult1 = AE_SLAI64(mult1, 8);
-			out_sample = AE_ROUND32X2F48SSYM(mult0, mult1);	/* Q2.47 -> Q1.31 */
-
-			AE_MULF32X2R_HH_LL(mult0, mult1, volume1, in_sample1);
-			mult0 = AE_SLAI64(mult0, 8);
-			mult1 = AE_SLAI64(mult1, 8);
-			out_sample1 = AE_ROUND32X2F48SSYM(mult0, mult1); /* Q2.47 -> Q1.31 */
+#if COMP_VOLUME_Q1_31
+			AE_MULF2P32X4RS(out_sample, out_sample1,
+					volume, volume1,
+					in_sample, in_sample1);
 #else
-#error "Need CONFIG_COMP_VOLUME_Qx_y"
+			/* With Q1.31 x Q1.31 -> Q17.47 HiFi multiplications the result is
+			 * Q8.16 x Q1.31 << 1 >> 16 -> Q9.32, shift left by 15 for Q17.47
+			 * Q1.23 x Q1.31 << 1 >> 16 -> Q2.39, shift left by 8 for Q17.47
+			 */
+			AE_MULF32X2R_HH_LL(mult0, mult1, volume, in_sample);
+			mult0 = AE_SLAI64(mult0, VOLUME_Q17_47_SHIFT);
+			mult1 = AE_SLAI64(mult1, VOLUME_Q17_47_SHIFT);
+			out_sample = AE_ROUND32X2F48SSYM(mult0, mult1);	/* Q2.47 -> Q1.31 */
+
+			AE_MULF32X2R_HH_LL(mult0, mult1, volume1, in_sample1);
+			mult0 = AE_SLAI64(mult0, VOLUME_Q17_47_SHIFT);
+			mult1 = AE_SLAI64(mult1, VOLUME_Q17_47_SHIFT);
+			out_sample1 = AE_ROUND32X2F48SSYM(mult0, mult1); /* Q2.47 -> Q1.31 */
 #endif
 			AE_SA32X2X2_IP(out_sample, out_sample1, outu, out);
 		}

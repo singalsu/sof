@@ -44,13 +44,15 @@ static int set_volume_ipc4(struct vol_data *cd, uint32_t const channel,
 			   uint64_t const curve_duration)
 {
 	/* update target volume in peak_regs */
-	cd->peak_regs.target_volume[channel] = 5931642;
+	cd->peak_regs.target_volume[channel] = 1518500250;
+	//cd->peak_regs.target_volume[channel] = 5931642;
 	/* update peak meter in peak_regs */
 	cd->peak_regs.peak_meter[channel] = 0;
 	cd->peak_cnt = 0;
 
 	/* init target volume */
-	cd->tvolume[channel] = 5931642;
+	cd->tvolume[channel] = 1518500250;
+	//cd->tvolume[channel] = 5931642;
 	/* init ramp start volume*/
 	cd->rvolume[channel] = 0;
 
@@ -65,7 +67,11 @@ static int set_volume_ipc4(struct vol_data *cd, uint32_t const channel,
  */
 static uint32_t convert_volume_ipc4_to_ipc3(struct comp_dev *dev, uint32_t volume)
 {
+#if COMP_VOLUME_Q1_31
+	return volume;
+#else
 	return sat_int32(Q_SHIFT_RND((int64_t)volume, 31, VOL_QXY_Y));
+#endif
 }
 
 static uint32_t convert_volume_ipc3_to_ipc4(uint32_t volume)
@@ -73,7 +79,11 @@ static uint32_t convert_volume_ipc3_to_ipc4(uint32_t volume)
 	/* In IPC4 volume is converted into Q1.23 format to be processed by firmware.
 	 * Now convert it back to Q1.31
 	 */
+#if COMP_VOLUME_Q1_31
+	return volume;
+#else
 	return sat_int32(Q_SHIFT_LEFT((int64_t)volume, VOL_QXY_Y, 31));
+#endif
 }
 
 static void init_ramp(struct vol_data *cd, uint32_t curve_duration, uint32_t target_volume)
