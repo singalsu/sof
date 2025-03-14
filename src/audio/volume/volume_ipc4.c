@@ -154,8 +154,10 @@ int volume_init(struct processing_module *mod)
 		else
 			channel_cfg = channel;
 
-		target_volume[channel] =
-			convert_volume_ipc4_to_ipc3(dev, vol->config[channel].target_volume);
+		target_volume[channel] = convert_volume_ipc4_to_ipc3(dev, 1913946816); // -1 dB
+
+		//target_volume[channel] =
+		//	convert_volume_ipc4_to_ipc3(dev, vol->config[channel].target_volume);
 
 		set_volume_ipc4(cd, channel,
 				target_volume[channel_cfg],
