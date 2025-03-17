@@ -130,7 +130,8 @@ static void print_usage(char *executable)
 	printf("  -C <number of copy() iterations>\n");
 	printf("  -D <pipeline duration in ms>\n");
 	printf("  -P <number of dynamic pipeline iterations>\n");
-	printf("  -T <microseconds for tick, 0 for batch mode>\n\n");
+	printf("  -T <microseconds for tick, 0 for batch mode>\n");
+	printf("  -s <script file to set controls>\n\n");
 	printf("Options for input and output format override:\n");
 	printf("  -b <input_format>, S16_LE, S24_LE, or S32_LE\n");
 	printf("  -c <input channels>\n");
@@ -148,7 +149,7 @@ static int parse_input_args(int argc, char **argv, struct testbench_prm *tp)
 	int option = 0;
 	int ret = 0;
 
-	while ((option = getopt(argc, argv, "hd:i:o:t:b:r:R:c:n:C:P:p:T:D:")) != -1) {
+	while ((option = getopt(argc, argv, "hd:i:o:t:b:r:R:c:n:C:P:p:T:D:s:")) != -1) {
 		switch (option) {
 		/* input sample file */
 		case 'i':
@@ -226,6 +227,10 @@ static int parse_input_args(int argc, char **argv, struct testbench_prm *tp)
 		/* pipeline duration in millisec, 0 = realtime (tickless) */
 		case 'D':
 			tp->pipeline_duration_ms = atoi(optarg);
+			break;
+
+		case 's':
+			tp->control_file = strdup(optarg);
 			break;
 
 		/* print usage */
@@ -314,13 +319,18 @@ static void test_pipeline_stats(struct testbench_prm *tp, long long delta_t)
  */
 static int pipline_test(struct testbench_prm *tp)
 {
+	float samples_to_ns;
 	int dp_count = 0;
 	struct timespec ts;
 	struct timespec td0, td1;
+	struct file_state *out_stat;
 	long long delta_t;
+	int64_t next_control_ns;
+	int64_t time_ns;
 	int err;
 	int nsleep_time;
 	int nsleep_limit;
+	int ret;
 
 	/* build, run and teardown pipelines */
 	while (dp_count < tp->dynamic_pipeline_iterations) {
@@ -356,6 +366,19 @@ static int pipline_test(struct testbench_prm *tp)
 			break;
 		}
 
+		/* Use first file writer to create simulation time. Calculate coefficient
+		 * to calculate current time from file write samples count
+		 */
+		out_stat = tp->fw[0].state;
+		samples_to_ns = 1.0e9 / ((float)out_stat->channels * out_stat->rate);
+
+		/* Apply initial controls time to call again controls handler */
+		ret = tb_read_controls(tp, &next_control_ns);
+		if (ret) {
+			fprintf(stderr, "error: failed to read control commands.\n");
+			goto out;
+		}
+
 		tb_gettime(&td0);
 
 		/* sleep to let the pipeline work - we exit at timeout OR
@@ -381,6 +404,21 @@ static int pipline_test(struct testbench_prm *tp)
 				nsleep_time += tp->tick_period_us; /* sleep fully completed */
 				if (tb_schedule_pipeline_check_state(tp))
 					break;
+
+				if (next_control_ns) {
+					time_ns = (int64_t)(samples_to_ns * out_stat->n);
+					if (time_ns >= next_control_ns) {
+						ret = tb_read_controls(tp, &next_control_ns);
+						if (ret) {
+							fprintf(stderr,
+								"error: failed to read control commands.\n");
+							goto out;
+						}
+
+						if (next_control_ns)
+							next_control_ns += time_ns;
+					}
+				}
 			} else {
 				if (err == EINTR) {
 					continue; /* interrupted - keep going */
@@ -395,6 +433,7 @@ static int pipline_test(struct testbench_prm *tp)
 
 		tb_gettime(&td1);
 
+out:
 		err = tb_set_reset_state(tp);
 		if (err < 0) {
 			fprintf(stderr, "error: pipeline reset %d failed %d\n",
@@ -489,6 +528,16 @@ int main(int argc, char **argv)
 		goto out;
 	}
 
+	if (tp->control_file) {
+		tp->control_fh = fopen(tp->control_file, "r");
+		if (!tp->control_fh) {
+			fprintf(stderr, "error: opening script %s (%s).\n",
+				tp->control_file, strerror(errno));
+			ret = -errno;
+			goto out;
+		}
+	}
+
 	/* build, run and teardown pipelines */
 	pipline_test(tp);
 
@@ -500,6 +549,10 @@ out:
 	/* free all other data */
 	free(tp->bits_in);
 	free(tp->tplg_file);
+	free(tp->control_file);
+	if (tp->control_fh)
+		fclose(tp->control_fh);
+
 	for (i = 0; i < tp->output_file_num; i++)
 		free(tp->output_file[i]);
 
