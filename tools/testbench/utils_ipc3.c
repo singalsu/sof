@@ -426,4 +426,11 @@ int tb_set_up_all_pipelines(struct testbench_prm *tp)
 	return 0;
 }
 
+/* No support in IPC3 version */
+int tb_parse_amixer(struct testbench_prm *tp, char *line)
+{
+	return 0;
+}
+
+
 #endif /* CONFIG_IPC_MAJOR_3 */

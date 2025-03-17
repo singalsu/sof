@@ -40,6 +40,8 @@ struct file_comp_lookup {
 #define TB_MAX_VOLUME_SIZE	120
 #define TB_MAX_DATA_SIZE	512
 #define TB_MAX_CTLS		16
+#define TB_MAX_CTL_NAME_SIZE	128
+#define TB_MAX_CHANNELS		8
 
 struct tb_mq_desc {
 	char queue_name[TB_NAME_SIZE];
@@ -63,6 +65,7 @@ struct tb_ctl {
 	unsigned int volume_table[TB_MAX_VOLUME_SIZE];
 	unsigned int index;
 	char data[TB_MAX_DATA_SIZE];
+	char name[TB_MAX_CTL_NAME_SIZE];
 	union {
 		struct snd_soc_tplg_mixer_control mixer_ctl;
 		struct snd_soc_tplg_enum_control enum_ctl;
@@ -93,6 +96,7 @@ struct testbench_prm {
 	char *output_file[TB_MAX_OUTPUT_FILE_NUM]; /* output file names */
 	char *tplg_file; /* topology file to use */
 	char *bits_in; /* input bit format */
+	char *control_file;
 	int input_file_num; /* number of input files */
 	int output_file_num; /* number of output files */
 	int pipeline_num;
@@ -125,6 +129,8 @@ struct testbench_prm {
 	/* topology */
 	struct tplg_context tplg;
 
+	FILE *control_fh;
+
 #if CONFIG_IPC_MAJOR_4
 	struct list_item widget_list;
 	struct list_item route_list;
@@ -152,6 +158,7 @@ int tb_pipeline_params(struct testbench_prm *tp, struct ipc *ipc, struct pipelin
 int tb_pipeline_reset(struct ipc *ipc, struct pipeline *p);
 int tb_pipeline_start(struct ipc *ipc, struct pipeline *p);
 int tb_pipeline_stop(struct ipc *ipc, struct pipeline *p);
+int tb_read_controls(struct testbench_prm *tp, int64_t *sleep_ns);
 int tb_set_reset_state(struct testbench_prm *tp);
 int tb_set_running_state(struct testbench_prm *tp);
 int tb_set_up_all_pipelines(struct testbench_prm *tp);
@@ -164,5 +171,9 @@ void tb_free_topology(struct testbench_prm *tp);
 void tb_getcycles(uint64_t *cycles);
 void tb_gettime(struct timespec *td);
 void tb_show_file_stats(struct testbench_prm *tp, int pipeline_id);
+struct tb_ctl *tb_find_control_by_name(struct testbench_prm *tp, char *name);
+
+int tb_parse_amixer(struct testbench_prm *tp, char *line);
+
 
 #endif /* _TESTBENCH_UTILS_H */

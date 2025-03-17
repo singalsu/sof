@@ -8,6 +8,7 @@
 #include <sof/ipc/topology.h>
 #include <sof/lib/notifier.h>
 
+#include <ctype.h>
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -255,4 +256,98 @@ void tb_getcycles(uint64_t *cycles)
 #else
 	*cycles = 0;
 #endif
+}
+
+static char *tb_trim_line(char *line)
+{
+	char *new;
+	int i = 0;
+	int j = 0;
+	int n = strlen(line);
+	bool in_quotes = false;
+
+	new = calloc(1, n + 1);
+
+	/* Trim begin */
+	while (isspace(line[i]) && i < n)
+		i++;
+
+	/* Copy line with multiple blanks removed, change single quotes to
+	 * double quotes, don't remove blanks from inside quotes.
+	 */
+	while (i < n) {
+		if (!isspace(line[i])) {
+			if (line[i] == '\'')
+				new[j] = '\"';
+			else
+				new[j] = line[i];
+			if (new[j] == '\"')
+				in_quotes = !in_quotes;
+			j++;
+			i++;
+		} else if (in_quotes || ((i + 1) < n && !isspace(line[i + 1]))) {
+			new[j] = ' ';
+			j++;
+			i++;
+		} else {
+			i++;
+		}
+	}
+
+	return new;
+}
+
+static int tb_parse_sleep(char *line, int64_t *sleep_ns)
+{
+	char *token = strtok(line, "sleep ");
+
+	*sleep_ns = (int64_t)(atof(token) * 1e9);
+	printf("Info: Next control will be applied after %ld ns.\n", *sleep_ns);
+	return 0;
+}
+
+int tb_read_controls(struct testbench_prm *tp, int64_t *sleep_ns)
+{
+	char *raw_line = NULL;
+	char *line = NULL;
+	size_t len = 0;
+	ssize_t read;
+	char *sleep_cmd = "sleep ";
+	char *amixer_cmd = "amixer ";
+	int ret = 0;
+
+	if (!tp->control_fh)
+		return 0;
+
+	*sleep_ns = 0;
+	while (1) {
+		read = getline(&raw_line, &len, tp->control_fh);
+		if (read < 0)
+			break;
+
+		line = tb_trim_line(raw_line);
+		if (line[0] == '#' || strlen(line) == 0)
+			continue;
+
+		if (strncmp(line, sleep_cmd, sizeof(*sleep_cmd)) == 0) {
+			ret = tb_parse_sleep(line, sleep_ns);
+			if (ret) {
+				fprintf(stderr, "error: failed parse of sleep command.\n");
+				break;
+			}
+			break;
+		}
+
+		if (strncmp(line, amixer_cmd, sizeof(*amixer_cmd)) == 0) {
+			ret = tb_parse_amixer(tp, line);
+			if (ret) {
+				fprintf(stderr, "error: failed parse of amixer command.\n");
+				break;
+			}
+		}
+	}
+
+	free(raw_line);
+	free(line);
+	return ret;
 }
