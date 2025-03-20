@@ -129,7 +129,7 @@ static void print_usage(char *executable)
 	printf("  -p <pipeline1,pipeline2,...>\n");
 	printf("  -C <number of copy() iterations>\n");
 	printf("  -P <number of dynamic pipeline iterations>\n");
-	printf("  -s <script file to set controls>\n\n");
+	printf("  -s <script file to set controls, with amixer and sleep commands>\n\n");
 	printf("Options for input and output format override:\n");
 	printf("  -b <input_format>, S16_LE, S24_LE, or S32_LE\n");
 	printf("  -c <input channels>\n");

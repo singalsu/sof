@@ -266,14 +266,14 @@ static void tb_trim_line(char *new, char *line)
 	bool in_quotes = false;
 
 	/* Trim begin */
-	while (isspace(line[i]) && i < n)
+	while (isspace((int)line[i]) && i < n)
 		i++;
 
 	/* Copy line with multiple blanks removed, change single quotes to
 	 * double quotes, don't remove blanks from inside quotes.
 	 */
 	while (i < n) {
-		if (!isspace(line[i])) {
+		if (!isspace((int)line[i])) {
 			if (line[i] == '\'')
 				new[j] = '\"';
 			else
@@ -282,7 +282,7 @@ static void tb_trim_line(char *new, char *line)
 				in_quotes = !in_quotes;
 			j++;
 			i++;
-		} else if (in_quotes || ((i + 1) < n && !isspace(line[i + 1]))) {
+		} else if (in_quotes || ((i + 1) < n && !isspace((int)line[i + 1]))) {
 			new[j] = ' ';
 			j++;
 			i++;
@@ -298,20 +298,19 @@ static int tb_parse_sleep(char *line, int64_t *sleep_ns)
 	char *token = strtok(line, "sleep ");
 
 	*sleep_ns = (int64_t)(atof(token) * 1e9);
-	printf("Info: Next control will be applied after %ld ns.\n", *sleep_ns);
+	printf("Info: Next control will be applied after %lld ns.\n", (long long)*sleep_ns);
 	return 0;
 }
 
 int tb_read_controls(struct testbench_prm *tp, int64_t *sleep_ns)
 {
-	size_t len = TB_MAX_CMD_CHARS;
-	ssize_t read;
 	char *sleep_cmd = "sleep ";
 	char *amixer_cmd = "amixer ";
 	char *raw_line;
 	char *line;
 	int ret = 0;
 
+	*sleep_ns = 0;
 	if (!tp->control_fh)
 		return 0;
 
@@ -323,12 +322,7 @@ int tb_read_controls(struct testbench_prm *tp, int64_t *sleep_ns)
 	if (!line)
 		return -ENOMEM;
 
-	*sleep_ns = 0;
-	while (1) {
-		read = getline(&raw_line, &len, tp->control_fh);
-		if (read < 0)
-			break;
-
+	while (fgets(raw_line, TB_MAX_CMD_CHARS, tp->control_fh)) {
 		tb_trim_line(line, raw_line);
 		if (line[0] == '#' || strlen(line) == 0)
 			continue;
