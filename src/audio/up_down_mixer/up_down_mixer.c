@@ -381,8 +381,16 @@ static int up_down_mixer_init(struct processing_module *mod)
 			comp_info(dev, "coef[%d] = %d", i, up_down_mixer->coefficients[i]);
 	} else {
 		cd->has_init_mix_configuration = false;
+#if FORCE_REQUEST_MONO
+		default_config.out_channel_config = 0;
+		default_config.coefficients_select = 2;
+		default_config.channel_map = -15;
+		for (i = 0; i < UP_DOWN_MIX_COEFFS_LENGTH; i++)
+			default_config.coefficients[i] = 0;
+#else
 		default_config.out_channel_config = up_down_mixer_init->base_cfg.audio_fmt.ch_cfg;
 		default_config.coefficients_select = DEFAULT_COEFFICIENTS;
+#endif
 		up_down_mixer = &default_config;
 		comp_info(dev, "no up_down_mixer configuration in init, using default");
 	}
