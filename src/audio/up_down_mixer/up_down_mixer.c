@@ -28,6 +28,8 @@
 #include "up_down_mixer_coef.h"
 #include "up_down_mixer.h"
 
+#define FORCE_REQUEST_MONO	1	// remove this
+
 LOG_MODULE_REGISTER(up_down_mixer, CONFIG_SOF_LOG_LEVEL);
 
 /* these ids aligns windows driver requirement to support windows driver */
