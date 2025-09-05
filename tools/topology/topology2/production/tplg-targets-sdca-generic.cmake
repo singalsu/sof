@@ -39,4 +39,14 @@ SDW_SPK_IN_STREAM=Capture-SmartAmp,NUM_HDMIS=0,\
 SDW_AMP_NUM_CHANNELS=4,SDW_AMP_XOVER=true,\
 SDW_AMP_XOVER_SELECTOR_PARAMS=xover_selector_lr_to_lrlr,\
 SDW_AMP_XOVER_EQIIR_PARAMS=xover_lr4_2000hz_llhh_48khz"
+
+# Topology for speaker with 2-way crossover filter in SOF
+# with channels order L-low, R-low, L-high, R-high
+"cavs-sdw\;sof-sdca-2amp-id2-xover-basic\;NUM_SDW_AMP_LINKS=2,SDW_JACK=false,\
+SDW_AMP_FEEDBACK=false,SDW_SPK_STREAM=Playback-SmartAmp,NUM_HDMIS=0,\
+SDW_AMP_NUM_CHANNELS=4,SDW_AMP_XOVER=true,\
+SDW_AMP_XOVER_SELECTOR_PARAMS=xover_selector_lr_to_lrlr,\
+SDW_AMP_XOVER_EQIIR_PARAMS=xover_lr4_2000hz_llhh_48khz,\
+SDW_SPK_ENHANCED_PLAYBACK=false"
+
 )
