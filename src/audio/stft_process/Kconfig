@@ -3,6 +3,7 @@
 config COMP_STFT_PROCESS
 	tristate "Template example component"
 	default y
+        select MATH_32BIT_FFT
 	help
 	  Select for stft_process component. Reason for existence
 	  is to provide a minimal component example and use as

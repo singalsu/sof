@@ -75,17 +75,16 @@ static int stft_process_process(struct processing_module *mod,
 	struct sof_sink *sink = sinks[0]; /* One output in this example */
 	int frames = source_get_data_frames_available(source);
 	int sink_frames = sink_get_free_frames(sink);
+	int ret;
 
 	comp_dbg(dev, "stft_process_process()");
 
 	frames = MIN(frames, sink_frames);
 
 	/* Process the data with the channels swap example function. */
-	return cd->stft_process_func(mod, source, sink, frames);
+	ret = cd->stft_process_func(mod, source, sink, frames);
 
-	/* Just copy from source to sink. */
-	source_to_sink_copy(source, sink, true, frames * cd->frame_bytes);
-	return 0;
+	return ret;
 }
 
 /**
@@ -117,22 +116,27 @@ static int stft_process_prepare(struct processing_module *mod,
 	/* The processing example in this component supports one input and one
 	 * output. Generally there can be more.
 	 */
-	if (num_of_sources != 1 || num_of_sinks != 1)
+	if (num_of_sources != 1 || num_of_sinks != 1) {
+		comp_err(dev, "Only one source and one sink is supported.");
 		return -EINVAL;
+	}
+
+	/* Initialize STFT, max_frames is set to dev->frames + 4 */
+	if (!cd->config) {
+		comp_err(dev, "Can't prepare without bytes control configuration.");
+		return -EINVAL;
+	}
 
 	/* get source data format */
 	cd->frame_bytes = source_get_frame_bytes(sources[0]);
 	cd->channels = source_get_channels(sources[0]);
 	source_format = source_get_frm_fmt(sources[0]);
 
-	/* Initialize STFT, max_frames is set to dev->frames + 4 */
-	if (cd->config) {
-		ret = stft_process_setup(mod, cd->max_frames, source_get_rate(sources[0]),
-					 source_get_channels(sources[0]));
-		if (ret < 0) {
-			comp_err(dev, "setup failed.");
-			return ret;
-		}
+	ret = stft_process_setup(mod, cd->max_frames, source_get_rate(sources[0]),
+				 source_get_channels(sources[0]));
+	if (ret < 0) {
+		comp_err(dev, "setup failed.");
+		return ret;
 	}
 
 	cd->stft_process_func = stft_process_find_proc_func(source_format);
@@ -181,7 +185,8 @@ __cold static int stft_process_free(struct processing_module *mod)
 	assert_can_be_cold();
 
 	comp_dbg(mod->dev, "stft_process_free()");
-	rfree(cd);
+	stft_process_free_buffers(mod);
+	mod_free(mod, cd);
 	return 0;
 }
 

@@ -21,18 +21,16 @@
  * set to 32 the FFT and Mel filterbank are computed with better 32 bit precision. There
  * is also need to enable 32 bit FFT from Kconfig if set.
  */
-#define STFT_PROCESS_FFT_BITS	16
+
+#define STFT_PROCESS_FFT_BITS	32
 
 /* STFT_PROCESS with 16 bit FFT benefits from data normalize, for 32 bits there's no
  * significant impact. The amount of left shifts for FFT input is limited to
  * 10 that equals about 60 dB boost. The boost is compensated in Mel energy
  * calculation.
  */
-#if STFT_PROCESS_FFT_BITS == 16
-#define STFT_PROCESS_NORMALIZE_FFT
-#else
+
 #undef STFT_PROCESS_NORMALIZE_FFT
-#endif
 #define STFT_PROCESS_NORMALIZE_MAX_SHIFT	10
 
 /* These go to user/stft_process.h ? */
@@ -125,16 +123,10 @@ struct stft_process_pre_emph {
 };
 
 struct stft_process_fft {
-#if STFT_PROCESS_FFT_BITS == 16
-	struct icomplex16 *fft_buf; /**< fft_padded_size */
-	struct icomplex16 *fft_out; /**< fft_padded_size */
-#elif STFT_PROCESS_FFT_BITS == 32
 	struct icomplex32 *fft_buf; /**< fft_padded_size */
 	struct icomplex32 *fft_out; /**< fft_padded_size */
-#else
-#error "STFT_PROCESS_FFT_BITS needs to be 16 or 32"
-#endif
 	struct fft_plan *fft_plan;
+	struct fft_plan *ifft_plan;
 	int fft_fill_start_idx; /**< Set to 0 for pad left, etc. */
 	int fft_size;
 	int fft_padded_size;
@@ -151,29 +143,30 @@ struct stft_process_cepstral_lifter {
 };
 
 struct stft_process_state {
-	struct stft_process_buffer buf; /**< Circular buffer for input data */
-	struct stft_process_pre_emph emph; /**< Pre-emphasis filter */
+	struct stft_process_buffer ibuf; /**< Circular buffer for input data */
+	struct stft_process_buffer obuf; /**< Circular buffer for output data */
+	//struct stft_process_pre_emph emph; /**< Pre-emphasis filter */
 	struct stft_process_fft fft; /**< FFT related */
-	struct dct_plan_16 dct; /**< DCT related */
-	struct psy_mel_filterbank melfb; /**< Mel filter bank */
-	struct stft_process_cepstral_lifter lifter; /**< Cepstral lifter coefficients */
-	struct mat_matrix_16b *mel_spectra; /**< Pointer to scratch */
-	struct mat_matrix_16b *cepstral_coef; /**< Pointer to scratch */
+	//struct dct_plan_16 dct; /**< DCT related */
+	//struct psy_mel_filterbank melfb; /**< Mel filter bank */
+	//struct stft_process_cepstral_lifter lifter; /**< Cepstral lifter coefficients */
+	//struct mat_matrix_16b *mel_spectra; /**< Pointer to scratch */
+	//struct mat_matrix_16b *cepstral_coef; /**< Pointer to scratch */
 	int32_t *power_spectra; /**< Pointer to scratch */
 	int16_t buf_avail;
 	int16_t *buffers;
 	int16_t *prev_data; /**< prev_data_size */
 	int16_t *window; /**< fft_size */
-	int16_t *triangles;
+	//int16_t *triangles;
 	int source_channel;
-	int buffer_size;
+	//int buffer_size;
 	int prev_data_size;
-	int low_freq;
-	int high_freq;
+	//int low_freq;
+	//int high_freq;
 	int sample_rate;
 	bool waiting_fill; /**< booleans */
 	bool prev_samples_valid;
-	size_t sample_buffers_size; /**< bytes */
+	//size_t sample_buffers_size; /**< bytes */
 };
 
 /**
@@ -200,13 +193,12 @@ typedef int (*stft_process_func)(const struct processing_module *mod,
 struct stft_comp_data {
 	stft_process_func stft_process_func;		/**< processing function */
 	struct stft_process_state state;
-	struct comp_data_blob_handler *model_handler;
 	struct sof_stft_process_config *config;
-	struct stft_process_buffer *buf;
 	size_t frame_bytes;
 	int source_channel;
 	int max_frames;
 	int channels;
+	bool fft_done;
 };
 
 static inline int stft_process_buffer_samples_without_wrap(struct stft_process_buffer *buffer,
@@ -287,7 +279,9 @@ int stft_process_setup(struct processing_module *mod, int max_frames, int rate, 
 
 int stft_process_source_s16(struct stft_comp_data *cd, struct sof_source *source, int frames);
 
-void stft_process_free_buffers(struct stft_comp_data *cd);
+int stft_process_sink_s16(struct stft_comp_data *cd, struct sof_sink *sink, int frames);
+
+void stft_process_free_buffers(struct processing_module *mod);
 
 void stft_process_s16_default(struct processing_module *mod, struct input_stream_buffer *bsource,
 			      struct output_stream_buffer *bsink, int frames);
@@ -297,10 +291,8 @@ void stft_process_fill_prev_samples(struct stft_process_buffer *buf, int16_t *pr
 
 void stft_process_fill_fft_buffer(struct stft_process_state *state);
 
-#ifdef STFT_PROCESS_NORMALIZE_FFT
-int stft_process_normalize_fft_buffer(struct stft_process_state *state);
-#endif
-
 void stft_process_apply_window(struct stft_process_state *state, int input_shift);
+
+void stft_process_overlap_add_ifft_buffer(struct stft_process_state *state);
 
 #endif //  __SOF_AUDIO_STFT_PROCESS_H__

@@ -1,8 +1,6 @@
 // SPDX-License-Identifier: BSD-3-Clause
 //
-// Copyright(c) 2023 Intel Corporation. All rights reserved.
-//
-// Author: Andrula Song <andrula.song@intel.com>
+// Copyright(c) 2025 Intel Corporation.
 
 #include <sof/audio/component.h>
 #include <sof/audio/audio_stream.h>
@@ -20,39 +18,23 @@
 #include <stdint.h>
 
 LOG_MODULE_REGISTER(stft_process_common, CONFIG_SOF_LOG_LEVEL);
-/* STFT_PROCESS with 16 bit FFT benefits from data normalize, for 32 bits there's no
- * significant impact. The amount of left shifts for FFT input is limited to
- * 10 that equals about 60 dB boost. The boost is compensated in Mel energy
- * calculation.
- */
-#if STFT_PROCESS_FFT_BITS == 16
-#define STFT_PROCESS_NORMALIZE_FFT
-#else
-#undef STFT_PROCESS_NORMALIZE_FFT
-#endif
-#define STFT_PROCESS_NORMALIZE_MAX_SHIFT	10
 
 /*
  * The main processing function for STFT_PROCESS
  */
 
-static int stft_process_stft_process(const struct comp_dev *dev, struct stft_process_state *state)
+static int stft_prepare_fft(struct stft_process_state *state)
 {
-	struct stft_process_buffer *buf = &state->buf;
+	struct stft_process_buffer *ibuf = &state->ibuf;
 	struct stft_process_fft *fft = &state->fft;
-	int mel_scale_shift;
-	int input_shift;
-	int i;
-	int m;
-	int cc_count = 0;
+	int num_fft;
 
 	/* Phase 1, wait until whole fft_size is filled with valid data. This way
 	 * first output cepstral coefficients originate from streamed data and not
 	 * from buffers with zero data.
 	 */
-	comp_dbg(dev, "stft_process_stft_process(), avail = %d", buf->s_avail);
 	if (state->waiting_fill) {
-		if (buf->s_avail < fft->fft_size)
+		if (ibuf->s_avail < fft->fft_size)
 			return 0;
 
 		state->waiting_fill = false;
@@ -62,96 +44,117 @@ static int stft_process_stft_process(const struct comp_dev *dev, struct stft_pro
 	 * samples from input buffer.
 	 */
 	if (!state->prev_samples_valid) {
-		stft_process_fill_prev_samples(buf, state->prev_data, state->prev_data_size);
+		stft_process_fill_prev_samples(ibuf, state->prev_data, state->prev_data_size);
 		state->prev_samples_valid = true;
 	}
 
 	/* Check if enough samples in buffer for FFT hop */
-	m = buf->s_avail / fft->fft_hop_size;
-	for (i = 0; i < m; i++) {
-		/* Clear FFT input buffer because it has been used as scratch */
-		bzero(fft->fft_buf, fft->fft_buffer_size);
+	num_fft = ibuf->s_avail / fft->fft_hop_size;
+	return num_fft;
+}
 
-		/* Copy data to FFT input buffer from overlap buffer and from new samples buffer */
-		stft_process_fill_fft_buffer(state);
+static void stft_do_fft(struct stft_process_state *state)
+{
+	struct stft_process_fft *fft = &state->fft;
+	int input_shift = 0;
 
-		/* TODO: remove_dc_offset */
+	/* Clear FFT input buffer because it has been used as scratch */
+	bzero(fft->fft_buf, fft->fft_buffer_size);
 
-		/* TODO: use_energy & raw_energy */
+	/* Copy data to FFT input buffer from overlap buffer and from new samples buffer */
+	stft_process_fill_fft_buffer(state);
 
-#ifdef STFT_PROCESS_NORMALIZE_FFT
-		/* Find block scale left shift for FFT input */
-		input_shift = stft_process_normalize_fft_buffer(state);
-#else
-		input_shift = 0;
-#endif
+	/* TODO: remove_dc_offset */
 
-		/* Window function */
-		stft_process_apply_window(state, input_shift);
+	/* TODO: use_energy & raw_energy */
 
-		/* TODO: use_energy & !raw_energy */
+	/* Window function */
+	stft_process_apply_window(state, input_shift);
 
-		/* The FFT out buffer needs to be cleared to avoid to corrupt
-		 * the output. TODO: check moving it to FFT lib.
-		 */
-		bzero(fft->fft_out, fft->fft_buffer_size);
+	/* TODO: use_energy & !raw_energy */
 
-		/* Compute FFT */
-#if STFT_PROCESS_FFT_BITS == 16
-		fft_execute_16(fft->fft_plan, false);
-#else
-		fft_execute_32(fft->fft_plan, false);
-#endif
-
-		/* Convert powerspectrum to Mel band logarithmic spectrum */
-		mat_init_16b(state->mel_spectra, 1, state->dct.num_in, 7); /* Q8.7 */
-
-		/* Compensate FFT lib scaling to Mel log values, e.g. for 512 long FFT
-		 * the fft_plan->len is 9. The scaling is 1/512. Subtract from input_shift it
-		 * to add the missing "gain".
-		 */
-		mel_scale_shift = input_shift - fft->fft_plan->len;
-#if STFT_PROCESS_FFT_BITS == 16
-		psy_apply_mel_filterbank_16(&state->melfb, fft->fft_out, state->power_spectra,
-					    state->mel_spectra->data, mel_scale_shift);
-#else
-		psy_apply_mel_filterbank_32(&state->melfb, fft->fft_out, state->power_spectra,
-					    state->mel_spectra->data, mel_scale_shift);
-#endif
-
-		/* Multiply Mel spectra with DCT matrix to get cepstral coefficients */
-		mat_init_16b(state->cepstral_coef, 1, state->dct.num_out, 7); /* Q8.7 */
-		mat_multiply(state->mel_spectra, state->dct.matrix, state->cepstral_coef);
-
-		/* Apply cepstral lifter */
-		if (state->lifter.cepstral_lifter != 0)
-			mat_multiply_elementwise(state->cepstral_coef, state->lifter.matrix,
-						 state->cepstral_coef);
-
-		cc_count += state->dct.num_out;
-
-		/* Output to sink buffer */
-	}
-
-	/* TODO: This version handles only one FFT run per copy(). How to pass multiple
-	 * cepstral coefficients sets return is an open.
+	/* The FFT out buffer needs to be cleared to avoid to corrupt
+	 * the output. TODO: check moving it to FFT lib.
 	 */
-	return cc_count;
+	bzero(fft->fft_out, fft->fft_buffer_size);
+
+	/* Compute FFT */
+	fft_execute_32(fft->fft_plan, false);
+}
+
+static void stft_do_ifft(struct stft_process_state *state)
+{
+	struct stft_process_fft *fft = &state->fft;
+	int input_shift = 0;
+	int bin = 50;
+
+	/* The FFT out buffer needs to be cleared to avoid to corrupt
+	 * the output. TODO: check moving it to FFT lib.
+	 */
+	bzero(fft->fft_buf, fft->fft_buffer_size);
+	bzero(fft->fft_out, fft->fft_buffer_size);
+	fft->fft_out[bin - 1].real = 10000;
+	fft->fft_out[fft->fft_size + 2 - bin - 1].real = 10000;
+
+	/* Compute IFFT */
+	fft_execute_32(fft->ifft_plan, true);
+
+	/* Window function */
+	stft_process_apply_window(state, input_shift);
+
+	/* Copy to output buffer */
+	stft_process_overlap_add_ifft_buffer(state);
 }
 
 #if CONFIG_FORMAT_S16LE
+
+static int stft_process_output_zeros_s16(struct stft_comp_data *cd, struct sof_sink *sink,
+					 int frames)
+{
+	int16_t *y, *y_start, *y_end;
+	int samples_without_wrap;
+	int bytes_without_wrap;
+	int y_size;
+	int ret;
+	int samples = frames * cd->channels;
+	size_t bytes = samples * sizeof(int16_t);
+
+	/* Get pointer to sink data in circular buffer, buffer start and size. */
+	ret = sink_get_buffer_s16(sink, bytes, &y, &y_start, &y_size);
+	if (ret)
+		return ret;
+
+	/* Set helper pointers to buffer end for wrap check. Then loop until all
+	 * samples are processed.
+	 */
+	y_end = y_start + y_size;
+	while (samples) {
+		/* Find out samples to process before first wrap or end of data. */
+		samples_without_wrap = y_end - y;
+		samples_without_wrap = MIN(samples_without_wrap, samples);
+		bytes_without_wrap = samples_without_wrap * sizeof(int16_t);
+		bzero(y, bytes_without_wrap);
+		y += bytes_without_wrap;
+
+		/* Check for wrap */
+		y = (y >= y_end) ? y - y_size : y;
+
+		/* Update processed samples count for next loop iteration. */
+		samples -= samples_without_wrap;
+	}
+
+	/* Update the source and sink for bytes consumed and produced. Return success. */
+	sink_commit_buffer(sink, bytes);
+	return 0;
+}
+
 static int stft_process_s16(const struct processing_module *mod, struct sof_source *source,
 			    struct sof_sink *sink, uint32_t frames)
 {
 	struct stft_comp_data *cd = module_get_private_data(mod);
 	struct stft_process_state *state = &cd->state;
-	//struct stft_process_buffer *buf = &cd->state.buf;
-	//uint32_t magic = STFT_PROCESS_MAGIC;
-	// int16_t *w_ptr = audio_stream_get_wptr(sink);
-	// int num_magic = sizeof(magic) / sizeof(int16_t);
-	//const int num_magic = 2;
-	int num_ceps;
-	//int zero_samples;
+	int num_fft;
+	int i;
 
 	/* Get samples from source buffer */
 	stft_process_source_s16(cd, source, frames);
@@ -159,25 +162,23 @@ static int stft_process_s16(const struct processing_module *mod, struct sof_sour
 	/* Run STFT and processing after FFT: Mel auditory filter and DCT. The sink
 	 * buffer is updated during STDF processing.
 	 */
-	num_ceps = stft_process_stft_process(mod->dev, state);
+	num_fft = stft_prepare_fft(state);
+	comp_info(mod->dev, "num_fft = %d", num_fft);
 
-	comp_info(mod->dev, "num_ceps = %d", num_ceps);
+	for (i = 0; i < num_fft; i++) {
+		stft_do_fft(state);
 
-#if CODE_TO_DELETE
+		/* stft_process(state) */
 
-	/* Done, copy data to sink. This works only if the period has room for magic (2)
-	 * plus num_ceps int16_t samples. TODO: split ceps over multiple periods.
-	 */
-	zero_samples = frames * audio_stream_get_channels(sink);
-	if (num_ceps > 0) {
-		zero_samples -= num_ceps + num_magic;
-		w_ptr = stft_process_sink_copy_data_s16(sink, w_ptr, num_magic, (int16_t *)&magic);
-		w_ptr = stft_process_sink_copy_data_s16(sink, w_ptr, num_ceps,
-							state->cepstral_coef->data);
+		stft_do_ifft(state);
+		cd->fft_done = true;
 	}
 
-	w_ptr = stft_process_sink_copy_zero_s16(sink, w_ptr, zero_samples);
-#endif
+	/* Get samples from source buffer */
+	if (cd->fft_done)
+		stft_process_sink_s16(cd, sink, frames);
+	else
+		stft_process_output_zeros_s16(cd, sink, frames);
 
 	return 0;
 }

@@ -12,7 +12,7 @@
 
 #if CONFIG_FORMAT_S16LE
 /**
- * stft_process_s16() - Process S16_LE format.
+ * stft_process_source_s16() - Process S16_LE format.
  * @mod: Pointer to module data.
  * @source: Source for PCM samples data.
  * @sink: Sink for PCM samples data.
@@ -27,11 +27,9 @@
 int stft_process_source_s16(struct stft_comp_data *cd, struct sof_source *source, int frames)
 {
 	struct stft_process_state *state = &cd->state;
-	struct stft_process_pre_emph *emph = &state->emph;
-	struct stft_process_buffer *buf	= &state->buf;
-	int32_t s;
+	struct stft_process_buffer *ibuf = &state->ibuf;
 	int16_t const *x, *x_start, *x_end;
-	int16_t *w = buf->w_ptr;
+	int16_t *w = ibuf->w_ptr;
 	int16_t in;
 	int x_size;
 	int bytes = frames * cd->frame_bytes;
@@ -59,42 +57,100 @@ int stft_process_source_s16(struct stft_comp_data *cd, struct sof_source *source
 	while (frames_left) {
 		/* Find out samples to process before first wrap or end of data. */
 		n1 = (x_end - x) / cd->channels;
-		n2 = stft_process_buffer_samples_without_wrap(buf, w);
+		n2 = stft_process_buffer_samples_without_wrap(ibuf, w);
 		n = MIN(n1, n2);
-		n = MIN(n, frames);
-
-		/* Since the example processing is for frames of audio channels, process
-		 * with step of channels count.
-		 */
+		n = MIN(n, frames_left);
 		for (i = 0; i < n; i++) {
 			in = *(x + cd->source_channel);
-			if (emph->enable) {
-				/* Q1.15 x Q1.15 -> Q2.30 */
-				s = (int32_t)emph->delay * emph->coef + Q_SHIFT_LEFT(in, 15, 30);
-				*w = sat_int16(Q_SHIFT_RND(s, 30, 15));
-				emph->delay = in;
-			} else {
-				*w = in;
-			}
+			*w = in;
 			x += cd->channels;
 			w++;
 		}
 
 		/* One of the buffers needs a wrap (or end of data), so check for wrap */
 		x = (x >= x_end) ? x - x_size : x;
-		w = stft_process_buffer_wrap(buf, w);
+		w = stft_process_buffer_wrap(ibuf, w);
 
 		/* Update processed samples count for next loop iteration. */
-		frames -= n;
+		frames_left -= n;
 	}
 
 	/* Update the source for bytes consumed. Return success. */
 	source_release_data(source, bytes);
-	buf->s_avail += frames;
-	buf->s_free -= frames;
-	buf->w_ptr = w;
+	ibuf->s_avail += frames;
+	ibuf->s_free -= frames;
+	ibuf->w_ptr = w;
 	return 0;
 }
+
+/**
+ * stft_process_sink_s16() - Process S16_LE format.
+ * @mod: Pointer to module data.
+ * @source: Source for PCM samples data.
+ * @sink: Sink for PCM samples data.
+ * @frames: Number of audio data frames to process.
+ *
+ * This is the processing function for 16-bit signed integer PCM formats. The
+ * audio samples in every frame are re-order to channels order defined in
+ * component data channel_map[].
+ *
+ * Return: Value zero for success, otherwise an error code.
+ */
+int stft_process_sink_s16(struct stft_comp_data *cd, struct sof_sink *sink, int frames)
+{
+	struct stft_process_state *state = &cd->state;
+	struct stft_process_buffer *obuf = &state->obuf;
+	int16_t *y, *y_start, *y_end;
+	int16_t *r = obuf->r_ptr;
+	int frames_remain = frames;
+	int samples = frames * cd->channels;
+	int bytes = frames * cd->frame_bytes;
+	int y_size;
+	int ret;
+	int ch, n1, n, i;
+
+	/* Get pointer to sink data in circular buffer */
+	ret = sink_get_buffer_s16(sink, bytes, &y, &y_start, &y_size);
+	if (ret)
+		return ret;
+
+	/* Set helper pointers to buffer end for wrap check. Then loop until all
+	 * samples are processed.
+	 */
+	y_end = y_start + y_size;
+	while (frames_remain) {
+		/* Find out samples to process before first wrap or end of data. */
+		n1 = (y_end - y) / cd->channels;
+		n = stft_process_buffer_samples_without_wrap(obuf, r);
+		n = MIN(n1, n);
+		n = MIN(n, frames_remain);
+
+		for (i = 0; i < n; i++) {
+			for (ch = 0; ch < cd->channels; ch++) {
+				*y = *r;
+				y++;
+			}
+			*r = 0; /* clear overlap add mix */
+			r++;
+		}
+
+		/* One of the buffers needs a wrap (or end of data), so check for wrap */
+		y = (y >= y_end) ? y - y_size : y;
+		r = stft_process_buffer_wrap(obuf, r);
+
+		/* Update processed samples count for next loop iteration. */
+		frames_remain -= n;
+	}
+
+	/* Update the sink for bytes produced. Return success. */
+	sink_commit_buffer(sink, bytes);
+	obuf->r_ptr = r;
+	obuf->s_avail -= samples;
+	obuf->s_free += samples;
+
+	return 0;
+}
+
 #endif /* CONFIG_FORMAT_S16LE */
 
 void stft_process_fill_prev_samples(struct stft_process_buffer *buf, int16_t *prev_data,
@@ -124,9 +180,9 @@ void stft_process_fill_prev_samples(struct stft_process_buffer *buf, int16_t *pr
 
 void stft_process_fill_fft_buffer(struct stft_process_state *state)
 {
-	struct stft_process_buffer *buf = &state->buf;
+	struct stft_process_buffer *ibuf = &state->ibuf;
 	struct stft_process_fft *fft = &state->fft;
-	int16_t *r = buf->r_ptr;
+	int16_t *r = ibuf->r_ptr;
 	int copied;
 	int nmax;
 	int idx = fft->fft_fill_start_idx;
@@ -143,19 +199,19 @@ void stft_process_fill_fft_buffer(struct stft_process_state *state)
 	idx += state->prev_data_size;
 	for (copied = 0; copied < fft->fft_hop_size; copied += n) {
 		nmax = fft->fft_hop_size - copied;
-		n = stft_process_buffer_samples_without_wrap(buf, r);
+		n = stft_process_buffer_samples_without_wrap(ibuf, r);
 		n = MIN(n, nmax);
 		for (j = 0; j < n; j++) {
 			fft->fft_buf[idx].real = *r;
 			r++;
 			idx++;
 		}
-		r = stft_process_buffer_wrap(buf, r);
+		r = stft_process_buffer_wrap(ibuf, r);
 	}
 
-	buf->s_avail -= copied;
-	buf->s_free += copied;
-	buf->r_ptr = r;
+	ibuf->s_avail -= copied;
+	ibuf->s_free += copied;
+	ibuf->r_ptr = r;
 
 	/* Copy for next time data back to overlap buffer */
 	idx = fft->fft_fill_start_idx + fft->fft_hop_size;
@@ -163,30 +219,33 @@ void stft_process_fill_fft_buffer(struct stft_process_state *state)
 		state->prev_data[j] = fft->fft_buf[idx + j].real;
 }
 
-#ifdef STFT_PROCESS_NORMALIZE_FFT
-int stft_process_normalize_fft_buffer(struct stft_process_state *state)
+void stft_process_overlap_add_ifft_buffer(struct stft_process_state *state)
 {
+	struct stft_process_buffer *obuf = &state->obuf;
 	struct stft_process_fft *fft = &state->fft;
-	int32_t absx;
-	int32_t smax = 0;
-	int32_t x;
-	int shift;
-	int j;
-	int i = fft->fft_fill_start_idx;
+	int16_t *w = obuf->w_ptr;
+	int i;
+	int n;
+	int samples_remain = fft->fft_size;
+	int idx = fft->fft_fill_start_idx;
 
-	for (j = 0; j < fft->fft_size; j++) {
-		x = fft->fft_buf[i + j].real;
-		absx = (x < 0) ? -x : x;
-		if (smax < absx)
-			smax = absx;
+	while (samples_remain) {
+		n = stft_process_buffer_samples_without_wrap(obuf, w);
+		n = MIN(samples_remain, n);
+		for (i = 0; i < n; i++) {
+			*w = *w + (fft->fft_buf[idx].real >> 16);
+			w++;
+			idx++;
+		}
+		w = stft_process_buffer_wrap(obuf, w);
+		samples_remain -= n;
 	}
 
-	shift = norm_int32(smax << 15) - 1; /* 16 bit data */
-	shift = MAX(shift, 0);
-	shift = MIN(shift, STFT_PROCESS_NORMALIZE_MAX_SHIFT);
-	return shift;
+	w = obuf->w_ptr + fft->fft_hop_size;
+	obuf->w_ptr = stft_process_buffer_wrap(obuf, w);
+	obuf->s_avail += fft->fft_hop_size;
+	obuf->s_free -= fft->fft_hop_size;
 }
-#endif
 
 void stft_process_apply_window(struct stft_process_state *state, int input_shift)
 {
@@ -194,20 +253,9 @@ void stft_process_apply_window(struct stft_process_state *state, int input_shift
 	int j;
 	int i = fft->fft_fill_start_idx;
 
-#if STFT_PROCESS_FFT_BITS == 16
-	/* TODO: Use proper multiply and saturate function to make sure no overflows */
-	int32_t x;
-	int s = 14 - input_shift; /* Q1.15 x Q1.15 -> Q30 -> Q15, shift by 15 - 1 for round */
-
-	for (j = 0; j < fft->fft_size; j++) {
-		x = (int32_t)fft->fft_buf[i + j].real * state->window[j];
-		fft->fft_buf[i + j].real = ((x >> s) + 1) >> 1;
-	}
-#else
 	/* TODO: Use proper multiply and saturate function to make sure no overflows */
 	int s = input_shift + 1; /* To convert 16 -> 32 with Q1.15 x Q1.15 -> Q30 -> Q31 */
 
 	for (j = 0; j < fft->fft_size; j++)
 		fft->fft_buf[i + j].real = (fft->fft_buf[i + j].real * state->window[j]) << s;
-#endif
 }
