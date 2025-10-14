@@ -4,6 +4,7 @@
 
 #include <sof/audio/module_adapter/module/generic.h>
 #include <sof/audio/component.h>
+#include <sof/audio/format.h>
 #include <sof/audio/sink_api.h>
 #include <sof/audio/sink_source_utils.h>
 #include <sof/audio/source_api.h>
@@ -193,7 +194,7 @@ void stft_process_fill_fft_buffer(struct stft_process_state *state)
 	 * remains zero.
 	 */
 	for (j = 0; j < state->prev_data_size; j++)
-		fft->fft_buf[idx + j].real = state->prev_data[j];
+		fft->fft_buf[idx + j].real = (int32_t)state->prev_data[j] << 16;
 
 	/* Copy hop size of new data from circular buffer */
 	idx += state->prev_data_size;
@@ -202,7 +203,7 @@ void stft_process_fill_fft_buffer(struct stft_process_state *state)
 		n = stft_process_buffer_samples_without_wrap(ibuf, r);
 		n = MIN(n, nmax);
 		for (j = 0; j < n; j++) {
-			fft->fft_buf[idx].real = *r;
+			fft->fft_buf[idx].real = (int32_t)*r << 16;
 			r++;
 			idx++;
 		}
@@ -216,7 +217,7 @@ void stft_process_fill_fft_buffer(struct stft_process_state *state)
 	/* Copy for next time data back to overlap buffer */
 	idx = fft->fft_fill_start_idx + fft->fft_hop_size;
 	for (j = 0; j < state->prev_data_size; j++)
-		state->prev_data[j] = fft->fft_buf[idx + j].real;
+		state->prev_data[j] = fft->fft_buf[idx + j].real >> 16;
 }
 
 void stft_process_overlap_add_ifft_buffer(struct stft_process_state *state)
@@ -247,15 +248,14 @@ void stft_process_overlap_add_ifft_buffer(struct stft_process_state *state)
 	obuf->s_free -= fft->fft_hop_size;
 }
 
-void stft_process_apply_window(struct stft_process_state *state, int input_shift)
+void stft_process_apply_window(struct stft_process_state *state)
 {
 	struct stft_process_fft *fft = &state->fft;
 	int j;
 	int i = fft->fft_fill_start_idx;
 
-	/* TODO: Use proper multiply and saturate function to make sure no overflows */
-	int s = input_shift + 1; /* To convert 16 -> 32 with Q1.15 x Q1.15 -> Q30 -> Q31 */
-
+	/* Multiply Q1.31 by Q1.15 gives Q2.46, shift right by 15 to get Q2.31, no saturate need */
 	for (j = 0; j < fft->fft_size; j++)
-		fft->fft_buf[i + j].real = (fft->fft_buf[i + j].real * state->window[j]) << s;
+		fft->fft_buf[i + j].real = Q_MULTSR_32X32((int64_t)fft->fft_buf[i + j].real,
+							  state->window[j], 31, 15, 31);
 }

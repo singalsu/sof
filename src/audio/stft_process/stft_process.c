@@ -22,6 +22,12 @@ LOG_MODULE_REGISTER(stft_process, CONFIG_SOF_LOG_LEVEL);
  */
 DECLARE_TR_CTX(stft_process_tr, SOF_UUID(stft_process_uuid), LOG_LEVEL_INFO);
 
+#if STFT_DEBUG
+FILE *stft_debug_fft_in_fh;
+FILE *stft_debug_fft_out_fh;
+FILE *stft_debug_ifft_out_fh;
+#endif
+
 /**
  * stft_process_init() - Initialize the stft_process component.
  * @mod: Pointer to module data.
@@ -47,6 +53,28 @@ __cold static int stft_process_init(struct processing_module *mod)
 	md->private = cd;
 	cd->max_frames = dev->frames + 2;
 	cd->source_channel = 0;
+
+#if STFT_DEBUG
+	stft_debug_fft_in_fh = fopen("stft_debug_fft_in.txt", "w");
+	if (!stft_debug_fft_in_fh) {
+		fprintf(stderr, "Debug file open failed.\n");
+		return -EINVAL;
+	}
+
+	stft_debug_fft_out_fh = fopen("stft_debug_fft_out.txt", "w");
+	if (!stft_debug_fft_out_fh) {
+		fprintf(stderr, "Debug file open failed.\n");
+		return -EINVAL;
+	}
+
+	stft_debug_ifft_out_fh = fopen("stft_debug_ifft_out.txt", "w");
+	if (!stft_debug_ifft_out_fh) {
+		fprintf(stderr, "Debug file open failed.\n");
+		fclose(stft_debug_fft_out_fh);
+		return -EINVAL;
+	}
+#endif
+
 	return 0;
 }
 
@@ -187,6 +215,12 @@ __cold static int stft_process_free(struct processing_module *mod)
 	comp_dbg(mod->dev, "stft_process_free()");
 	stft_process_free_buffers(mod);
 	mod_free(mod, cd);
+
+#if STFT_DEBUG
+	fclose(stft_debug_fft_in_fh);
+	fclose(stft_debug_fft_out_fh);
+	fclose(stft_debug_ifft_out_fh);
+#endif
 	return 0;
 }
 

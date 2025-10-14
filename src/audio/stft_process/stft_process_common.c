@@ -17,6 +17,12 @@
 #include <stddef.h>
 #include <stdint.h>
 
+#if STFT_DEBUG
+extern FILE* stft_debug_fft_in_fh;
+extern FILE* stft_debug_fft_out_fh;
+extern FILE* stft_debug_ifft_out_fh;
+#endif
+
 LOG_MODULE_REGISTER(stft_process_common, CONFIG_SOF_LOG_LEVEL);
 
 /*
@@ -56,7 +62,7 @@ static int stft_prepare_fft(struct stft_process_state *state)
 static void stft_do_fft(struct stft_process_state *state)
 {
 	struct stft_process_fft *fft = &state->fft;
-	int input_shift = 0;
+	int i;
 
 	/* Clear FFT input buffer because it has been used as scratch */
 	bzero(fft->fft_buf, fft->fft_buffer_size);
@@ -69,7 +75,7 @@ static void stft_do_fft(struct stft_process_state *state)
 	/* TODO: use_energy & raw_energy */
 
 	/* Window function */
-	stft_process_apply_window(state, input_shift);
+	stft_process_apply_window(state);
 
 	/* TODO: use_energy & !raw_energy */
 
@@ -78,29 +84,53 @@ static void stft_do_fft(struct stft_process_state *state)
 	 */
 	bzero(fft->fft_out, fft->fft_buffer_size);
 
-	/* Compute FFT */
+#if STFT_DEBUG
+	for (i = 0; i < fft->fft_size; i++)
+		fprintf(stft_debug_fft_in_fh, "%d\n", fft->fft_buf[i].real);
+#endif
+
+	/* Compute FFT. A full scale s16 sine input with 2^N samples period in low
+	 * part of s32 real part and zero imaginary part gives to output about 0.5
+	 * full scale 32 bit output to real and imaginary. The scaling is same for
+	 * all FFT sizes.
+	 */
 	fft_execute_32(fft->fft_plan, false);
+
+#if STFT_DEBUG
+	for (i = 0; i < fft->fft_size; i++)
+		fprintf(stft_debug_fft_out_fh, "%d %d\n",
+			fft->fft_out[i].real, fft->fft_out[i].imag);
+#endif
 }
 
 static void stft_do_ifft(struct stft_process_state *state)
 {
 	struct stft_process_fft *fft = &state->fft;
-	int input_shift = 0;
-	int bin = 50;
+	//int input_shift = 0;
+	int i;
 
 	/* The FFT out buffer needs to be cleared to avoid to corrupt
 	 * the output. TODO: check moving it to FFT lib.
 	 */
 	bzero(fft->fft_buf, fft->fft_buffer_size);
-	bzero(fft->fft_out, fft->fft_buffer_size);
-	fft->fft_out[bin - 1].real = 10000;
-	fft->fft_out[fft->fft_size + 2 - bin - 1].real = 10000;
+
+	/* Scale fft_out */
+	for (i = 0; i < fft->fft_size; i++) {
+		fft->fft_out[i].real = fft->fft_out[i].real >> 16;
+		fft->fft_out[i].imag = fft->fft_out[i].imag >> 16;
+	}
 
 	/* Compute IFFT */
 	fft_execute_32(fft->ifft_plan, true);
 
 	/* Window function */
-	stft_process_apply_window(state, input_shift);
+	stft_process_apply_window(state);
+
+#if STFT_DEBUG
+	for (i = 0; i < fft->fft_size; i++)
+		fprintf(stft_debug_ifft_out_fh, "%d %d\n",
+			fft->fft_buf[i].real, fft->fft_buf[i].imag);
+#endif
 
 	/* Copy to output buffer */
 	stft_process_overlap_add_ifft_buffer(state);

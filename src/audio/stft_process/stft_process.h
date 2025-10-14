@@ -14,26 +14,7 @@
 #include <stdbool.h>
 #include <stdint.h>
 
-#define STFT_PROCESS_MAGIC 0x6d666363 /* ASCII for "mfcc" */
-
-/* Set to 16 for lower RAM and MCPS with slightly lower quality. Set to 32 for best
- * quality but higher MCPS and RAM. The STFT_PROCESS input is currently 16 bits. With this option
- * set to 32 the FFT and Mel filterbank are computed with better 32 bit precision. There
- * is also need to enable 32 bit FFT from Kconfig if set.
- */
-
-#define STFT_PROCESS_FFT_BITS	32
-
-/* STFT_PROCESS with 16 bit FFT benefits from data normalize, for 32 bits there's no
- * significant impact. The amount of left shifts for FFT input is limited to
- * 10 that equals about 60 dB boost. The boost is compensated in Mel energy
- * calculation.
- */
-
-#undef STFT_PROCESS_NORMALIZE_FFT
-#define STFT_PROCESS_NORMALIZE_MAX_SHIFT	10
-
-/* These go to user/stft_process.h ? */
+#define STFT_DEBUG	1
 
 #define STFT_BLACKMAN_A0 Q_CONVERT_FLOAT(0.42, 15) /* For MFCC */
 
@@ -291,7 +272,7 @@ void stft_process_fill_prev_samples(struct stft_process_buffer *buf, int16_t *pr
 
 void stft_process_fill_fft_buffer(struct stft_process_state *state);
 
-void stft_process_apply_window(struct stft_process_state *state, int input_shift);
+void stft_process_apply_window(struct stft_process_state *state);
 
 void stft_process_overlap_add_ifft_buffer(struct stft_process_state *state);
 
