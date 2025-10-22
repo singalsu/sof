@@ -386,4 +386,8 @@ NHLT_BIN=nhlt-sof-tgl-cs35l56-ssp2.bin"
 PDM1_MIC_B_ENABLE=1,DMIC0_PCM_ID=99,PREPROCESS_PLUGINS=nhlt,NUM_HDMIS=4,\
 NHLT_BIN=nhlt-sof-adl-max98357a-rt5682.bin,SPK_ID=7,DEEPBUFFER_FW_DMA_MS=10,INCLUDE_ECHO_REF=true,\
 INCLUDE_BT_OFFLOAD=false,DEEP_BUF_SPK=true,SPEAKER_CODEC_NAME=SSP2-Codec,SPEAKER_SSP_DAI_INDEX=2"
+
+# Jack codec + SmartAmp topology. No SDW_DMIC connection, experiment with echo ref
+"cavs-sdw\;sof-mtl-rt713-l0-rt1316-l12-echoref\;PLATFORM=mtl,NUM_SDW_AMP_LINKS=2,\
+HDMI1_ID=4,HDMI2_ID=5,HDMI3_ID=6,SDW_SPK_ENHANCED_PLAYBACK=false,SDW_JACK_ECHO_REF=true"
 )
