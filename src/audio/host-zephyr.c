@@ -898,10 +898,13 @@ int host_common_params(struct host_data *hd, struct comp_dev *dev,
 		return -EINVAL;
 	}
 
-	if (params->direction == SOF_IPC_STREAM_PLAYBACK)
+	if (params->direction == SOF_IPC_STREAM_PLAYBACK) {
+		comp_info(dev, "seppo playback");
 		hd->local_buffer = comp_dev_get_first_data_consumer(dev);
-	else
+	} else {
+		comp_info(dev, "seppo capture");
 		hd->local_buffer = comp_dev_get_first_data_producer(dev);
+	}
 
 	if (!hd->local_buffer) {
 		comp_err(dev, "no local buffer found");
