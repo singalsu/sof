@@ -95,6 +95,7 @@ config COMP_STUBS
 
 config COMP_TONE
 	bool "Tone component"
+	default y
 	select CORDIC_FIXED
 	help
 	  Select for Tone component.
