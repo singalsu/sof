@@ -1,15 +1,16 @@
-% sof_export_twiddle(bits, fn, fft_size_max)
+% sof_export_twiddle(bits, fn, fft_size_max, denom)
 %
 % Input
 %   bits - Number of bits for data, 16 or 32
 %   fn - File name, defaults to twiddle.h
 %   fft_size_max - Number of twiddle factors, defaults to 1024 if omitted
+%   denom - divide index * 2 * pi by denom instead of fft_size_max, same if omitted
 
 % SPDX-License-Identifier: BSD-3-Clause
 %
 % Copyright (c) 2022, Intel Corporation. All rights reserved.
 
-function sof_export_twiddle(bits, fn, fft_size_max)
+function sof_export_twiddle(bits, fn, fft_size_max, denom)
 
 if nargin < 2
 	fn = 'twiddle.h';
@@ -17,6 +18,10 @@ end
 
 if nargin < 3
 	fft_size_max = 1024;
+end
+
+if nargin < 4
+	denom = fft_size_max;
 end
 
 switch bits
@@ -34,8 +39,8 @@ end
 hcaps = upper(hname);
 
 i = 0:(fft_size_max  - 1);
-twiddle_real = cos(i * 2 * pi / fft_size_max);
-twiddle_imag = -sin(i * 2 * pi / fft_size_max);
+twiddle_real = cos(i * 2 * pi / denom);
+twiddle_imag = -sin(i * 2 * pi / denom);
 
 year = datestr(now(), 'yyyy');
 fh = fopen(fn, 'w');

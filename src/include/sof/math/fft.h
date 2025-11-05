@@ -26,7 +26,9 @@
 
 #endif
 
-#define FFT_SIZE_MAX	1024
+#define FFT_SIZE_MAX		1024
+#define FFT_MULTI_COUNT_MAX	3
+
 
 struct icomplex32 {
 	int32_t real;
@@ -52,11 +54,32 @@ struct fft_plan {
 	struct icomplex16 *outb16;	/* pointer to output integer complex buffer */
 };
 
+struct fft_multi_plan {
+	struct fft_plan *fft_plan[FFT_MULTI_COUNT_MAX];
+	struct icomplex32 *tmp_i32[FFT_MULTI_COUNT_MAX]; /* pointer to input buffer */
+	struct icomplex32 *tmp_o32[FFT_MULTI_COUNT_MAX]; /* pointer to output buffer */
+	struct icomplex16 *tmp_i16[FFT_MULTI_COUNT_MAX]; /* pointer to input buffer */
+	struct icomplex16 *tmp_o16[FFT_MULTI_COUNT_MAX]; /* pointer to output buffer */
+	struct icomplex32 *inb32;	/* pointer to input integer complex buffer */
+	struct icomplex32 *outb32;	/* pointer to output integer complex buffer */
+	struct icomplex16 *inb16;	/* pointer to input integer complex buffer */
+	struct icomplex16 *outb16;	/* pointer to output integer complex buffer */
+	uint16_t *bit_reverse_idx;
+	uint32_t total_size;
+	uint32_t fft_size;
+	int num_ffts;
+};
+
 /* interfaces of the library */
 struct fft_plan *mod_fft_plan_new(struct processing_module *mod, void *inb,
 				  void *outb, uint32_t size, int bits);
 void fft_execute_16(struct fft_plan *plan, bool ifft);
 void fft_execute_32(struct fft_plan *plan, bool ifft);
-void mod_fft_plan_free(struct processing_module *mod, struct fft_plan *plan16);
+void mod_fft_plan_free(struct processing_module *mod, struct fft_plan *plan);
+
+struct fft_multi_plan *mod_fft_multi_plan_new(struct processing_module *mod, void *inb,
+					      void *outb, uint32_t size, int bits);
+void fft_multi_execute_32(struct fft_multi_plan *plan, bool ifft);
+void mod_fft_multi_plan_free(struct processing_module *mod, struct fft_multi_plan *plan);
 
 #endif /* __SOF_FFT_H__ */
