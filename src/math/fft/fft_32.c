@@ -142,12 +142,18 @@ void fft_execute_32(struct fft_plan *plan, bool ifft)
 	}
 }
 
-static void dft3_32(struct icomplex32 *x, struct icomplex32 *y)
+void sofm_dft3_32(struct icomplex32 *x, struct icomplex32 *y)
 {
 	const struct icomplex32 c0 = {DFT3_COEFR, -DFT3_COEFI};
 	const struct icomplex32 c1 = {DFT3_COEFR,  DFT3_COEFI};
 	struct icomplex32 tmp1;
 	struct icomplex32 tmp2;
+	int i;
+
+	for (i = 0; i < 3; i++) {
+		x[i].real = Q_SHIFT_RND(x[i].real, 31, 29);
+		x[i].imag = Q_SHIFT_RND(x[i].imag, 31, 29);
+	}
 
 	/*
 	 *      | 1   1   1 |
@@ -226,7 +232,7 @@ void fft_multi_execute_32(struct fft_multi_plan *plan, bool ifft)
 		x[1].imag = (plan->tmp_o32[1] + i)->imag;
 		x[2].real = (plan->tmp_o32[2] + i)->real;
 		x[2].imag = (plan->tmp_o32[2] + i)->imag;
-		dft3_32(&x[0], &y[0]);
+		sofm_dft3_32(&x[0], &y[0]);
 		plan->outb32[k].real = y[0].real;
 		plan->outb32[k++].imag = y[0].imag;
 		plan->outb32[k].real = y[1].real;

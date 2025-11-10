@@ -115,6 +115,9 @@ struct fft_multi_plan *mod_fft_multi_plan_new(struct processing_module *mod, voi
 		plan->num_ffts = 1;
 	} else {
 		switch (size) {
+		case 24:
+			plan->num_ffts = 3; /* Use 3 * 8 point FFT */
+			break;
 		case 1536:
 			plan->num_ffts = 3; /* Use 3 * 512 point FFT */
 			break;
