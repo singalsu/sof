@@ -45,7 +45,7 @@ static void dft3_32_test(const int32_t *in_real, const int32_t *in_imag,
 			x[j].imag = *p_in_imag++;
 		}
 
-		sofm_dft3_32(&x[0], &y[0]);
+		sofm_dft3_32(x, y);
 
 		for (j = 0; j < DFT_SIZE; j++) {
 			delta = (double)*p_ref_real - (double)y[j].real;
@@ -81,7 +81,7 @@ static void dft3_32_test_1(void **state)
 	(void)state;
 
 	dft3_32_test(input_data_real_q31, input_data_imag_q31,
-		     ref_data_real_q29, ref_data_imag_q29,
+		     ref_data_real_q31, ref_data_imag_q31,
 		     REF_SOFM_DFT3_NUM_TESTS);
 }
 

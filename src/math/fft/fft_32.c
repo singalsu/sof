@@ -10,12 +10,15 @@
 #include <rtos/alloc.h>
 #include <sof/math/fft.h>
 
+#include <stdio.h>
+
 #ifdef FFT_GENERIC
 #include <sof/audio/coefficients/fft/twiddle_1024_1536_32.h>
 #include <sof/audio/coefficients/fft/twiddle_32.h>
 
-#define DFT3_COEFR -1073741824	/* int32(-0.5 * 2^31) */
-#define DFT3_COEFI  1859775393	/* int32(sqrt(3) / 2 * 2^31) */
+#define DFT3_COEFR	-1073741824	/* int32(-0.5 * 2^31) */
+#define DFT3_COEFI	1859775393	/* int32(sqrt(3) / 2 * 2^31) */
+#define DFT3_SCALE	715827883	/* int32(1/3*2^31) */
 
 /*
  * These helpers are optimized for FFT calculation only.
@@ -28,6 +31,13 @@ static inline void icomplex32_add(const struct icomplex32 *in1, const struct ico
 {
 	out->real = in1->real + in2->real;
 	out->imag = in1->imag + in2->imag;
+}
+
+static inline void icomplex32_adds(const struct icomplex32 *in1, const struct icomplex32 *in2,
+				   struct icomplex32 *out)
+{
+	out->real = sat_int32((int64_t)in1->real + in2->real);
+	out->imag = sat_int32((int64_t)in1->imag + in2->imag);
 }
 
 static inline void icomplex32_sub(const struct icomplex32 *in1, const struct icomplex32 *in2,
@@ -142,17 +152,17 @@ void fft_execute_32(struct fft_plan *plan, bool ifft)
 	}
 }
 
-void sofm_dft3_32(struct icomplex32 *x, struct icomplex32 *y)
+void sofm_dft3_32(struct icomplex32 *x_in, struct icomplex32 *y)
 {
 	const struct icomplex32 c0 = {DFT3_COEFR, -DFT3_COEFI};
 	const struct icomplex32 c1 = {DFT3_COEFR,  DFT3_COEFI};
-	struct icomplex32 tmp1;
-	struct icomplex32 tmp2;
+	struct icomplex32 x[3];
+	struct icomplex32 p1, p2, sum;
 	int i;
 
 	for (i = 0; i < 3; i++) {
-		x[i].real = Q_SHIFT_RND(x[i].real, 31, 29);
-		x[i].imag = Q_SHIFT_RND(x[i].imag, 31, 29);
+		x[i].real = Q_MULTSR_32X32((int64_t)x_in[i].real, DFT3_SCALE, 31, 31, 31);
+		x[i].imag = Q_MULTSR_32X32((int64_t)x_in[i].imag, DFT3_SCALE, 31, 31, 31);
 	}
 
 	/*
@@ -166,34 +176,39 @@ void sofm_dft3_32(struct icomplex32 *x, struct icomplex32 *y)
 	 */
 
 	/* y(0) = 1 * x(0) + 1 * x(1) + 1 * x(2) */
-	icomplex32_add(&x[0], &x[1], &tmp1);
-	icomplex32_add(&x[2], &tmp1, &y[0]);
+	icomplex32_adds(&x[0], &x[1], &sum);
+	icomplex32_adds(&x[2], &sum, &y[0]);
 
 	/* y(1) = 1 * x(0) + c0 * x(1) + c1 * x(2) */
-	icomplex32_mul(&c0, &x[1], &tmp1);
-	icomplex32_mul(&c1, &x[2], &tmp2);
-	icomplex32_add(&tmp1, &tmp2, &y[1]);
-	icomplex32_add(&x[0], &y[1], &y[1]);
+	icomplex32_mul(&c0, &x[1], &p1);
+	icomplex32_mul(&c1, &x[2], &p2);
+	icomplex32_adds(&p1, &p2, &sum);
+	icomplex32_adds(&x[0], &sum, &y[1]);
 
 	/* y(2) = 1 * x(0) + c1 * x(1) + c0 * x(2) */
-	icomplex32_mul(&c1, &x[1], &tmp1);
-	icomplex32_mul(&c0, &x[2], &tmp2);
-	icomplex32_add(&tmp1, &tmp2, &y[2]);
-	icomplex32_add(&x[0], &y[2], &y[2]);
+	icomplex32_mul(&c1, &x[1], &p1);
+	icomplex32_mul(&c0, &x[2], &p2);
+	icomplex32_adds(&p1, &p2, &sum);
+	icomplex32_adds(&x[0], &sum, &y[2]);
 }
 
 void fft_multi_execute_32(struct fft_multi_plan *plan, bool ifft)
 {
 	struct icomplex32 x[FFT_MULTI_COUNT_MAX];
 	struct icomplex32 y[FFT_MULTI_COUNT_MAX];
-	struct icomplex32 t;
-	int i, j, k;
+	struct icomplex32 t, c;
+	int i, j, k, m;
 
 	/* Handle 2^N FFT */
 	if (plan->num_ffts == 1) {
 		fft_execute_32(plan->fft_plan[0], ifft);
 		return;
 	}
+
+	FILE *fh1 = fopen("debug_fft_multi_int1.txt", "w");
+	FILE *fh2 = fopen("debug_fft_multi_int2.txt", "w");
+	FILE *fh3 = fopen("debug_fft_multi_twiddle.txt", "w");
+	FILE *fh4 = fopen("debug_fft_multi_dft_out.txt", "w");
 
 	/* convert to complex conjugate for IFFT */
 	if (ifft) {
@@ -205,41 +220,54 @@ void fft_multi_execute_32(struct fft_multi_plan *plan, bool ifft)
 	k = 0;
 	for (i = 0; i < plan->fft_size; i++)
 		for (j = 0; j < plan->num_ffts; j++)
-			*(plan->tmp_i32[j] + i) = plan->inb32[k++];
+			plan->tmp_i32[j][i] = plan->inb32[k++];
 
 	/* Clear output buffers and call individual FFTs*/
 	for (j = 0; j < plan->num_ffts; j++) {
-		bzero(plan->tmp_o32[j], plan->fft_size * sizeof(struct icomplex32));
+		bzero(&plan->tmp_o32[j][0], plan->fft_size * sizeof(struct icomplex32));
 		fft_execute_32(plan->fft_plan[j], 0);
 	}
 
+	for (j = 0; j < plan->num_ffts; j++) {
+		for (i = 0; i < plan->fft_size; i++) {
+			fprintf(fh1, "%d %d\n",  plan->tmp_o32[j][i].real, plan->tmp_o32[j][i].imag);
+		}
+	}
+
 	/* Multiply with twiddle factors */
+	m = 512 / plan->fft_size;
 	for (j = 1; j < plan->num_ffts; j++) {
 		for (i = 0; i < plan->fft_size; i++) {
-			k = j * i;
+			c = plan->tmp_o32[j][i];
+			k = j * i * m;
 			t.real = multi_twiddle_real_32[k];
 			t.imag = multi_twiddle_imag_32[k];
-			icomplex32_mul(&t, plan->tmp_o32[j] + i, plan->tmp_o32[j] + i);
+			fprintf(fh3, "%d %d\n", t.real, t.imag);
+			icomplex32_mul(&t, &c, &plan->tmp_o32[j][i]);
+		}
+	}
+
+	for (j = 0; j < plan->num_ffts; j++) {
+		for (i = 0; i < plan->fft_size; i++) {
+			fprintf(fh2, "%d %d\n",  plan->tmp_o32[j][i].real, plan->tmp_o32[j][i].imag);
 		}
 	}
 
 	/* DFT of size 3 */
-	k = 0;
+	j = plan->fft_size;
+	k = 2 * plan->fft_size;
 	for (i = 0; i < plan->fft_size; i++) {
-		x[0].real = (plan->tmp_o32[0] + i)->real;
-		x[0].imag = (plan->tmp_o32[0] + i)->imag;
-		x[1].real = (plan->tmp_o32[1] + i)->real;
-		x[1].imag = (plan->tmp_o32[1] + i)->imag;
-		x[2].real = (plan->tmp_o32[2] + i)->real;
-		x[2].imag = (plan->tmp_o32[2] + i)->imag;
-		sofm_dft3_32(&x[0], &y[0]);
-		plan->outb32[k].real = y[0].real;
-		plan->outb32[k++].imag = y[0].imag;
-		plan->outb32[k].real = y[1].real;
-		plan->outb32[k++].imag = y[1].imag;
-		plan->outb32[k].real = y[2].real;
-		plan->outb32[k++].imag = y[2].imag;
+		x[0] = plan->tmp_o32[0][i];
+		x[1] = plan->tmp_o32[1][i];
+		x[2] = plan->tmp_o32[2][i];
+		sofm_dft3_32(x, y);
+		plan->outb32[i] = y[0];
+		plan->outb32[i + j] = y[1];
+		plan->outb32[i + k] = y[2];
 	}
+
+	for (i = 0; i < plan->total_size; i++)
+		fprintf(fh4, "%d %d\n",  plan->outb32[i].real, plan->outb32[i].imag);
 
 	/* shift back for IFFT */
 	if (ifft) {
@@ -252,6 +280,11 @@ void fft_multi_execute_32(struct fft_multi_plan *plan, bool ifft)
 			icomplex32_shift(&plan->outb32[i], plan->fft_plan[0]->len,
 					 &plan->outb32[i]);
 	}
+
+	fclose(fh1);
+	fclose(fh2);
+	fclose(fh3);
+	fclose(fh4);
 }
 
 #endif

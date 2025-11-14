@@ -43,9 +43,22 @@ static void fft_multi_32_test(const int32_t *in_real, const int32_t *in_imag,
 	FILE *fh1, *fh2;
 
 	x = malloc(num_bins * sizeof(struct icomplex32));
+	if (!x) {
+		fprintf(stderr, "Failed to allocate input data buffer.\n");
+		assert_true(false);
+	}
+
 	y = malloc(num_bins * sizeof(struct icomplex32));
+	if (!y) {
+		fprintf(stderr, "Failed to allocate output data buffer.\n");
+		assert_true(false);
+	}
 
 	plan = mod_fft_multi_plan_new(&dummy, x, y, num_bins, 32);
+	if (!plan) {
+		fprintf(stderr, "Failed to allocate FFT plan.\n");
+		assert_true(false);
+	}
 
 	fh1 = fopen("debug_fft_multi_in.txt", "w");
 	fh2 = fopen("debug_fft_multi_out.txt", "w");
@@ -101,7 +114,7 @@ static void fft_multi_32_test_1(void **state)
 	(void)state;
 
 	fft_multi_32_test(input_data_real_q31, input_data_imag_q31,
-			  ref_data_real_q26, ref_data_imag_q26,
+			  ref_data_real_q31, ref_data_imag_q31,
 			  REF_SOFM_FFT_MULTI_N, REF_SOFM_FFT_MULTI_NUM_TESTS);
 }
 
