@@ -147,8 +147,10 @@ void fft_execute_32(struct fft_plan *plan, bool ifft)
 		 * for Q1.31 format. Instead, we need to multiply N to compensate
 		 * the shrink we did in the FFT transform.
 		 */
-		for (i = 0; i < plan->size; i++)
+		for (i = 0; i < plan->size; i++) {
+			icomplex32_conj(&outb[i]);
 			icomplex32_shift(&outb[i], plan->len, &outb[i]);
+		}
 	}
 }
 
@@ -267,15 +269,23 @@ void fft_multi_execute_32(struct fft_multi_plan *plan, bool ifft)
 	//	fprintf(fh4, "%d %d\n",  plan->outb32[i].real, plan->outb32[i].imag);
 
 	/* shift back for IFFT */
+
+	/* TODO: Check if time shift method for IFFT is more efficient or more accurate
+	 * tmp = 1 / N * fft(X);
+	 * x = tmp([1 N:-1:2])
+	 */
 	if (ifft) {
 		/*
 		 * no need to divide N as it is already done in the input side
 		 * for Q1.31 format. Instead, we need to multiply N to compensate
 		 * the shrink we did in the FFT transform.
 		 */
-		for (i = 0; i < plan->total_size; i++)
+		for (i = 0; i < plan->total_size; i++) {
 			icomplex32_shift(&plan->outb32[i], plan->fft_plan[0]->len,
-					 &plan->outb32[i]);
+				&plan->outb32[i]);
+			plan->outb32[i].real = sat_int32((int64_t)plan->outb32[i].real * 3);
+			plan->outb32[i].imag = sat_int32((int64_t)plan->outb32[i].imag * 3);
+		}
 	}
 
 	// fclose(fh1); fclose(fh2); fclose(fh3); fclose(fh4);
