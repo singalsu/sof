@@ -6,13 +6,16 @@
 
 function ref_fft_multi()
 
+    rand('twister', 0); % Set seed to produce same test vectors every time
     path(path(), '../../../m');
     opt.describe = export_get_git_describe();
     opt.bits = 32;
     opt.fs = 48e3;
-
-    N = 16;
-    make_fft_multi_test_vectors(opt, N);
+    opt.ifft = 0;
+    opt.sine = 1;
+    opt.rand = 0;
+    opt.dc = 0;
+    opt.num_tests = 1;
 
     N = 96;
     make_fft_multi_test_vectors(opt, N);
@@ -32,31 +35,69 @@ function ref_fft_multi()
     N = 3072;
     make_fft_multi_test_vectors(opt, N);
 
+    opt.ifft = 1;
+    opt.dc = 0;
+    opt.sine = 1;
+    opt.rand = 0;
+
+    N = 24;
+    make_fft_multi_test_vectors(opt, N);
+
+    N = 256;
+    make_fft_multi_test_vectors(opt, N);
+
+    N = 1024;
+    make_fft_multi_test_vectors(opt, N);
+
+    N = 1536;
+    make_fft_multi_test_vectors(opt, N);
+
+    N = 3072;
+    make_fft_multi_test_vectors(opt, N);
+
 end
 
 function make_fft_multi_test_vectors(opt, N)
 
-    num_tests = 1;
     scale_q = 2^(opt.bits - 1);
     min_int = int32(-scale_q);
     max_int = int32(scale_q - 1);
     n = 1;
 
-    input_data_real_q = int32(zeros(N, num_tests));
-    input_data_imag_q = int32(zeros(N, num_tests));
+    input_data_real_q = int32(zeros(N, opt.num_tests));
+    input_data_imag_q = int32(zeros(N, opt.num_tests));
 
-    if 0
-	input_data_real_q(:,n) = int32(ones(N, 1) * max_int);
-	input_data_imag_q(:,n) = int32(ones(N, 1) * max_int);
+    if opt.dc
+	input_data_real_q(:,n) = int32(ones(N, 1) * max_int / N);
         n = n + 1;
     end
-    if 1
-	ft = 997;
-	t = (0:(N - 1))'/opt.fs;
-	x = 10^(-1 / 20) * sin(2 * pi * ft * t) .* kaiser(N, 20);
-	dither = scale_q / 2^19 * (rand(N, 1) + rand(N, 1) - 1);
-	input_data_real_q(:,n) = int32(x * scale_q + dither);
+    if opt.rand
+	input_data_real_q(:,n) = int32(2 * (rand(N, 1) - 1) * max_int * 0.1);
+	input_data_imag_q(:,n) = int32(2 * (rand(N, 1) - 1) * max_int * 0.1);
         n = n + 1;
+    end
+    if opt.sine
+	ft = 997;
+        if opt.ifft
+            fv = linspace(0, opt.fs/2, N/2 + 1);
+            df = abs(fv - ft);
+            idx = find(df == min(df));
+            input_data_real_q(idx, n) = int32(max_int / 4);
+        else
+	    t = (0:(N - 1))'/opt.fs;
+	    x = 10^(-1 / 20) * sin(2 * pi * ft * t) .* kaiser(N, 20);
+	    dither = scale_q / 2^19 * (rand(N, 1) + rand(N, 1) - 1);
+	    input_data_real_q(:,n) = int32(x * scale_q + dither);
+        end
+        n = n + 1;
+    end
+
+    if opt.ifft
+        N_half = N/2 + 1;
+        for i = 1:opt.num_tests
+            input_data_real_q(N_half + 1:end) = input_data_real_q(N_half - 1:-1:2);
+            input_data_imag_q(N_half + 1:end) = -input_data_imag_q(N_half - 1:-1:2);
+        end
     end
 
     input_data_real_f = double(input_data_real_q) / scale_q;
@@ -64,31 +105,37 @@ function make_fft_multi_test_vectors(opt, N)
     input_data_f = complex(input_data_real_f, input_data_imag_f);
     save input_data_f.mat input_data_f
 
-    ref_data_f = zeros(N, num_tests);
-    for i = 1:num_tests
-	ref_data_f(:,i) = fft(input_data_f(:,i)) / N;
+    ref_data_f = zeros(N, opt.num_tests);
+    for i = 1:opt.num_tests
+        if opt.ifft
+	    ref_data_f(:,i) = ifft(input_data_f(:,i)) * N;
+            test_type = 'ifft';
+        else
+	    ref_data_f(:,i) = fft(input_data_f(:,i)) / N;
+            test_type = 'fft';
+        end
     end
 
-    input_data_vec_f = reshape(input_data_f, N * num_tests, 1);
+    input_data_vec_f = reshape(input_data_f, N * opt.num_tests, 1);
     input_data_real_q = int32(real(input_data_vec_f) * scale_q);
     input_data_imag_q = int32(imag(input_data_vec_f) * scale_q);
 
-    ref_data_vec_f = reshape(ref_data_f, N * num_tests, 1);
+    ref_data_vec_f = reshape(ref_data_f, N * opt.num_tests, 1);
     ref_data_real_q = int32(real(ref_data_vec_f) * scale_q);
     ref_data_imag_q = int32(imag(ref_data_vec_f) * scale_q);
 
-    header_fn = sprintf('ref_fft_multi_%d_%d.h', N, opt.bits);
+    header_fn = sprintf('ref_%s_multi_%d_%d.h', test_type, N, opt.bits);
     fh = export_headerfile_open(header_fn);
-    comment = sprintf('Created %s with script ref_sofm_dft3.m %s', ...
+    comment = sprintf('Created %s with script ref_fft_multi.m %s', ...
 		      datestr(now, 0), opt.describe);
     export_comment(fh, comment);
-    dstr = sprintf('REF_SOFM_FFT_MULTI_%d_NUM_TESTS', N);
-    export_ndefine(fh, dstr, num_tests);
+    dstr = sprintf('REF_SOFM_%s_MULTI_%d_NUM_TESTS', upper(test_type), N);
+    export_ndefine(fh, dstr, opt.num_tests);
     qbits = opt.bits-1;
-    vstr = sprintf('in_real_%d_q%d', N, qbits); export_vector(fh, opt.bits, vstr, input_data_real_q);
-    vstr = sprintf('in_imag_%d_q%d', N, qbits); export_vector(fh, opt.bits, vstr, input_data_imag_q);
-    vstr = sprintf('ref_real_%d_q%d', N, qbits); export_vector(fh, opt.bits, vstr, ref_data_real_q);
-    vstr = sprintf('ref_imag_%d_q%d', N, qbits); export_vector(fh, opt.bits, vstr, ref_data_imag_q);
+    vstr = sprintf('%s_in_real_%d_q%d', test_type, N, qbits); export_vector(fh, opt.bits, vstr, input_data_real_q);
+    vstr = sprintf('%s_in_imag_%d_q%d', test_type, N, qbits); export_vector(fh, opt.bits, vstr, input_data_imag_q);
+    vstr = sprintf('%s_ref_real_%d_q%d', test_type, N, qbits); export_vector(fh, opt.bits, vstr, ref_data_real_q);
+    vstr = sprintf('%s_ref_imag_%d_q%d', test_type, N, qbits); export_vector(fh, opt.bits, vstr, ref_data_imag_q);
     fclose(fh);
     fprintf(1, 'Exported %s.\n', header_fn);
 end
