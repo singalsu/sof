@@ -281,6 +281,8 @@ void fft_multi_execute_32(struct fft_multi_plan *plan, bool ifft)
 		 * the shrink we did in the FFT transform.
 		 */
 		for (i = 0; i < plan->total_size; i++) {
+			/* Need to negate imag part to match reference */
+			plan->outb32[i].imag = -plan->outb32[i].imag;
 			icomplex32_shift(&plan->outb32[i], plan->fft_plan[0]->len,
 				&plan->outb32[i]);
 			plan->outb32[i].real = sat_int32((int64_t)plan->outb32[i].real * 3);
