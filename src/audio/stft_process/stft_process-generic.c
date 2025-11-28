@@ -370,7 +370,7 @@ void stft_process_overlap_add_ifft_buffer(struct stft_process_state *state)
 		n = stft_process_buffer_samples_without_wrap(obuf, w);
 		n = MIN(samples_remain, n);
 		for (i = 0; i < n; i++) {
-			*w = sat_int32((int64_t)*w + (fft->fft_buf[idx].real >> 1));
+			*w = sat_int32((int64_t)*w + (fft->fft_buf[idx].real >> 2));
 			w++;
 			idx++;
 		}

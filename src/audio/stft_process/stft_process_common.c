@@ -204,7 +204,7 @@ static int stft_process_s32(const struct processing_module *mod, struct sof_sour
 
 	return 0;
 }
-#endif /* CONFIG_FORMAT_S16LE */
+#endif /* CONFIG_FORMAT_S32LE */
 
 #if CONFIG_FORMAT_S16LE
 static int stft_process_output_zeros_s16(struct stft_comp_data *cd, struct sof_sink *sink,
@@ -268,9 +268,6 @@ static int stft_process_s16(const struct processing_module *mod, struct sof_sour
 
 #if CONFIG_FORMAT_S24LE
 #endif /* CONFIG_FORMAT_S24LE */
-
-#if CONFIG_FORMAT_S32LE
-#endif /* CONFIG_FORMAT_S32LE */
 
 /* This struct array defines the used processing functions for
  * the PCM formats

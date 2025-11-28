@@ -120,12 +120,12 @@ int stft_process_setup(struct processing_module *mod, int max_frames,
 	else
 		state->source_channel = config->channel;
 
-	//fft->fft_size = config->frame_length;
+	fft->fft_size = config->frame_length;
 	//fft->fft_size = 1536;
-	fft->fft_size = 3072;
+	//fft->fft_size = 3072;
 	fft->fft_padded_size = fft->fft_size; /* Same */
-	//fft->fft_hop_size = config->frame_shift;
-	fft->fft_hop_size = 240;
+	fft->fft_hop_size = config->frame_shift;
+	//fft->fft_hop_size = 240;
 	fft->half_fft_size = (fft->fft_padded_size >> 1) + 1;
 
 	comp_info(dev, "fft_size = %d, fft_padded_size = %d, fft_hop_size = %d, window = %d",
