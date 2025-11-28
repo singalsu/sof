@@ -36,57 +36,18 @@ enum sof_stft_process_fft_window_type {
 	STFT_POVEY_WINDOW = 4,
 };
 
-enum sof_stft_process_mel_log_type {
-	MEL_LOG_IS_LOG = 0,
-	MEL_LOG_IS_LOG10 = 1,
-	MEL_LOG_IS_DB = 2
-};
-
-enum sof_stft_process_mel_norm_type {
-	STFT_MEL_NORM_NONE = 0,
-	STFT_MEL_NORM_SLANEY = 1,
-};
-
-enum sof_stft_process_dct_type {
-	STFT_DCT_I = 0,
-	STFT_DCT_II = 1,
-};
-
 struct sof_stft_process_config {
 	uint32_t size; /**< Size of this struct in bytes */
 	uint32_t reserved[8];
 	int32_t sample_frequency; /**< Hz. e.g. 16000 */
-	int32_t pmin; /**< Q1.31 linear power, limit minimum Mel energy, e.g. 1e-9 */
-	enum sof_stft_process_mel_log_type mel_log; /**< Use MEL_LOG_IS_LOG, LOG10 or DB*/
-	enum sof_stft_process_mel_norm_type norm; /**< Use MEL_NORM_SLANEY or MEL_NORM_NONE */
-	enum sof_stft_process_fft_pad_type pad; /**< Use PAD_END, PAD_CENTER, PAD_START */
-	enum sof_stft_process_fft_window_type window; /**< Use RECTANGULAR_WINDOW, etc. */
-	enum sof_stft_process_dct_type dct; /**< Must be DCT_II */
-	int16_t blackman_coef; /**< Q1.15, typically set to 0.42 for BLACKMAN_WINDOW */
-	int16_t cepstral_lifter; /**< Q7.9, e.g. 22.0 */
+	int32_t window_gain_comp; /**< Q1.31 gain for IFFT */
+	int32_t reserved_32;
 	int16_t channel; /**< -1 expect mono, 0 left, 1 right, ... */
-	int16_t dither; /**< Reserved, no support */
 	int16_t frame_length; /**< samples, e.g. 400 for 25 ms @ 16 kHz*/
 	int16_t frame_shift; /**< samples, e.g. 160 for 10 ms @ 16 kHz */
-	int16_t high_freq;  /**< Hz, set 0 for Nyquist frequency  */
-	int16_t low_freq; /**< Hz, eg. 20 */
-	int16_t num_ceps; /**< Number of cepstral coefficients, e.g. 13 */
-	int16_t num_mel_bins; /**< Number of internal Mel bands, e.g. 23 */
-	int16_t preemphasis_coefficient; /**< Q1.15, e.g. 0.97, or 0 for disable */
-	int16_t top_db; /**< Q8.7 dB, limit Mel energies to this value e.g. 200 */
-	int16_t vtln_high; /**< Reserved, no support */
-	int16_t vtln_low; /**< Reserved, no support */
-	int16_t vtln_warp; /**< Reserved, no support */
-	bool htk_compat; /**< Must be false */
-	bool raw_energy; /**< Reserved, no support */
-	bool remove_dc_offset; /**< Reserved, no support */
-	bool round_to_power_of_two; /**< Must be true (1) */
-	bool snip_edges; /**< Must be true (1) */
-	bool subtract_mean; /**< Must be false (0) */
-	bool use_energy; /**< Must be false (0) */
-	bool reserved_bool1;
-	bool reserved_bool2;
-	bool reserved_bool3;
+	int16_t reserved_16;
+	enum sof_stft_process_fft_pad_type pad; /**< Use PAD_END, PAD_CENTER, PAD_START */
+	enum sof_stft_process_fft_window_type window; /**< Use RECTANGULAR_WINDOW, etc. */
 } __attribute__((packed));
 
 struct stft_process_buffer {
@@ -117,6 +78,7 @@ struct stft_process_state {
 	struct stft_process_buffer ibuf; /**< Circular buffer for input data */
 	struct stft_process_buffer obuf; /**< Circular buffer for output data */
 	struct stft_process_fft fft; /**< FFT related */
+	int32_t gain_comp; /**< Gain to compensate window gain */
 	int32_t *power_spectra; /**< Pointer to scratch */
 	int32_t *buffers;
 	int32_t *prev_data; /**< prev_data_size */

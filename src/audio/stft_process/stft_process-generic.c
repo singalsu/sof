@@ -361,6 +361,7 @@ void stft_process_overlap_add_ifft_buffer(struct stft_process_state *state)
 	struct stft_process_buffer *obuf = &state->obuf;
 	struct stft_process_fft *fft = &state->fft;
 	int32_t *w = obuf->w_ptr;
+	int32_t sample;
 	int i;
 	int n;
 	int samples_remain = fft->fft_size;
@@ -370,7 +371,9 @@ void stft_process_overlap_add_ifft_buffer(struct stft_process_state *state)
 		n = stft_process_buffer_samples_without_wrap(obuf, w);
 		n = MIN(samples_remain, n);
 		for (i = 0; i < n; i++) {
-			*w = sat_int32((int64_t)*w + (fft->fft_buf[idx].real >> 2));
+			sample = Q_MULTSR_32X32((int64_t)state->gain_comp, fft->fft_buf[idx].real,
+						31, 31, 31);
+			*w = sat_int32((int64_t)*w + sample);
 			w++;
 			idx++;
 		}

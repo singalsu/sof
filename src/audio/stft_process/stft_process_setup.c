@@ -93,13 +93,6 @@ int stft_process_setup(struct processing_module *mod, int max_frames,
 		return -EINVAL;
 	}
 
-	/* Check currently hard-coded features to match configuration request */
-	if (!config->round_to_power_of_two || !config->snip_edges ||
-	    config->subtract_mean || config->use_energy) {
-		comp_err(dev, "Can't change currently hard-coded features");
-		return -EINVAL;
-	}
-
 	if (config->sample_frequency != sample_rate) {
 		comp_err(dev, "Config sample_frequency does not match stream");
 		return -EINVAL;
@@ -202,6 +195,8 @@ int stft_process_setup(struct processing_module *mod, int max_frames,
 		comp_err(dev, "Failed Window function");
 		goto free_window_out;
 	}
+
+	state->gain_comp = config->window_gain_comp;
 
 	/* Scratch overlay during runtime
 	 *
