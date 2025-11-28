@@ -14,39 +14,15 @@
 function setup_stft_process(cfg)
 
 if nargin < 1
-	cfg.blackman_coef = 0.42;
-	cfg.cepstral_lifter = 22.0;
 	cfg.channel = 0; % -1 expect mono, 0 left, 1 right ...
-	cfg.dither = 0.0; % no support
-	cfg.energy_floor = 1.0;
 	%cfg.frame_length = 256*1e3/48000;
 	%cfg.frame_length = 512*1e3/48000;
 	cfg.frame_length = 1024*1e3/48000;
 	cfg.frame_shift = cfg.frame_length / 4;
-	cfg.high_freq = 0.0; % 0 is Nyquist
-	cfg.htk_compat = false; % no support
-	cfg.low_freq = 20.0; % Hz
-	cfg.num_ceps = 13;
-	cfg.min_duration = 0.0; % no support
-	cfg.norm = 'none'; % Use none or slaney
-	cfg.num_mel_bins = 23;
-	cfg.preemphasis_coefficient = 0; % disable
-	cfg.raw_energy = true;
-	cfg.remove_dc_offset = true;
-	cfg.round_to_power_of_two = true; % must be true
 	cfg.sample_frequency = 48000;
-	cfg.snip_edges = true; % must be true
-	cfg.subtract_mean = false; % must be false
-	cfg.use_energy = false;
-	cfg.vtln_high = -500.0; % no support
-	cfg.vtln_low = 100.0; % no support
-	cfg.vtln_warp = 1.0; % must be 1.0 (vocal tract length normalization)
 	%cfg.window_type = 'rectangular';
 	%cfg.window_type = 'hamming';
 	cfg.window_type = 'hann';
-	cfg.mel_log = 'log'; % Set to 'db' for librosa, set to 'log10' for matlab
-	cfg.pmin = 5e-10; % Set to 1e-10 for librosa
-	cfg.top_db = 200; % Set to 80 for librosa
 end
 
 cfg.tplg_fn = '../../../../tools/topology/topology2/include/components/stft_process/default.conf';
@@ -58,11 +34,12 @@ end
 
 function export_stft_process_setup(cfg)
 
+
 %% Use blob tool from EQ
 addpath('../../../../tools/tune/common');
 
 %% Blob size, size plus reserved(8) + current parameters
-nbytes_data = 104;
+nbytes_data = 64;
 
 %% Little endian
 sh32 = [0 -8 -16 -24];
@@ -86,35 +63,19 @@ for i = 1:8
 	[b8, j] = add_w32b(0, b8, j);
 end
 
-v = q_convert(cfg.sample_frequency, 0);          [b8, j] = add_w32b(v, b8, j);
-v = q_convert(cfg.pmin, 31);                     [b8, j] = add_w32b(v, b8, j);
-v = 0;                                           [b8, j] = add_w32b(v, b8, j); % enum mel_log
-v = 0;                                           [b8, j] = add_w32b(v, b8, j); % enum norm
-v = 0;                                           [b8, j] = add_w32b(v, b8, j); % enum pad
-v = get_window(cfg);                             [b8, j] = add_w32b(v, b8, j); % enum window
-v = 1;                                           [b8, j] = add_w32b(v, b8, j); % enum dct type
-v = q_convert(cfg.blackman_coef, 15);            [b8, j] = add_w16b(v, b8, j);
-v = q_convert(cfg.cepstral_lifter, 9);           [b8, j] = add_w16b(v, b8, j);
-v = cfg.channel;                                 [b8, j] = add_w16b(v, b8, j);
-v = cfg.dither;                                  [b8, j] = add_w16b(v, b8, j);
-v = round(cfg.frame_length/1000 * cfg.sample_frequency); [b8, j] = add_w16b(v, b8, j);
-v = round(cfg.frame_shift/1000 * cfg.sample_frequency); [b8, j] = add_w16b(v, b8, j);
-v = q_convert(cfg.high_freq, 0);                 [b8, j] = add_w16b(v, b8, j);
-v = q_convert(cfg.low_freq, 0);                  [b8, j] = add_w16b(v, b8, j);
-v = cfg.num_ceps;                                [b8, j] = add_w16b(v, b8, j);
-v = cfg.num_mel_bins;                            [b8, j] = add_w16b(v, b8, j);
-v = q_convert(cfg.preemphasis_coefficient, 15);  [b8, j] = add_w16b(v, b8, j);
-v = q_convert(cfg.top_db, 7);                    [b8, j] = add_w16b(v, b8, j);
-v = 0;                                           [b8, j] = add_w16b(v, b8, j); % vtln_high Qx.y TBD
-v = 0;                                           [b8, j] = add_w16b(v, b8, j); % vtln_low Qx.y TBD
-v = 0;                                           [b8, j] = add_w16b(v, b8, j); % vtln_warp Qx.y TBD
-v = cfg.htk_compat;                              [b8, j] = add_w8b(v, b8, j); % bool
-v = cfg.raw_energy;                              [b8, j] = add_w8b(v, b8, j); % bool
-v = cfg.remove_dc_offset;                        [b8, j] = add_w8b(v, b8, j); % bool
-v = cfg.round_to_power_of_two;                   [b8, j] = add_w8b(v, b8, j); % bool
-v = cfg.snip_edges;                              [b8, j] = add_w8b(v, b8, j); % bool
-v = cfg.subtract_mean;                           [b8, j] = add_w8b(v, b8, j); % bool
-v = cfg.use_energy;                              [b8, j] = add_w8b(v, b8, j); % bool
+fft_length = round(cfg.frame_length/1000 * cfg.sample_frequency);
+fft_hop = round(cfg.frame_shift/1000 * cfg.sample_frequency);
+[window_idx, window_gain_comp] = get_window(cfg, fft_length, fft_hop);
+
+v = q_convert(cfg.sample_frequency, 0);		[b8, j] = add_w32b(v, b8, j);
+v = q_convert(window_gain_comp, 31);		[b8, j] = add_w32b(v, b8, j);
+v = 0;						[b8, j] = add_w32b(v, b8, j); % reserved
+v = cfg.channel;				[b8, j] = add_w16b(v, b8, j);
+v = fft_length;					[b8, j] = add_w16b(v, b8, j);
+v = fft_hop;					[b8, j] = add_w16b(v, b8, j);
+v = 0;						[b8, j] = add_w16b(v, b8, j); % reserved
+v = 0;						[b8, j] = add_w32b(v, b8, j); % enum pad
+v = window_idx;					[b8, j] = add_w32b(v, b8, j); % enum window
 
 %% Export
 switch cfg.tplg_ver
@@ -132,21 +93,28 @@ end
 
 %% Helper functions
 
-function n = get_window(cfg)
+function [idx, iwg] = get_window(cfg, len, hop)
 	switch lower(cfg.window_type)
 		case 'rectangular'
-			n = 0;
+			win = boxcar(len);
+			idx = 0;
 		case 'blackman'
-			n = 1;
+			win = blackman(len);
+			idx = 1;
 		case 'hamming'
-			n = 2;
+			win = hamming(len);
+			idx = 2;
 		case 'hann'
-			n = 3;
+			win = hann(len);
+			idx = 3;
 		case 'povey'
-			n = 4;
+			idx = 4;
+			n = 0:(len-1);
+			win = ((1 - cos(2 * pi * n / len)) / 2).^0.85;
 		otherwise
 			error('Unknown window type');
 	end
+	iwg = hop / sum(win.^2);
 end
 
 function bytes = w8b(word)
