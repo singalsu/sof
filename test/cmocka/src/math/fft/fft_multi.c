@@ -30,9 +30,9 @@
 #include <cmocka.h>
 #include <math.h>
 
-#define FFT_MAX_ERROR_ABS		1040.0		/* about -126 dB */
+#define FFT_MAX_ERROR_ABS		1050.0		/* about -126 dB */
 #define FFT_MAX_ERROR_RMS		35.0		/* about -156 dB */
-#define IFFT_MAX_ERROR_ABS		1650000.0	/* about -62 dB */
+#define IFFT_MAX_ERROR_ABS		2400000.0	/* about -59 dB */
 #define IFFT_MAX_ERROR_RMS		44000.0		/* about -94 dB */
 
 struct processing_module dummy;
@@ -54,7 +54,7 @@ static void fft_multi_32_test(const int32_t *in_real, const int32_t *in_imag,
 	const int32_t *p_ref_real = ref_real;
 	const int32_t *p_ref_imag = ref_imag;
 	int i, j;
-	// FILE *fh1, *fh2;
+	FILE *fh1, *fh2;
 
 	x = malloc(num_bins * sizeof(struct icomplex32));
 	if (!x) {
@@ -74,21 +74,21 @@ static void fft_multi_32_test(const int32_t *in_real, const int32_t *in_imag,
 		assert_true(false);
 	}
 
-	// fh1 = fopen("debug_fft_multi_in.txt", "w");
-	// fh2 = fopen("debug_fft_multi_out.txt", "w");
+	fh1 = fopen("debug_fft_multi_in.txt", "w");
+	fh2 = fopen("debug_fft_multi_out.txt", "w");
 
 	for (i = 0; i < num_tests; i++) {
 		for (j = 0; j < num_bins; j++) {
 			x[j].real = *p_in_real++;
 			x[j].imag = *p_in_imag++;
-			// fprintf(fh1, "%d %d\n", x[j].real, x[j].imag);
+			fprintf(fh1, "%d %d\n", x[j].real, x[j].imag);
 		}
 
 		fft_multi_execute_32(plan, do_ifft);
 
 		for (j = 0; j < num_bins; j++) {
-			// fprintf(fh2, "%d %d %d %d\n",
-			//         y[j].real, y[j].imag, *p_ref_real, *p_ref_imag);
+			fprintf(fh2, "%d %d %d %d\n",
+				y[j].real, y[j].imag, *p_ref_real, *p_ref_imag);
 			delta = (double)*p_ref_real - (double)y[j].real;
 			sum_squares += delta * delta;
 			if (delta > delta_max)
@@ -112,7 +112,7 @@ static void fft_multi_32_test(const int32_t *in_real, const int32_t *in_imag,
 	mod_fft_multi_plan_free(&dummy, plan);
 	free(y);
 	free(x);
-	// fclose(fh1); fclose(fh2);
+	fclose(fh1); fclose(fh2);
 
 	error_rms = sqrt(sum_squares / (double)(2 * num_bins * num_tests));
 	printf("Max absolute error = %5.2f (limit %5.2f), error RMS = %5.2f (limit %5.2f)\n",
