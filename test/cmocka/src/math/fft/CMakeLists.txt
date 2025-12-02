@@ -32,6 +32,7 @@ cmocka_test(fft
 cmocka_test(dft3
 	dft3.c
 	${PROJECT_SOURCE_DIR}/src/math/fft/fft_32.c
+	${PROJECT_SOURCE_DIR}/src/math/fft/fft_common.c
 	${PROJECT_SOURCE_DIR}/test/cmocka/src/notifier_mocks.c
 	${PROJECT_SOURCE_DIR}/test/cmocka/src/common_mocks.c
 )
