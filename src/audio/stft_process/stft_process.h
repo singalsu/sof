@@ -15,7 +15,7 @@
 #include <stdint.h>
 
 #if CONFIG_LIBRARY
-#define STFT_DEBUG	1	/* Keep zero, produces large files with fprintf() */
+#define STFT_DEBUG	0	/* Keep zero, produces large files with fprintf() */
 #else
 #define STFT_DEBUG	0
 #endif
