@@ -75,13 +75,12 @@ struct stft_process_fft {
 };
 
 struct stft_process_state {
-	struct stft_process_buffer ibuf; /**< Circular buffer for input data */
-	struct stft_process_buffer obuf; /**< Circular buffer for output data */
+	struct stft_process_buffer ibuf[PLATFORM_MAX_CHANNELS]; /**< Buffer for input data */
+	struct stft_process_buffer obuf[PLATFORM_MAX_CHANNELS]; /**< Buffer for output data */
 	struct stft_process_fft fft; /**< FFT related */
+	int32_t *prev_data[PLATFORM_MAX_CHANNELS]; /**< prev_data_size */
 	int32_t gain_comp; /**< Gain to compensate window gain */
-	int32_t *power_spectra; /**< Pointer to scratch */
 	int32_t *buffers;
-	int32_t *prev_data; /**< prev_data_size */
 	int32_t *window; /**< fft_size */
 	int source_channel;
 	int prev_data_size;
@@ -231,10 +230,10 @@ void stft_process_s16_default(struct processing_module *mod, struct input_stream
 void stft_process_fill_prev_samples(struct stft_process_buffer *buf, int32_t *prev_data,
 				    int prev_data_length);
 
-void stft_process_fill_fft_buffer(struct stft_process_state *state);
+void stft_process_fill_fft_buffer(struct stft_process_state *state, int ch);
 
 void stft_process_apply_window(struct stft_process_state *state);
 
-void stft_process_overlap_add_ifft_buffer(struct stft_process_state *state);
+void stft_process_overlap_add_ifft_buffer(struct stft_process_state *state, int ch);
 
 #endif //  __SOF_AUDIO_STFT_PROCESS_H__
