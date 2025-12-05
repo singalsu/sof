@@ -28,18 +28,18 @@
 int stft_process_source_s32(struct stft_comp_data *cd, struct sof_source *source, int frames)
 {
 	struct stft_process_state *state = &cd->state;
-	struct stft_process_buffer *ibuf = &state->ibuf;
-	int32_t *w = ibuf->w_ptr;
+	struct stft_process_buffer *ibuf;
 	int32_t const *x, *x_start, *x_end;
-	int32_t in;
 	int x_size;
 	int bytes = frames * cd->frame_bytes;
 	int frames_left = frames;
 	int ret;
 	int n1;
 	int n2;
+	int channels = cd->channels;
 	int n;
 	int i;
+	int j;
 
 	/* Get pointer to source data in circular buffer */
 	ret = source_get_data_s32(source, bytes, &x, &x_start, &x_size);
@@ -53,18 +53,24 @@ int stft_process_source_s32(struct stft_comp_data *cd, struct sof_source *source
 
 	while (frames_left) {
 		/* Find out samples to process before first wrap or end of data. */
+		ibuf = &state->ibuf[0];
 		n1 = (x_end - x) / cd->channels;
-		n2 = stft_process_buffer_samples_without_wrap(ibuf, w);
+		n2 = stft_process_buffer_samples_without_wrap(ibuf, ibuf->w_ptr);
 		n = MIN(n1, n2);
 		n = MIN(n, frames_left);
 		for (i = 0; i < n; i++) {
-			in = *(x + cd->source_channel);
-			*w++ = in;
-			x += cd->channels;
+			for (j = 0; j < channels; j++) {
+				ibuf = &state->ibuf[j];
+				*ibuf->w_ptr++ = *x++;
+			}
 		}
 
 		/* One of the buffers needs a wrap (or end of data), so check for wrap */
-		w = stft_process_buffer_wrap(ibuf, w);
+		for (j = 0; j < channels; j++) {
+			ibuf = &state->ibuf[j];
+			ibuf->w_ptr = stft_process_buffer_wrap(ibuf, ibuf->w_ptr);
+		}
+
 		if (x >= x_end)
 			x -= x_size;
 
@@ -74,9 +80,12 @@ int stft_process_source_s32(struct stft_comp_data *cd, struct sof_source *source
 
 	/* Update the source for bytes consumed. Return success. */
 	source_release_data(source, bytes);
-	ibuf->s_avail += frames;
-	ibuf->s_free -= frames;
-	ibuf->w_ptr = w;
+	for (j = 0; j < channels; j++) {
+		ibuf = &state->ibuf[j];
+		ibuf->s_avail += frames;
+		ibuf->s_free -= frames;
+	}
+
 	return 0;
 }
 
@@ -96,11 +105,11 @@ int stft_process_source_s32(struct stft_comp_data *cd, struct sof_source *source
 int stft_process_sink_s32(struct stft_comp_data *cd, struct sof_sink *sink, int frames)
 {
 	struct stft_process_state *state = &cd->state;
-	struct stft_process_buffer *obuf = &state->obuf;
-	int32_t *r = obuf->r_ptr;
+	struct stft_process_buffer *obuf;
 	int32_t *y, *y_start, *y_end;
 	int frames_remain = frames;
-	int samples = frames * cd->channels;
+	int channels = cd->channels;
+	int samples = frames * channels;
 	int bytes = frames * cd->frame_bytes;
 	int y_size;
 	int ret;
@@ -117,22 +126,26 @@ int stft_process_sink_s32(struct stft_comp_data *cd, struct sof_sink *sink, int 
 	y_end = y_start + y_size;
 	while (frames_remain) {
 		/* Find out samples to process before first wrap or end of data. */
+		obuf = &state->obuf[0];
 		n1 = (y_end - y) / cd->channels;
-		n = stft_process_buffer_samples_without_wrap(obuf, r);
+		n = stft_process_buffer_samples_without_wrap(obuf, obuf->r_ptr);
 		n = MIN(n1, n);
 		n = MIN(n, frames_remain);
 
 		for (i = 0; i < n; i++) {
-			for (ch = 0; ch < cd->channels; ch++) {
-				*y = *r;
-				y++;
+			for (ch = 0; ch < channels; ch++) {
+				obuf = &state->obuf[ch];
+				*y++ = *obuf->r_ptr;
+				*obuf->r_ptr++ = 0; /* clear overlap add mix */
 			}
-			*r = 0; /* clear overlap add mix */
-			r++;
 		}
 
 		/* One of the buffers needs a wrap (or end of data), so check for wrap */
-		r = stft_process_buffer_wrap(obuf, r);
+		for (ch = 0; ch < cd->channels; ch++) {
+			obuf = &state->obuf[ch];
+			obuf->r_ptr = stft_process_buffer_wrap(obuf, obuf->r_ptr);
+		}
+
 		if (y >= y_end)
 			y -= y_size;
 
@@ -142,9 +155,11 @@ int stft_process_sink_s32(struct stft_comp_data *cd, struct sof_sink *sink, int 
 
 	/* Update the sink for bytes produced. Return success. */
 	sink_commit_buffer(sink, bytes);
-	obuf->r_ptr = r;
-	obuf->s_avail -= samples;
-	obuf->s_free += samples;
+	for (ch = 0; ch < channels; ch++) {
+		obuf = &state->obuf[ch];
+		obuf->s_avail -= samples;
+		obuf->s_free += samples;
+	}
 
 	return 0;
 }
@@ -167,11 +182,11 @@ int stft_process_sink_s32(struct stft_comp_data *cd, struct sof_sink *sink, int 
 int stft_process_source_s16(struct stft_comp_data *cd, struct sof_source *source, int frames)
 {
 	struct stft_process_state *state = &cd->state;
-	struct stft_process_buffer *ibuf = &state->ibuf;
-	int32_t *w = ibuf->w_ptr;
+	struct stft_process_buffer *ibuf;
 	int16_t const *x, *x_start, *x_end;
 	int16_t in;
 	int x_size;
+	int channels = cd->channels;
 	int bytes = frames * cd->frame_bytes;
 	int frames_left = frames;
 	int ret;
@@ -179,6 +194,7 @@ int stft_process_source_s16(struct stft_comp_data *cd, struct sof_source *source
 	int n2;
 	int n;
 	int i;
+	int j;
 
 	/* Get pointer to source data in circular buffer, get buffer start and size to
 	 * check for wrap. The size in bytes is converted to number of s16 samples to
@@ -196,19 +212,25 @@ int stft_process_source_s16(struct stft_comp_data *cd, struct sof_source *source
 
 	while (frames_left) {
 		/* Find out samples to process before first wrap or end of data. */
+		ibuf = &state->ibuf[0];
 		n1 = (x_end - x) / cd->channels;
-		n2 = stft_process_buffer_samples_without_wrap(ibuf, w);
+		n2 = stft_process_buffer_samples_without_wrap(ibuf, ibuf->w_ptr);
 		n = MIN(n1, n2);
 		n = MIN(n, frames_left);
 		for (i = 0; i < n; i++) {
-			in = *(x + cd->source_channel);
-			*w = (int32_t)in << 16;
-			x += cd->channels;
-			w++;
+			for (j = 0; j < channels; j++) {
+				ibuf = &state->ibuf[j];
+				in = *x++;
+				*ibuf->w_ptr++ = (int32_t)in << 16;
+			}
 		}
 
 		/* One of the buffers needs a wrap (or end of data), so check for wrap */
-		w = stft_process_buffer_wrap(ibuf, w);
+		for (j = 0; j < channels; j++) {
+			ibuf = &state->ibuf[j];
+			ibuf->w_ptr = stft_process_buffer_wrap(ibuf, ibuf->w_ptr);
+		}
+
 		if (x >= x_end)
 			x -= x_size;
 
@@ -218,9 +240,11 @@ int stft_process_source_s16(struct stft_comp_data *cd, struct sof_source *source
 
 	/* Update the source for bytes consumed. Return success. */
 	source_release_data(source, bytes);
-	ibuf->s_avail += frames;
-	ibuf->s_free -= frames;
-	ibuf->w_ptr = w;
+	for (j = 0; j < channels; j++) {
+		ibuf = &state->ibuf[j];
+		ibuf->s_avail += frames;
+		ibuf->s_free -= frames;
+	}
 	return 0;
 }
 
@@ -240,11 +264,11 @@ int stft_process_source_s16(struct stft_comp_data *cd, struct sof_source *source
 int stft_process_sink_s16(struct stft_comp_data *cd, struct sof_sink *sink, int frames)
 {
 	struct stft_process_state *state = &cd->state;
-	struct stft_process_buffer *obuf = &state->obuf;
-	int32_t *r = obuf->r_ptr;
+	struct stft_process_buffer *obuf;
 	int16_t *y, *y_start, *y_end;
 	int frames_remain = frames;
-	int samples = frames * cd->channels;
+	int channels = cd->channels;
+	int samples = frames * channels;
 	int bytes = frames * cd->frame_bytes;
 	int y_size;
 	int ret;
@@ -261,22 +285,26 @@ int stft_process_sink_s16(struct stft_comp_data *cd, struct sof_sink *sink, int 
 	y_end = y_start + y_size;
 	while (frames_remain) {
 		/* Find out samples to process before first wrap or end of data. */
+		obuf = &state->obuf[0];
 		n1 = (y_end - y) / cd->channels;
-		n = stft_process_buffer_samples_without_wrap(obuf, r);
+		n = stft_process_buffer_samples_without_wrap(obuf, obuf->r_ptr);
 		n = MIN(n1, n);
 		n = MIN(n, frames_remain);
 
 		for (i = 0; i < n; i++) {
-			for (ch = 0; ch < cd->channels; ch++) {
-				*y = sat_int16(Q_SHIFT_RND(*r, 31, 15));
-				y++;
+			for (ch = 0; ch < channels; ch++) {
+				obuf = &state->obuf[ch];
+				*y++ = sat_int16(Q_SHIFT_RND(*obuf->r_ptr, 31, 15));
+				*obuf->r_ptr++ = 0; /* clear overlap add mix */
 			}
-			*r = 0; /* clear overlap add mix */
-			r++;
 		}
 
 		/* One of the buffers needs a wrap (or end of data), so check for wrap */
-		r = stft_process_buffer_wrap(obuf, r);
+		for (ch = 0; ch < channels; ch++) {
+			obuf = &state->obuf[ch];
+			obuf->r_ptr = stft_process_buffer_wrap(obuf, obuf->r_ptr);
+		}
+
 		if (y >= y_end)
 			y -= y_size;
 
@@ -286,9 +314,11 @@ int stft_process_sink_s16(struct stft_comp_data *cd, struct sof_sink *sink, int 
 
 	/* Update the sink for bytes produced. Return success. */
 	sink_commit_buffer(sink, bytes);
-	obuf->r_ptr = r;
-	obuf->s_avail -= samples;
-	obuf->s_free += samples;
+	for (ch = 0; ch < channels; ch++) {
+		obuf = &state->obuf[ch];
+		obuf->s_avail -= samples;
+		obuf->s_free += samples;
+	}
 
 	return 0;
 }
@@ -319,10 +349,11 @@ void stft_process_fill_prev_samples(struct stft_process_buffer *buf, int32_t *pr
 	buf->r_ptr = r;
 }
 
-void stft_process_fill_fft_buffer(struct stft_process_state *state)
+void stft_process_fill_fft_buffer(struct stft_process_state *state, int ch)
 {
-	struct stft_process_buffer *ibuf = &state->ibuf;
+	struct stft_process_buffer *ibuf = &state->ibuf[ch];
 	struct stft_process_fft *fft = &state->fft;
+	int32_t *prev_data = state->prev_data[ch];
 	int32_t *r = ibuf->r_ptr;
 	int copied;
 	int nmax;
@@ -334,7 +365,7 @@ void stft_process_fill_fft_buffer(struct stft_process_state *state)
 	 * remains zero.
 	 */
 	for (j = 0; j < state->prev_data_size; j++)
-		fft->fft_buf[idx + j].real = state->prev_data[j];
+		fft->fft_buf[idx + j].real = prev_data[j];
 
 	/* Copy hop size of new data from circular buffer */
 	idx += state->prev_data_size;
@@ -357,12 +388,12 @@ void stft_process_fill_fft_buffer(struct stft_process_state *state)
 	/* Copy for next time data back to overlap buffer */
 	idx = fft->fft_fill_start_idx + fft->fft_hop_size;
 	for (j = 0; j < state->prev_data_size; j++)
-		state->prev_data[j] = fft->fft_buf[idx + j].real;
+		prev_data[j] = fft->fft_buf[idx + j].real;
 }
 
-void stft_process_overlap_add_ifft_buffer(struct stft_process_state *state)
+void stft_process_overlap_add_ifft_buffer(struct stft_process_state *state, int ch)
 {
-	struct stft_process_buffer *obuf = &state->obuf;
+	struct stft_process_buffer *obuf = &state->obuf[ch];
 	struct stft_process_fft *fft = &state->fft;
 	int32_t *w = obuf->w_ptr;
 	int32_t sample;

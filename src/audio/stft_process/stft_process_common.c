@@ -41,9 +41,9 @@ LOG_MODULE_REGISTER(stft_process_common, CONFIG_SOF_LOG_LEVEL);
  * The main processing function for STFT_PROCESS
  */
 
-static int stft_prepare_fft(struct stft_process_state *state)
+static int stft_prepare_fft(struct stft_process_state *state, int ch)
 {
-	struct stft_process_buffer *ibuf = &state->ibuf;
+	struct stft_process_buffer *ibuf = &state->ibuf[ch];
 	struct stft_process_fft *fft = &state->fft;
 	int num_fft;
 
@@ -62,7 +62,7 @@ static int stft_prepare_fft(struct stft_process_state *state)
 	 * samples from input buffer.
 	 */
 	if (!state->prev_samples_valid) {
-		stft_process_fill_prev_samples(ibuf, state->prev_data, state->prev_data_size);
+		stft_process_fill_prev_samples(ibuf, state->prev_data[ch], state->prev_data_size);
 		state->prev_samples_valid = true;
 	}
 
@@ -71,7 +71,7 @@ static int stft_prepare_fft(struct stft_process_state *state)
 	return num_fft;
 }
 
-static void stft_do_fft(struct stft_process_state *state)
+static void stft_do_fft(struct stft_process_state *state, int ch)
 {
 	struct stft_process_fft *fft = &state->fft;
 
@@ -79,7 +79,7 @@ static void stft_do_fft(struct stft_process_state *state)
 	bzero(fft->fft_buf, fft->fft_buffer_size);
 
 	/* Copy data to FFT input buffer from overlap buffer and from new samples buffer */
-	stft_process_fill_fft_buffer(state);
+	stft_process_fill_fft_buffer(state, ch);
 
 	/* Window function */
 	stft_process_apply_window(state);
@@ -105,7 +105,7 @@ static void stft_do_fft(struct stft_process_state *state)
 #endif
 }
 
-static void stft_do_ifft(struct stft_process_state *state)
+static void stft_do_ifft(struct stft_process_state *state, int ch)
 {
 	struct stft_process_fft *fft = &state->fft;
 
@@ -125,7 +125,7 @@ static void stft_do_ifft(struct stft_process_state *state)
 	stft_process_apply_window(state);
 
 	/* Copy to output buffer */
-	stft_process_overlap_add_ifft_buffer(state);
+	stft_process_overlap_add_ifft_buffer(state, ch);
 }
 
 static void stft_do_fft_ifft(const struct processing_module *mod)
@@ -133,16 +133,19 @@ static void stft_do_fft_ifft(const struct processing_module *mod)
 	struct stft_comp_data *cd = module_get_private_data(mod);
 	struct stft_process_state *state = &cd->state;
 	int num_fft;
+	int ch;
 	int i;
 
-	num_fft = stft_prepare_fft(state);
-	for (i = 0; i < num_fft; i++) {
-		stft_do_fft(state);
+	for (ch = 0; ch < cd->channels; ch++) {
+		num_fft = stft_prepare_fft(state, ch);
+		for (i = 0; i < num_fft; i++) {
+			stft_do_fft(state, ch);
 
-		/* stft_process(state) */
+			/* stft_process(state) */
 
-		stft_do_ifft(state);
-		cd->fft_done = true;
+			stft_do_ifft(state, ch);
+			cd->fft_done = true;
+		}
 	}
 }
 
