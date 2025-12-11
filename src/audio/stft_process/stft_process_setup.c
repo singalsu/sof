@@ -82,7 +82,8 @@ int stft_process_setup(struct processing_module *mod, int max_frames,
 	struct stft_process_state *state = &cd->state;
 	struct stft_process_fft *fft = &state->fft;
 	size_t sample_buffers_size;
-	size_t buffer_size;
+	size_t ibuf_size;
+	size_t obuf_size;
 	size_t prev_size;
 	int32_t *addr;
 	int ret;
@@ -126,15 +127,13 @@ int stft_process_setup(struct processing_module *mod, int max_frames,
 
 	/* Calculated parameters */
 	state->prev_data_size = fft->fft_size - fft->fft_hop_size;
-	buffer_size = fft->fft_size + max_frames;
+	ibuf_size = fft->fft_hop_size + cd->max_frames;
+	obuf_size = fft->fft_size + cd->max_frames;
 	prev_size = state->prev_data_size;
 
 	/* Allocate buffer input samples, overlap buffer, window */
 	sample_buffers_size = sizeof(int32_t) * cd->channels *
-		(2 * buffer_size + prev_size + fft->fft_size);
-
-	comp_info(dev, "buffer_size = %d, prev_size = %d, allocation = %d",
-		  buffer_size, prev_size, sample_buffers_size);
+		(ibuf_size + obuf_size + prev_size + fft->fft_size);
 
 	if (sample_buffers_size > STFT_MAX_ALLOC_SIZE || sample_buffers_size < 0) {
 		comp_err(dev, "Illegal allocation size");
@@ -151,10 +150,10 @@ int stft_process_setup(struct processing_module *mod, int max_frames,
 	bzero(state->buffers, sample_buffers_size);
 	addr = state->buffers;
 	for (i = 0; i < cd->channels; i++) {
-		stft_process_init_buffer(&state->ibuf[i], addr, buffer_size);
-		addr += buffer_size;
-		stft_process_init_buffer(&state->obuf[i], addr, buffer_size);
-		addr += buffer_size;
+		stft_process_init_buffer(&state->ibuf[i], addr, ibuf_size);
+		addr += ibuf_size;
+		stft_process_init_buffer(&state->obuf[i], addr, obuf_size);
+		addr += obuf_size;
 		state->prev_data[i] = addr;
 		addr += prev_size;
 	}

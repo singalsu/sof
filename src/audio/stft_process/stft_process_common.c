@@ -41,36 +41,16 @@ LOG_MODULE_REGISTER(stft_process_common, CONFIG_SOF_LOG_LEVEL);
  * The main processing function for STFT_PROCESS
  */
 
-static int stft_prepare_fft(struct stft_process_state *state, int channel, int num_channels)
+static int stft_prepare_fft(struct stft_process_state *state, int channel)
 {
 	struct stft_process_buffer *ibuf = &state->ibuf[channel];
 	struct stft_process_fft *fft = &state->fft;
-	int32_t *prev_data = state->prev_data[channel];
-	int num_fft;
 
-	/* Phase 1, wait until whole fft_size is filled with valid data. This way
-	 * first output cepstral coefficients originate from streamed data and not
-	 * from buffers with zero data.
-	 */
-	if (state->waiting_fill) {
-		if (ibuf->s_avail < fft->fft_size)
-			return 0;
+	/* Wait for FFT hop size of new data */
+	if (ibuf->s_avail < fft->fft_hop_size)
+		return 0;
 
-		state->waiting_fill = false;
-	}
-
-	/* Phase 2, move first prev_size data to previous data buffer, remove
-	 * samples from input buffer.
-	 */
-	if (!state->prev_samples_valid) {
-		stft_process_fill_prev_samples(ibuf, prev_data, state->prev_data_size);
-		if (channel == num_channels - 1)
-			state->prev_samples_valid = true;
-	}
-
-	/* Check if enough samples in buffer for FFT hop */
-	num_fft = ibuf->s_avail / fft->fft_hop_size;
-	return num_fft;
+	return 1;
 }
 
 static void stft_do_fft(struct stft_process_state *state, int ch)
@@ -136,12 +116,11 @@ static void stft_do_fft_ifft(const struct processing_module *mod)
 	struct stft_process_state *state = &cd->state;
 	int num_fft;
 	int ch;
-	int i;
 
 	for (ch = 0; ch < cd->channels; ch++) {
-		num_fft = stft_prepare_fft(state, ch, cd->channels);
+		num_fft = stft_prepare_fft(state, ch);
 
-		for (i = 0; i < num_fft; i++) {
+		if (num_fft) {
 			stft_do_fft(state, ch);
 
 			/* stft_process(state) */
@@ -196,9 +175,13 @@ static int stft_process_s32(const struct processing_module *mod, struct sof_sour
 			    struct sof_sink *sink, uint32_t frames)
 {
 	struct stft_comp_data *cd = module_get_private_data(mod);
+	int ibuf_avail, ibuf_free;
+	int obuf_avail, obuf_free;
 
 	/* Get samples from source buffer */
 	stft_process_source_s32(cd, source, frames);
+	ibuf_avail = cd->state.ibuf[0].s_avail;
+	ibuf_free = cd->state.ibuf[0].s_free;
 
 	/* Do STFT, processing and inverse STFT */
 	stft_do_fft_ifft(mod);
@@ -209,6 +192,9 @@ static int stft_process_s32(const struct processing_module *mod, struct sof_sour
 	else
 		stft_process_output_zeros_s32(cd, sink, frames);
 
+	obuf_avail = cd->state.obuf[0].s_avail;
+	obuf_free = cd->state.obuf[0].s_free;
+	printf("ibuf %d %d obuf %d %d\n", ibuf_avail, ibuf_free, obuf_avail, obuf_free);
 	return 0;
 }
 #endif /* CONFIG_FORMAT_S32LE */
