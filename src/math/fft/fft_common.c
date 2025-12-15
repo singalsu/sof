@@ -5,7 +5,6 @@
 // Author: Amery Song <chao.song@intel.com>
 //	   Keyon Jie <yang.jie@linux.intel.com>
 
-#include <sof/audio/coefficients/fft/twiddle_3072_32.h>
 #include <sof/audio/module_adapter/module/generic.h>
 #include <sof/audio/buffer.h>
 #include <sof/audio/format.h>
@@ -16,6 +15,7 @@
 #include <sof/math/fft.h>
 
 #include "fft_32.h"
+#include "coef/twiddle_3072_32.h"
 
 /* Constants for size 3 DFT */
 #define DFT3_COEFR	-1073741824	/* int32(-0.5 * 2^31) */
