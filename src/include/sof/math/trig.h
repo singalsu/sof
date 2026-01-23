@@ -39,14 +39,49 @@ struct cordic_cmpx {
 	int32_t im;
 };
 
+/**
+ * cordic_approx() - CORDIC-based approximation of sine and cosine
+ * @th_rad_fxp: Input angle in radian Q4.28 format
+ * @a_idx: Used LUT size
+ * @sign: Output pointer to sine/cosine sign
+ * @b_yn: Output pointer to sine value in Q2.30 format
+ * @xn: Output pointer to cosine value in Q2.30 format
+ * @th_cdc_fxp: Output pointer to the residual angle in Q2.30 format
+ */
 void cordic_approx(int32_t th_rad_fxp, int32_t a_idx, int32_t *sign, int32_t *b_yn, int32_t *xn,
 		   int32_t *th_cdc_fxp);
+
+/**
+ * is_scalar_cordic_acos() - CORDIC-based approximation for inverse cosine
+ * @realvalue: Input cosine value in Q2.30 format
+ * @numiters_minus_one: Number of iterations minus one
+ * Return: Inverse cosine angle in Q3.29 format
+ */
 int32_t is_scalar_cordic_acos(int32_t realvalue, int numiters_minus_one);
+
+/**
+ * is_scalar_cordic_asin() - CORDIC-based approximation for inverse sine
+ * @realvalue: Input sine value in Q2.30 format
+ * @numiters_minus_one: Number of iterations minus one
+ * Return: Inverse sine angle in Q2.30 format
+ */
 int32_t is_scalar_cordic_asin(int32_t realvalue, int numiters_minus_one);
 
-void cmpx_cexp(int32_t sign, int32_t b_yn, int32_t xn, cordic_cfg type, struct cordic_cmpx *cexp);
-/* Input is Q4.28, output is Q1.31 */
 /**
+ * cmpx_cexp() - CORDIC-based approximation of complex exponential e^(j*THETA)
+ * @sign: Sine sign
+ * @b_yn: Sine value in Q2.30 format
+ * @xn: Cosine value in Q2.30 format
+ * @type: CORDIC type
+ * @cexp: Output pointer to complex result in struct cordic_cmpx
+ */
+void cmpx_cexp(int32_t sign, int32_t b_yn, int32_t xn, cordic_cfg type, struct cordic_cmpx *cexp);
+
+/**
+ * sin_fixed_32b() - Sine function using CORDIC algorithm
+ * @th_rad_fxp: Input angle in radian Q4.28 format
+ * Return: Sine value in Q1.31 format
+ *
  * Compute fixed point cordicsine with table lookup and interpolation
  * The cordic sine algorithm converges, when the angle is in the range
  * [-pi/2, pi/2).If an angle is outside of this range, then a multiple of
@@ -75,6 +110,10 @@ static inline int32_t sin_fixed_32b(int32_t th_rad_fxp)
 }
 
 /**
+ * cos_fixed_32b() - Cosine function using CORDIC algorithm
+ * @th_rad_fxp: Input angle in radian Q4.28 format
+ * Return: Cosine value in Q1.31 format
+ *
  * Compute fixed point cordicsine with table lookup and interpolation
  * The cordic cosine algorithm converges, when the angle is in the range
  * [-pi/2, pi/2).If an angle is outside of this range, then a multiple of
@@ -102,8 +141,11 @@ static inline int32_t cos_fixed_32b(int32_t th_rad_fxp)
 	return sat_int32(Q_SHIFT_LEFT((int64_t)th_cdc_fxp, 30, 31));
 }
 
-/* Input is Q4.28, output is Q1.15 */
 /**
+ * sin_fixed_16b() - Sine function using CORDIC algorithm
+ * @th_rad_fxp: Input angle in radian Q4.28 format
+ * Return: Sine value in Q1.15 format
+ *
  * Compute fixed point cordic sine with table lookup and interpolation
  * The cordic sine algorithm converges, when the angle is in the range
  * [-pi/2, pi/2).If an angle is outside of this range, then a multiple of
@@ -133,6 +175,10 @@ static inline int16_t sin_fixed_16b(int32_t th_rad_fxp)
 }
 
 /**
+ * cos_fixed_16b() - Cosine function using CORDIC algorithm
+ * @th_rad_fxp: Input angle in radian Q4.28 format
+ * Return: Cosine value in Q1.15 format
+ *
  * Compute fixed point cordic cosine with table lookup and interpolation
  * The cordic cos algorithm converges, when the angle is in the range
  * [-pi/2, pi/2).If an angle is outside of this range, then a multiple of
@@ -162,7 +208,10 @@ static inline int16_t cos_fixed_16b(int32_t th_rad_fxp)
 }
 
 /**
- * CORDIC-based approximation of complex exponential e^(j*THETA).
+ * cmpx_exp_32b() - CORDIC-based approximation of complex exponential e^(j*THETA).
+ * @th_rad_fxp: Input angle in radian Q4.28 format
+ * @cexp: Output pointer to complex result in struct cordic_cmpx in Q2.30 format
+ *
  * computes COS(THETA) + j*SIN(THETA) using CORDIC algorithm
  * approximation and returns the complex result.
  * THETA values must be in the range [-2*pi, 2*pi). The cordic
@@ -194,7 +243,10 @@ static inline void cmpx_exp_32b(int32_t th_rad_fxp, struct cordic_cmpx *cexp)
 }
 
 /**
- * CORDIC-based approximation of complex exponential e^(j*THETA).
+ * cmpx_exp_16b() - CORDIC-based approximation of complex exponential e^(j*THETA).
+ * @th_rad_fxp: Input angle in radian Q4.28 format
+ * @cexp: Output pointer to complex result in struct cordic_cmpx in Q1.15 format
+ *
  * computes COS(THETA) + j*SIN(THETA) using CORDIC algorithm
  * approximation and returns the complex result.
  * THETA values must be in the range [-2*pi, 2*pi). The cordic
@@ -227,7 +279,10 @@ static inline void cmpx_exp_16b(int32_t th_rad_fxp, struct cordic_cmpx *cexp)
 }
 
 /**
- * CORDIC-based approximation of inverse sine
+ * asin_fixed_32b() - CORDIC-based approximation of inverse sine
+ * @cdc_asin_th: Input value in Q2.30 format
+ * Return: Inverse sine angle in Q2.30 format
+ *
  * inverse sine of cdc_asin_theta based on a CORDIC approximation.
  * asin(cdc_asin_th) inverse sine angle values in radian produces using the DCORDIC
  * (Double CORDIC) algorithm.
@@ -250,7 +305,10 @@ static inline int32_t asin_fixed_32b(int32_t cdc_asin_th)
 }
 
 /**
- * CORDIC-based approximation of inverse cosine
+ * acos_fixed_32b() - CORDIC-based approximation of inverse cosine
+ * @cdc_acos_th: Input value in Q2.30 format
+ * Return: Inverse cosine angle in Q3.29 format
+ *
  * inverse cosine of cdc_acos_theta based on a CORDIC approximation
  * acos(cdc_acos_th) inverse cosine angle values in radian produces using the DCORDIC
  * (Double CORDIC) algorithm.
@@ -273,7 +331,10 @@ static inline int32_t acos_fixed_32b(int32_t cdc_acos_th)
 }
 
 /**
- * CORDIC-based approximation of inverse sine
+ * asin_fixed_16b() - CORDIC-based approximation of inverse sine
+ * @cdc_asin_th: Input value in Q2.30 format
+ * Return: Inverse sine angle in Q2.14 format
+ *
  * inverse sine of cdc_asin_theta based on a CORDIC approximation.
  * asin(cdc_asin_th) inverse sine angle values in radian produces using the DCORDIC
  * (Double CORDIC) algorithm.
@@ -297,7 +358,10 @@ static inline int16_t asin_fixed_16b(int32_t cdc_asin_th)
 }
 
 /**
- * CORDIC-based approximation of inverse cosine
+ * acos_fixed_16b() - CORDIC-based approximation of inverse cosine
+ * @cdc_acos_th: Input value in Q2.30 format
+ * Return: Inverse cosine angle in Q3.13 format
+ *
  * inverse cosine of cdc_acos_theta based on a CORDIC approximation
  * acos(cdc_acos_th) inverse cosine angle values in radian produces using the DCORDIC
  * (Double CORDIC) algorithm.
