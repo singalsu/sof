@@ -1,0 +1,11 @@
+# SPDX-License-Identifier: BSD-3-Clause
+
+config COMP_PHASE_VOCODER
+	tristate "Phase Vocoder component"
+	default n
+	select MATH_FFT
+	select MATH_32BIT_FFT
+	help
+	  Select for phase_vocoder component. The component provides
+	  render speed control in range 0.5-2.0 while preserving
+	  audio content pitch.
