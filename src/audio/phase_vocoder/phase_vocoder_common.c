@@ -135,6 +135,7 @@ static void stft_do_fft_ifft(const struct processing_module *mod)
 
 	for (ch = 0; ch < cd->channels; ch++) {
 		num_fft = stft_prepare_fft(state, ch);
+		comp_info(mod->dev, "ch %d num_fft %d", ch, num_fft);
 
 		if (num_fft) {
 			stft_do_fft(state, ch);

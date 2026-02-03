@@ -20,6 +20,8 @@
 #define STFT_DEBUG 0
 #endif
 
+#define SOF_PHASE_VOCODER_MAX_FRAMES_MARGIN 2 /* Samples margin for buffer */
+
 #define SOF_PHASE_VOCODER_CONFIG_MAX_SIZE 256 /* Max size for configuration data in bytes */
 
 #define PHASE_VOCODER_MIN_SPEED_Q29 Q_CONVERT_FLOAT(0.5, 29)
@@ -116,6 +118,7 @@ struct phase_vocoder_comp_data {
 	phase_vocoder_func phase_vocoder_func; /**< processing function */
 	struct phase_vocoder_state state;
 	struct sof_phase_vocoder_config *config;
+	uint32_t ibs;	    /**< Input buffer size in bytes */
 	int32_t speed;	    /**< Speed factor for time-stretching Q3.29, allowed range 0.5 to 2.0 */
 	int32_t speed_enum; /**< Speed control from enum 0-15 */
 	size_t frame_bytes;

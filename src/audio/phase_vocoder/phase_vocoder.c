@@ -41,6 +41,7 @@ FILE *stft_debug_ifft_out_fh;
 __cold static int phase_vocoder_init(struct processing_module *mod)
 {
 	struct module_data *md = &mod->priv;
+	struct ipc4_base_module_cfg *base_cfg = &md->cfg.base_cfg;
 	struct comp_dev *dev = mod->dev;
 	struct phase_vocoder_comp_data *cd;
 
@@ -54,6 +55,8 @@ __cold static int phase_vocoder_init(struct processing_module *mod)
 
 	md->private = cd;
 	memset(cd, 0, sizeof(*cd));
+	cd->ibs = base_cfg->ibs;
+	cd->enable = true; /* processing enabled by default */
 
 #if STFT_DEBUG
 	stft_debug_fft_in_fh = fopen("stft_debug_fft_in.txt", "w");
@@ -100,14 +103,16 @@ static int phase_vocoder_process(struct processing_module *mod, struct sof_sourc
 	struct sof_sink *sink = sinks[0];	/* One output in this example */
 	int frames = source_get_data_frames_available(source);
 	int sink_frames = sink_get_free_frames(sink);
-	int ret;
 
 	frames = MIN(frames, sink_frames);
+	// comp_info(mod->dev, "frames %d", frames);
 
-	/* Process the data with the channels swap example function. */
-	ret = cd->phase_vocoder_func(mod, source, sink, frames);
+	if (cd->enable)
+		return cd->phase_vocoder_func(mod, source, sink, frames);
 
-	return ret;
+	/* Just copy from source to sink. */
+	source_to_sink_copy(source, sink, true, frames * cd->frame_bytes);
+	return 0;
 }
 
 /**
@@ -150,10 +155,14 @@ static int phase_vocoder_prepare(struct processing_module *mod, struct sof_sourc
 	}
 
 	/* get source data format */
-	cd->max_frames = dev->frames + 2;
 	cd->frame_bytes = source_get_frame_bytes(sources[0]);
 	cd->channels = source_get_channels(sources[0]);
+
+	/* Note: dev->frames is zero, use ibs */
+	cd->max_frames = cd->ibs / cd->frame_bytes + SOF_PHASE_VOCODER_MAX_FRAMES_MARGIN;
 	source_format = source_get_frm_fmt(sources[0]);
+	comp_info(dev, "source_format %d channels %d frame_bytes %d max_frames %d", source_format,
+		  cd->channels, cd->frame_bytes, cd->max_frames);
 
 	ret = phase_vocoder_setup(mod, cd->max_frames, source_get_rate(sources[0]),
 				  source_get_channels(sources[0]));
