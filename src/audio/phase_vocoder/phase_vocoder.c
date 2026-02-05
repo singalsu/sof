@@ -28,6 +28,19 @@ FILE *stft_debug_fft_out_fh;
 FILE *stft_debug_ifft_out_fh;
 #endif
 
+__cold static void phase_vocoder_reset_parameters(struct processing_module *mod)
+{
+	struct phase_vocoder_comp_data *cd = module_get_private_data(mod);
+	// struct module_data *md = &mod->priv;
+	// struct ipc4_base_module_cfg *base_cfg = &md->cfg.base_cfg;
+
+	memset(cd, 0, sizeof(*cd));
+	// cd->ibs = base_cfg->ibs;
+	// cd->obs = base_cfg->ibs;
+	cd->enable = true; /* processing enabled by default */
+	cd->speed = PHASE_VOCODER_SPEED_NORMAL;
+}
+
 /**
  * phase_vocoder_init() - Initialize the phase_vocoder component.
  * @mod: Pointer to module data.
@@ -41,7 +54,6 @@ FILE *stft_debug_ifft_out_fh;
 __cold static int phase_vocoder_init(struct processing_module *mod)
 {
 	struct module_data *md = &mod->priv;
-	struct ipc4_base_module_cfg *base_cfg = &md->cfg.base_cfg;
 	struct comp_dev *dev = mod->dev;
 	struct phase_vocoder_comp_data *cd;
 
@@ -54,9 +66,7 @@ __cold static int phase_vocoder_init(struct processing_module *mod)
 		return -ENOMEM;
 
 	md->private = cd;
-	memset(cd, 0, sizeof(*cd));
-	cd->ibs = base_cfg->ibs;
-	cd->enable = true; /* processing enabled by default */
+	phase_vocoder_reset_parameters(mod);
 
 #if STFT_DEBUG
 	stft_debug_fft_in_fh = fopen("stft_debug_fft_in.txt", "w");
@@ -133,6 +143,8 @@ static int phase_vocoder_process(struct processing_module *mod, struct sof_sourc
 static int phase_vocoder_prepare(struct processing_module *mod, struct sof_source **sources,
 				 int num_of_sources, struct sof_sink **sinks, int num_of_sinks)
 {
+	struct module_data *mod_priv = &mod->priv;
+	struct ipc4_base_module_cfg *base_cfg = &mod_priv->cfg.base_cfg;
 	struct phase_vocoder_comp_data *cd = module_get_private_data(mod);
 	struct comp_dev *dev = mod->dev;
 	enum sof_ipc_frame source_format;
@@ -159,13 +171,14 @@ static int phase_vocoder_prepare(struct processing_module *mod, struct sof_sourc
 	cd->channels = source_get_channels(sources[0]);
 
 	/* Note: dev->frames is zero, use ibs */
-	cd->max_frames = cd->ibs / cd->frame_bytes + SOF_PHASE_VOCODER_MAX_FRAMES_MARGIN;
+	cd->max_input_frames = base_cfg->ibs / cd->frame_bytes + PHASE_VOCODER_MAX_FRAMES_MARGIN;
+	cd->max_output_frames = base_cfg->obs / cd->frame_bytes + PHASE_VOCODER_MAX_FRAMES_MARGIN;
 	source_format = source_get_frm_fmt(sources[0]);
-	comp_info(dev, "source_format %d channels %d frame_bytes %d max_frames %d", source_format,
-		  cd->channels, cd->frame_bytes, cd->max_frames);
+	comp_info(dev, "source_format %d channels %d max_input_frames %d max_output_frames %d",
+		  source_format, cd->channels, cd->max_input_frames, cd->max_output_frames);
 
-	ret = phase_vocoder_setup(mod, cd->max_frames, source_get_rate(sources[0]),
-				  source_get_channels(sources[0]));
+	ret =
+	    phase_vocoder_setup(mod, source_get_rate(sources[0]), source_get_channels(sources[0]));
 	if (ret < 0) {
 		comp_err(dev, "setup failed.");
 		return ret;
@@ -191,12 +204,10 @@ static int phase_vocoder_prepare(struct processing_module *mod, struct sof_sourc
  */
 static int phase_vocoder_reset(struct processing_module *mod)
 {
-	struct phase_vocoder_comp_data *cd = module_get_private_data(mod);
-
 	comp_dbg(mod->dev, "reset");
 
 	phase_vocoder_free_buffers(mod);
-	memset(cd, 0, sizeof(*cd));
+	phase_vocoder_reset_parameters(mod);
 	return 0;
 }
 

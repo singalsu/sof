@@ -5,6 +5,7 @@
 #include <sof/audio/component.h>
 #include <sof/audio/audio_stream.h>
 #include <sof/math/auditory.h>
+#include <sof/math/icomplex32.h>
 #include <sof/math/trig.h>
 #include <sof/math/window.h>
 #include <sof/trace/trace.h>
@@ -39,6 +40,7 @@ static int phase_vocoder_get_window(struct phase_vocoder_state *state,
 {
 	struct phase_vocoder_fft *fft = &state->fft;
 
+	// name = STFT_RECTANGULAR_WINDOW;
 	switch (name) {
 	case STFT_RECTANGULAR_WINDOW:
 		win_rectangular_32b(state->window, fft->fft_size);
@@ -61,15 +63,16 @@ static int phase_vocoder_get_window(struct phase_vocoder_state *state,
 /* TODO phase_vocoder setup needs to use the config blob, not hard coded parameters.
  * Also this is a too long function. Split to STFT, Mel filter, etc. parts.
  */
-int phase_vocoder_setup(struct processing_module *mod, int max_frames, int sample_rate,
-			int channels)
+int phase_vocoder_setup(struct processing_module *mod, int sample_rate, int channels)
 {
 	struct phase_vocoder_comp_data *cd = module_get_private_data(mod);
 	struct comp_dev *dev = mod->dev;
 	struct sof_phase_vocoder_config *config = cd->config;
 	struct phase_vocoder_state *state = &cd->state;
 	struct phase_vocoder_fft *fft = &state->fft;
+	struct phase_vocoder_polar *polar = &state->polar;
 	size_t sample_buffers_size;
+	size_t polar_buffers_size;
 	size_t ibuf_size;
 	size_t obuf_size;
 	size_t prev_size;
@@ -90,7 +93,6 @@ int phase_vocoder_setup(struct processing_module *mod, int max_frames, int sampl
 		return -EINVAL;
 	}
 
-	cd->max_frames = max_frames;
 	state->sample_rate = sample_rate;
 
 	comp_info(dev, "source_channel = %d, stream_channels = %d", config->channel, channels);
@@ -112,10 +114,10 @@ int phase_vocoder_setup(struct processing_module *mod, int max_frames, int sampl
 		  fft->fft_hop_size, config->window);
 
 	/* Calculated parameters */
-	state->prev_data_size = fft->fft_size - fft->fft_hop_size;
-	ibuf_size = fft->fft_hop_size + cd->max_frames;
-	obuf_size = fft->fft_size + cd->max_frames;
-	prev_size = state->prev_data_size;
+	prev_size = fft->fft_size - fft->fft_hop_size;
+	ibuf_size = fft->fft_hop_size + cd->max_input_frames;
+	obuf_size = fft->fft_size + cd->max_output_frames;
+	state->prev_data_size = prev_size;
 
 	/* Allocate buffer input samples, overlap buffer, window */
 	sample_buffers_size =
@@ -126,15 +128,15 @@ int phase_vocoder_setup(struct processing_module *mod, int max_frames, int sampl
 		return -EINVAL;
 	}
 
-	state->buffers = mod_balloc(mod, sample_buffers_size);
-	if (!state->buffers) {
+	addr = mod_balloc(mod, sample_buffers_size);
+	if (!addr) {
 		comp_err(dev, "Failed buffer allocate");
 		ret = -ENOMEM;
 		goto exit;
 	}
 
-	bzero(state->buffers, sample_buffers_size);
-	addr = state->buffers;
+	memset(addr, 0, sample_buffers_size);
+	state->buffers = addr;
 	for (i = 0; i < cd->channels; i++) {
 		phase_vocoder_init_buffer(&state->ibuf[i], addr, ibuf_size);
 		addr += ibuf_size;
@@ -160,11 +162,6 @@ int phase_vocoder_setup(struct processing_module *mod, int max_frames, int sampl
 		ret = -ENOMEM;
 		goto free_fft_buf;
 	}
-
-	/* Share the fft_out buffer for polar format */
-	fft->fft_polar = (struct ipolar32 *)fft->fft_out;
-
-	fft->fft_fill_start_idx = 0; /* From config pad_type */
 
 	/* Setup FFT */
 	fft->fft_plan = mod_fft_plan_new(mod, fft->fft_buf, fft->fft_out, fft->fft_size, 32);
@@ -195,6 +192,45 @@ int phase_vocoder_setup(struct processing_module *mod, int max_frames, int sampl
 	state->waiting_fill = true;
 	state->prev_samples_valid = false;
 
+	/* Allocate buffers for polar format data for magnitude and phase interpolation */
+	polar_buffers_size =
+	    channels * fft->half_fft_size * (2 * sizeof(struct ipolar32) + 3 * sizeof(int32_t));
+	comp_info(dev, "polar buffers size %d", polar_buffers_size);
+	addr = mod_balloc(mod, polar_buffers_size);
+	if (!addr) {
+		comp_err(dev, "Failed polar data buffer allocate");
+		ret = -ENOMEM;
+		goto free_window_out;
+	}
+
+	memset(addr, 0, polar_buffers_size);
+	for (i = 0; i < channels; i++) {
+		polar->polar[i] = (struct ipolar32 *)addr;
+		addr = (int32_t *)((struct ipolar32 *)addr + fft->half_fft_size);
+	}
+
+	for (i = 0; i < channels; i++) {
+		polar->polar_prev[i] = (struct ipolar32 *)addr;
+		addr = (int32_t *)((struct ipolar32 *)addr + fft->half_fft_size);
+	}
+
+	for (i = 0; i < channels; i++) {
+		polar->angle_delta[i] = addr;
+		addr += fft->half_fft_size;
+	}
+
+	for (i = 0; i < channels; i++) {
+		polar->angle_delta_prev[i] = addr;
+		addr += fft->half_fft_size;
+	}
+
+	for (i = 0; i < channels; i++) {
+		polar->output_phase[i] = addr;
+		addr += fft->half_fft_size;
+	}
+
+	/* Use FFT buffer as scratch */
+	polar->polar_tmp = (struct ipolar32 *)fft->fft_out;
 	comp_dbg(dev, "phase_vocoder_setup(), done");
 	return 0;
 
@@ -228,4 +264,5 @@ void phase_vocoder_free_buffers(struct processing_module *mod)
 	mod_free(mod, cd->state.fft.fft_buf);
 	mod_free(mod, cd->state.fft.fft_out);
 	mod_free(mod, cd->state.buffers);
+	mod_free(mod, cd->state.polar.polar[0]);
 }

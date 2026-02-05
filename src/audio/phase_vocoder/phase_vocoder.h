@@ -15,18 +15,19 @@
 #include <stdint.h>
 
 #if CONFIG_LIBRARY
-#define STFT_DEBUG 0 /* Keep zero, produces large files with fprintf() */
+#define STFT_DEBUG 1 /* Keep zero, produces large files with fprintf() */
 #else
 #define STFT_DEBUG 0
 #endif
 
-#define SOF_PHASE_VOCODER_MAX_FRAMES_MARGIN 2 /* Samples margin for buffer */
-
-#define SOF_PHASE_VOCODER_CONFIG_MAX_SIZE 256 /* Max size for configuration data in bytes */
-
-#define PHASE_VOCODER_MIN_SPEED_Q29 Q_CONVERT_FLOAT(0.5, 29)
-#define PHASE_VOCODER_MAX_SPEED_Q29 Q_CONVERT_FLOAT(2.0, 29)
-#define PHASE_VOCODER_SPEED_STEP_Q31 Q_CONVERT_FLOAT((2 - 0.5) / 15, 31)
+#define PHASE_VOCODER_MAX_FRAMES_MARGIN 2		     /* Samples margin for buffer */
+#define PHASE_VOCODER_MIN_SPEED_Q29 Q_CONVERT_FLOAT(0.5, 29) /* Min. speed is 0.5 */
+#define PHASE_VOCODER_MAX_SPEED_Q29 Q_CONVERT_FLOAT(2.0, 29) /* Max. speed is 2.0 */
+#define PHASE_VOCODER_SPEED_STEP_Q31 Q_CONVERT_FLOAT((2 - 0.5) / 15, 31) /* Steps for enum ctrl */
+#define PHASE_VOCODER_SPEED_NORMAL Q_CONVERT_FLOAT(1.0, 29)		 /* Default to speed 1 */
+#define PHASE_VOCODER_ONE_Q29 Q_CONVERT_FLOAT(1.0, 29)			 /* One as Q29 */
+#define PHASE_VOCODER_PI_Q28 843314857					 /* int32(pi * 2^28), Q28 */
+#define PHASE_VOCODER_TWO_PI_Q28 1686629713 /* int32(2 * pi * 2^28), Q28 */
 
 enum sof_phase_vocoder_fft_pad_type {
 	STFT_PAD_END = 0,
@@ -67,32 +68,45 @@ struct phase_vocoder_buffer {
 };
 
 struct phase_vocoder_fft {
-	struct icomplex32 *fft_buf; /**< fft_padded_size */
-	struct icomplex32 *fft_out; /**< fft_padded_size */
-	struct ipolar32 *fft_polar;
+	struct icomplex32 *fft_buf; /**< fft_size */
+	struct icomplex32 *fft_out; /**< fft_size */
 	struct fft_plan *fft_plan;
 	struct fft_plan *ifft_plan;
-	int fft_fill_start_idx; /**< Set to 0 for pad left, etc. */
 	int fft_size;
 	int fft_hop_size;
-	int fft_buf_size;
 	int half_fft_size;
 	size_t fft_buffer_size; /**< bytes */
+};
+
+struct phase_vocoder_polar {
+	struct ipolar32 *polar[PLATFORM_MAX_CHANNELS];
+	struct ipolar32 *polar_prev[PLATFORM_MAX_CHANNELS];
+	struct ipolar32 *polar_tmp;
+	int32_t *angle_delta_prev[PLATFORM_MAX_CHANNELS];
+	int32_t *angle_delta[PLATFORM_MAX_CHANNELS];
+	int32_t *output_phase[PLATFORM_MAX_CHANNELS];
 };
 
 struct phase_vocoder_state {
 	struct phase_vocoder_buffer ibuf[PLATFORM_MAX_CHANNELS]; /**< Buffer for input data */
 	struct phase_vocoder_buffer obuf[PLATFORM_MAX_CHANNELS]; /**< Buffer for output data */
-	struct phase_vocoder_fft fft;				 /**< FFT related */
-	int32_t *prev_data[PLATFORM_MAX_CHANNELS];		 /**< prev_data_size */
+	struct phase_vocoder_fft fft;				 /**< FFT instance, common */
+	struct phase_vocoder_polar polar;			 /**< Processing in polar domain */
+	int32_t num_input_fft_to_use;
+	int32_t num_input_fft;			   /**< Total input FFTs count */
+	int32_t num_output_ifft;		   /**< Total output IFFTs count */
+	int32_t *prev_data[PLATFORM_MAX_CHANNELS]; /**< prev_data_size */
 	int32_t *buffers;
-	int32_t *window;   /**< fft_size */
-	int32_t gain_comp; /**< Gain to compensate window gain */
+	int32_t *window;	      /**< fft_size */
+	int32_t gain_comp;	      /**< Gain to compensate window gain */
+	int32_t interpolate_fraction; /**< Q3.29 */
 	int source_channel;
 	int prev_data_size;
 	int sample_rate;
 	bool waiting_fill; /**< booleans */
 	bool prev_samples_valid;
+	// bool input_fft_done;
+	bool output_ifft_done;
 };
 
 /**
@@ -118,14 +132,13 @@ struct phase_vocoder_comp_data {
 	phase_vocoder_func phase_vocoder_func; /**< processing function */
 	struct phase_vocoder_state state;
 	struct sof_phase_vocoder_config *config;
-	uint32_t ibs;	    /**< Input buffer size in bytes */
 	int32_t speed;	    /**< Speed factor for time-stretching Q3.29, allowed range 0.5 to 2.0 */
 	int32_t speed_enum; /**< Speed control from enum 0-15 */
 	size_t frame_bytes;
 	int source_channel;
-	int max_frames;
+	int max_input_frames;
+	int max_output_frames;
 	int channels;
-	bool fft_done;
 	bool enable; /**< Processing enable flag */
 };
 
@@ -220,7 +233,7 @@ static inline int phase_vocoder_get_config(struct processing_module *mod, uint32
 }
 #endif
 
-int phase_vocoder_setup(struct processing_module *mod, int max_frames, int rate, int channels);
+int phase_vocoder_setup(struct processing_module *mod, int rate, int channels);
 
 int phase_vocoder_source_s16(struct phase_vocoder_comp_data *cd, struct sof_source *source,
 			     int frames);
@@ -237,8 +250,8 @@ void phase_vocoder_free_buffers(struct processing_module *mod);
 void phase_vocoder_s16_default(struct processing_module *mod, struct input_stream_buffer *bsource,
 			       struct output_stream_buffer *bsink, int frames);
 
-void phase_vocoder_fill_prev_samples(struct phase_vocoder_buffer *buf, int32_t *prev_data,
-				     int prev_data_length);
+// void phase_vocoder_fill_prev_samples(struct phase_vocoder_buffer *buf, int32_t *prev_data,
+//				     int prev_data_length);
 
 void phase_vocoder_fill_fft_buffer(struct phase_vocoder_state *state, int ch);
 

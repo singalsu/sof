@@ -324,73 +324,53 @@ int phase_vocoder_sink_s16(struct phase_vocoder_comp_data *cd, struct sof_sink *
 }
 #endif /* CONFIG_FORMAT_S16LE */
 
-void phase_vocoder_fill_prev_samples(struct phase_vocoder_buffer *buf, int32_t *prev_data,
-				     int prev_data_length)
-{
-	/* Fill prev_data from input buffer */
-	int32_t *r = buf->r_ptr;
-	int32_t *p = prev_data;
-	int copied;
-	int nmax;
-	int n;
-
-	for (copied = 0; copied < prev_data_length; copied += n) {
-		nmax = prev_data_length - copied;
-		n = phase_vocoder_buffer_samples_without_wrap(buf, r);
-		n = MIN(n, nmax);
-		memcpy(p, r, sizeof(int32_t) * n); /* Not using memcpy_s() due to speed need */
-		p += n;
-		r += n;
-		r = phase_vocoder_buffer_wrap(buf, r);
-	}
-
-	buf->s_avail -= copied;
-	buf->s_free += copied;
-	buf->r_ptr = r;
-}
-
 void phase_vocoder_fill_fft_buffer(struct phase_vocoder_state *state, int ch)
 {
 	struct phase_vocoder_buffer *ibuf = &state->ibuf[ch];
 	struct phase_vocoder_fft *fft = &state->fft;
+	struct icomplex32 *fft_buf_ptr;
 	int32_t *prev_data = state->prev_data[ch];
 	int32_t *r = ibuf->r_ptr;
-	int copied;
-	int nmax;
-	int idx;
+	const int prev_data_size = state->prev_data_size;
+	const int fft_hop_size = fft->fft_hop_size;
+	int samples_remain = fft_hop_size;
 	int j;
 	int n;
 
 	/* Copy overlapped samples from state buffer. Imaginary part of input
 	 * remains zero.
 	 */
-	for (j = 0; j < state->prev_data_size; j++) {
-		fft->fft_buf[j].real = prev_data[j];
-		fft->fft_buf[j].imag = 0;
+	fft_buf_ptr = &fft->fft_buf[0];
+	for (j = 0; j < prev_data_size; j++) {
+		fft_buf_ptr->real = prev_data[j];
+		fft_buf_ptr->imag = 0;
+		fft_buf_ptr++;
 	}
 
 	/* Copy hop size of new data from circular buffer */
-	idx = state->prev_data_size;
-	for (copied = 0; copied < fft->fft_hop_size; copied += n) {
-		nmax = fft->fft_hop_size - copied;
+	fft_buf_ptr = &fft->fft_buf[prev_data_size];
+	while (samples_remain) {
 		n = phase_vocoder_buffer_samples_without_wrap(ibuf, r);
-		n = MIN(n, nmax);
+		n = MIN(n, samples_remain);
 		for (j = 0; j < n; j++) {
-			fft->fft_buf[idx].real = *r++;
-			fft->fft_buf[idx].imag = 0;
-			idx++;
+			fft_buf_ptr->real = *r++;
+			fft_buf_ptr->imag = 0;
+			fft_buf_ptr++;
 		}
 		r = phase_vocoder_buffer_wrap(ibuf, r);
+		samples_remain -= n;
 	}
 
-	ibuf->s_avail -= copied;
-	ibuf->s_free += copied;
 	ibuf->r_ptr = r;
+	ibuf->s_avail -= fft_hop_size;
+	ibuf->s_free += fft_hop_size;
 
-	/* Copy for next time data back to overlap buffer */
-	idx = fft->fft_hop_size;
-	for (j = 0; j < state->prev_data_size; j++)
-		prev_data[j] = fft->fft_buf[idx + j].real;
+	/* Copy for next time data back to input data overlap buffer */
+	fft_buf_ptr = &fft->fft_buf[fft_hop_size];
+	for (j = 0; j < prev_data_size; j++) {
+		prev_data[j] = fft_buf_ptr->real;
+		fft_buf_ptr++;
+	}
 }
 
 void phase_vocoder_overlap_add_ifft_buffer(struct phase_vocoder_state *state, int ch)
@@ -402,7 +382,7 @@ void phase_vocoder_overlap_add_ifft_buffer(struct phase_vocoder_state *state, in
 	int i;
 	int n;
 	int samples_remain = fft->fft_size;
-	int idx = fft->fft_fill_start_idx;
+	int idx = 0;
 
 	while (samples_remain) {
 		n = phase_vocoder_buffer_samples_without_wrap(obuf, w);
@@ -427,11 +407,15 @@ void phase_vocoder_overlap_add_ifft_buffer(struct phase_vocoder_state *state, in
 void phase_vocoder_apply_window(struct phase_vocoder_state *state)
 {
 	struct phase_vocoder_fft *fft = &state->fft;
-	int j;
-	int i = fft->fft_fill_start_idx;
+	struct icomplex32 *fft_buf_ptr;
+	const int fft_size = fft->fft_size;
+	int i;
 
 	/* Multiply Q1.31 by Q1.15 gives Q2.46, shift right by 15 to get Q2.31, no saturate need */
-	for (j = 0; j < fft->fft_size; j++)
-		fft->fft_buf[i + j].real = sat_int32(Q_MULTSR_32X32(
-		    (int64_t)fft->fft_buf[i + j].real, state->window[j], 31, 31, 31));
+	fft_buf_ptr = &fft->fft_buf[0];
+	for (i = 0; i < fft_size; i++) {
+		fft_buf_ptr->real = sat_int32(Q_MULTSR_32X32((int64_t)fft_buf_ptr->real,
+							     state->window[i], 31, 31, 31));
+		fft_buf_ptr++;
+	}
 }

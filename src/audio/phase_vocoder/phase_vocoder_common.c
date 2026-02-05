@@ -42,16 +42,13 @@ LOG_MODULE_REGISTER(phase_vocoder_common, CONFIG_SOF_LOG_LEVEL);
  * The main processing function for PHASE_VOCODER
  */
 
-static int stft_prepare_fft(struct phase_vocoder_state *state, int channel)
+static int stft_get_num_ffts_avail(struct phase_vocoder_state *state, int channel)
 {
 	struct phase_vocoder_buffer *ibuf = &state->ibuf[channel];
 	struct phase_vocoder_fft *fft = &state->fft;
 
 	/* Wait for FFT hop size of new data */
-	if (ibuf->s_avail < fft->fft_hop_size)
-		return 0;
-
-	return 1;
+	return ibuf->s_avail / fft->fft_hop_size;
 }
 
 static void stft_do_fft(struct phase_vocoder_state *state, int ch)
@@ -98,20 +95,20 @@ static void stft_do_ifft(struct phase_vocoder_state *state, int ch)
 	phase_vocoder_overlap_add_ifft_buffer(state, ch);
 }
 
-static void stft_convert_to_polar(struct phase_vocoder_fft *fft)
+static void stft_convert_to_polar(struct phase_vocoder_fft *fft, struct ipolar32 *polar_data)
 {
 	int i;
 
 	for (i = 0; i < fft->half_fft_size; i++)
-		sofm_icomplex32_to_polar(&fft->fft_out[i], &fft->fft_polar[i]);
+		sofm_icomplex32_to_polar(&fft->fft_out[i], &polar_data[i]);
 }
 
-static void stft_convert_to_complex(struct phase_vocoder_fft *fft)
+static void stft_convert_to_complex(struct ipolar32 *polar_data, struct phase_vocoder_fft *fft)
 {
 	int i;
 
 	for (i = 0; i < fft->half_fft_size; i++)
-		sofm_ipolar32_to_complex(&fft->fft_polar[i], &fft->fft_out[i]);
+		sofm_ipolar32_to_complex(&polar_data[i], &fft->fft_out[i]);
 }
 
 static void stft_apply_fft_symmetry(struct phase_vocoder_fft *fft)
@@ -126,29 +123,140 @@ static void stft_apply_fft_symmetry(struct phase_vocoder_fft *fft)
 	}
 }
 
+static void phase_vocoder_interpolation_parameters(struct phase_vocoder_comp_data *cd)
+{
+	struct phase_vocoder_state *state = &cd->state;
+	int64_t input_frame_num_frac;
+	int32_t input_frame_num_prev;
+
+	input_frame_num_frac = (int64_t)state->num_input_fft * cd->speed; /* Q31.29 */
+	input_frame_num_prev = Q_SHIFT_RND(input_frame_num_frac, 29, 0);
+	state->num_input_fft_to_use = input_frame_num_prev + 1;
+	state->interpolate_fraction =
+	    (int32_t)(input_frame_num_frac - ((int64_t)input_frame_num_prev << 29)); /* Q3.29 */
+}
+
+static int32_t unwrap_angle(int32_t angle)
+{
+	if (angle > PHASE_VOCODER_PI_Q28)
+		return angle - PHASE_VOCODER_TWO_PI_Q28;
+	else if (angle < -PHASE_VOCODER_PI_Q28)
+		return angle + PHASE_VOCODER_TWO_PI_Q28;
+	else
+		return angle;
+}
+
 static void stft_do_fft_ifft(const struct processing_module *mod)
 {
 	struct phase_vocoder_comp_data *cd = module_get_private_data(mod);
 	struct phase_vocoder_state *state = &cd->state;
+	struct phase_vocoder_polar *polar = &state->polar;
+	struct phase_vocoder_fft *fft = &state->fft;
+	struct ipolar32 *polar_data_prev_ch;
+	struct ipolar32 *polar_data_ch;
+	int32_t *angle_delta_prev_ch;
+	int32_t *angle_delta_ch;
+	int32_t *output_phase_ch;
+	int32_t one_minus_frac;
+	int32_t frac;
+	int32_t p1, p2;
+	int32_t a;
+	const size_t polar_fft_half_bytes = sizeof(struct ipolar32) * fft->half_fft_size;
+	const size_t int32_fft_half_bytes = sizeof(int32_t) * fft->half_fft_size;
 	int num_fft;
 	int ch;
+	int i;
 
-	for (ch = 0; ch < cd->channels; ch++) {
-		num_fft = stft_prepare_fft(state, ch);
-		comp_info(mod->dev, "ch %d num_fft %d", ch, num_fft);
+	num_fft = stft_get_num_ffts_avail(state, 0);
+	comp_info(mod->dev, "num_fft %d", num_fft);
 
-		if (num_fft) {
+	if (!num_fft)
+		return;
+
+	/* First analysis FFT */
+	if (!state->num_input_fft) {
+		for (ch = 0; ch < cd->channels; ch++) {
 			stft_do_fft(state, ch);
 
-			/* Convert half-FFT to polar and back, and fix upper part */
-			stft_convert_to_polar(&state->fft);
-			stft_convert_to_complex(&state->fft);
-			stft_apply_fft_symmetry(&state->fft);
-
-			stft_do_ifft(state, ch);
-			cd->fft_done = true;
+			/* Convert half-FFT to polar */
+			polar_data_ch = polar->polar[ch];
+			angle_delta_ch = polar->angle_delta[ch];
+			stft_convert_to_polar(&state->fft, polar_data_ch);
+			for (i = 0; i < fft->half_fft_size; i++)
+				angle_delta_ch[i] = polar_data_ch[i].angle >> 1;
 		}
+		state->num_input_fft++;
 	}
+
+	phase_vocoder_interpolation_parameters(cd);
+	comp_info(mod->dev, "interpolate_fraction %d", state->interpolate_fraction);
+	while (state->num_input_fft < state->num_input_fft_to_use && num_fft > 0) {
+		for (ch = 0; ch < cd->channels; ch++) {
+			stft_do_fft(state, ch);
+
+			/* Update previous polar data.
+			 * Note: Not using memcpy_s() since this is hot algorithm code.
+			 */
+			polar_data_prev_ch = polar->polar_prev[ch];
+			polar_data_ch = polar->polar[ch];
+			memcpy(polar_data_prev_ch, polar_data_ch, polar_fft_half_bytes);
+
+			/* Convert half-FFT to polar */
+			stft_convert_to_polar(&state->fft, polar_data_ch);
+
+			/* Update previous delta phase data */
+			angle_delta_ch = polar->angle_delta[ch];
+			angle_delta_prev_ch = polar->angle_delta_prev[ch];
+			memcpy(angle_delta_prev_ch, angle_delta_ch, int32_fft_half_bytes);
+
+			/* Calculate new delta phase */
+			for (i = 0; i < fft->half_fft_size; i++) {
+				/* Calculate as Q4.28 */
+				a = (polar_data_ch[i].angle >> 1) -
+				    (polar_data_prev_ch[i].angle >> 1);
+				angle_delta_ch[i] = unwrap_angle(a);
+			}
+		}
+		state->num_input_fft++;
+		num_fft--;
+	}
+
+	if (state->num_input_fft < state->num_input_fft_to_use)
+		return;
+
+	/* Interpolate IFFT frame */
+	frac = state->interpolate_fraction;
+	one_minus_frac = PHASE_VOCODER_ONE_Q29 - frac;
+
+	for (ch = 0; ch < cd->channels; ch++) {
+		polar_data_prev_ch = polar->polar_prev[ch];
+		polar_data_ch = polar->polar[ch];
+		angle_delta_ch = polar->angle_delta[ch];
+		angle_delta_prev_ch = polar->angle_delta_prev[ch];
+		output_phase_ch = polar->output_phase[ch];
+
+		for (i = 0; i < fft->half_fft_size; i++) {
+			p1 = Q_MULTSR_32X32((int64_t)one_minus_frac,
+					    polar_data_prev_ch[i].magnitude, 29, 30, 30);
+			p2 = Q_MULTSR_32X32((int64_t)frac, polar_data_ch[i].magnitude, 29, 30, 30);
+			polar->polar_tmp[i].magnitude = p1 + p2;
+
+			a = output_phase_ch[i];
+			p1 = Q_MULTSR_32X32((int64_t)one_minus_frac, angle_delta_prev_ch[i], 29, 28,
+					    28);
+			p2 = Q_MULTSR_32X32((int64_t)frac, angle_delta_ch[i], 29, 28, 28);
+			a = output_phase_ch[i] + p1 + p2;
+			output_phase_ch[i] = unwrap_angle(a);
+			polar->polar_tmp[i].angle = a << 1; /* Q29 */
+		}
+
+		/* Convert back to (re, im) complex, and fix upper part */
+		stft_convert_to_complex(polar->polar_tmp, &state->fft);
+		stft_apply_fft_symmetry(&state->fft);
+		stft_do_ifft(state, ch);
+	}
+
+	state->output_ifft_done = true;
 }
 
 #if CONFIG_FORMAT_S32LE
@@ -203,7 +311,7 @@ static int phase_vocoder_s32(const struct processing_module *mod, struct sof_sou
 	stft_do_fft_ifft(mod);
 
 	/* Get samples from source buffer */
-	if (cd->fft_done)
+	if (cd->state.output_ifft_done)
 		phase_vocoder_sink_s32(cd, sink, frames);
 	else
 		phase_vocoder_output_zeros_s32(cd, sink, frames);
@@ -264,7 +372,7 @@ static int phase_vocoder_s16(const struct processing_module *mod, struct sof_sou
 	stft_do_fft_ifft(mod);
 
 	/* Get samples from source buffer */
-	if (cd->fft_done)
+	if (cd->state.output_ifft_done)
 		phase_vocoder_sink_s16(cd, sink, frames);
 	else
 		phase_vocoder_output_zeros_s16(cd, sink, frames);
