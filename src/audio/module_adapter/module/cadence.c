@@ -68,6 +68,12 @@ struct cadence_api cadence_api_table[] = {
 		.api = xa_vorbis_dec,
 	},
 #endif
+#ifdef CONFIG_CADENCE_CODEC_FLAC_DEC
+	{
+		.id = CADENCE_CODEC_FLAC_DEC_ID,
+		.api = xa_flac_dec,
+	},
+#endif
 #ifdef CONFIG_CADENCE_CODEC_SRC_PP
 	{
 		.id = CADENCE_CODEC_SRC_PP_ID,
@@ -89,6 +95,8 @@ static int cadence_codec_get_api_id(uint32_t compress_id, uint32_t direction)
 		return CADENCE_CODEC_AAC_DEC_ID;
 	case SND_AUDIOCODEC_VORBIS:
 		return CADENCE_CODEC_VORBIS_DEC_ID;
+	case SND_AUDIOCODEC_FLAC:
+		return CADENCE_CODEC_FLAC_DEC_ID;
 	default:
 		return -EINVAL;
 	}
@@ -235,6 +243,9 @@ int cadence_codec_get_samples(struct processing_module *mod)
 		/* MPEG-1 Layer 3 */
 		return 1152;
 	case CADENCE_CODEC_AAC_DEC_ID:
+		return 1024;
+	case CADENCE_CODEC_FLAC_DEC_ID:
+		/* FLAC block size - match AAC to minimize buffer requirements */
 		return 1024;
 	default:
 		break;

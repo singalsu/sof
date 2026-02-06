@@ -159,6 +159,20 @@ if CADENCE_CODEC
 		  This option is a string and takes the full name of the VORBIS library binary.
 	endif
 
+	config CADENCE_CODEC_FLAC_DEC
+		bool "Cadence FLAC decoder"
+		help
+		  Select to enable Cadence FLAC (Free Lossless Audio Codec) decoder.
+		  This provides hardware-accelerated FLAC decoding support through
+		  the Cadence audio codec library interface.
+
+	if CADENCE_CODEC_FLAC_DEC
+		config CADENCE_CODEC_FLAC_DEC_LIB
+		string "Cadence FLAC decoder library name"
+		help
+		  This option is a string and takes the full name of the FLAC library binary.
+	endif
+
 	config CADENCE_CODEC_SRC_PP
 		bool "Cadence SRC polyphase"
 		help

@@ -33,6 +33,10 @@ endif()
 		zephyr_library_import(xa_mp3_enc ${CONFIG_CADENCE_CODEC_MP3_ENC_LIB})
 	endif()
 
+	if (CONFIG_CADENCE_CODEC_FLAC_DEC)
+		zephyr_library_import(xa_flac_dec ${CONFIG_CADENCE_CODEC_FLAC_DEC_LIB})
+	endif()
+
 	if (CONFIG_COMP_DOLBY_DAX_AUDIO_PROCESSING)
 		if(CONFIG_COMP_DOLBY_DAX_AUDIO_PROCESSING STREQUAL "m" AND DEFINED CONFIG_LLEXT)
 			add_subdirectory(module/dolby/llext
@@ -138,6 +142,10 @@ if(NOT CONFIG_COMP_MODULE_SHARED_LIBRARY_BUILD)
 
 		if(CONFIG_CADENCE_CODEC_VORBIS_DEC)
 			sof_add_static_library(xa_vorbis_dec ${CONFIG_CADENCE_CODEC_VORBIS_DEC_LIB})
+		endif()
+
+		if(CONFIG_CADENCE_CODEC_FLAC_DEC)
+			sof_add_static_library(xa_flac_dec ${CONFIG_CADENCE_CODEC_FLAC_DEC_LIB})
 		endif()
 
 		if(CONFIG_CADENCE_CODEC_SRC_PP)

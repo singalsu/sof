@@ -8,6 +8,7 @@
 #include <sof/audio/cadence/mp3_dec/xa_mp3_dec_api.h>
 #include <sof/audio/cadence/mp3_enc/xa_mp3_enc_api.h>
 #include <sof/audio/cadence/aac_dec/xa_aac_dec_api.h>
+#include <sof/audio/cadence/flac_dec/xa_flac_dec_api.h>
 #include <sof/ipc/msg.h>
 #include <sof/schedule/ll_schedule_domain.h>
 #include <ipc/compress_params.h>
@@ -195,6 +196,64 @@ static int cadence_configure_aac_dec_params(struct processing_module *mod)
 	return 0;
 }
 
+static int cadence_configure_flac_dec_params(struct processing_module *mod)
+{
+	struct cadence_codec_data *cd = module_get_private_data(mod);
+	struct comp_dev *dev = mod->dev;
+	int bits_per_sample;
+	int input_framesize = 16384;  /* 16KB for FLAC headers + metadata, max 1024 frame size */
+	int output_blocksize = 1024;  /* 1024 samples to match AAC buffer size */
+	int ret;
+
+	/* Configure input frame size - 4KB as per FLAC spec memory table */
+	API_CALL(cd, XA_API_CMD_SET_CONFIG_PARAM, XA_FLAC_DEC_CONFIG_PARAM_INPUT_FRAMESIZE,
+		 (void *)&input_framesize, ret);
+	if (ret != LIB_NO_ERROR) {
+		if (LIB_IS_FATAL_ERROR(ret)) {
+			comp_err(dev, "failed to set input framesize: %#x", ret);
+			return ret;
+		}
+		comp_warn(dev, "applied param input framesize return code: %#x", ret);
+	}
+
+	/* Configure output block size to limit memory allocation */
+	API_CALL(cd, XA_API_CMD_SET_CONFIG_PARAM, XA_FLAC_DEC_CONFIG_PARAM_OUTPUT_BLOCKSIZE,
+		 (void *)&output_blocksize, ret);
+	if (ret != LIB_NO_ERROR) {
+		if (LIB_IS_FATAL_ERROR(ret)) {
+			comp_err(dev, "failed to set output blocksize: %#x", ret);
+			return ret;
+		}
+		comp_warn(dev, "applied param output blocksize return code: %#x", ret);
+	}
+
+	/* FLAC decoder module supports 16bit, 24 bits, or 32 bits for bits per sample */
+	switch (cd->base_cfg.audio_fmt.depth) {
+	case IPC4_DEPTH_16BIT:
+		bits_per_sample = 16;
+		break;
+	case IPC4_DEPTH_24BIT:
+	case IPC4_DEPTH_32BIT:
+		bits_per_sample = 24;
+		break;
+	default:
+		comp_err(dev, "Unsupported bit depth: %d", cd->base_cfg.audio_fmt.depth);
+		return -EINVAL;
+	}
+
+	API_CALL(cd, XA_API_CMD_SET_CONFIG_PARAM, XA_FLAC_DEC_CONFIG_PARAM_BITS_PER_SAMPLE,
+		 (void *)&bits_per_sample, ret);
+	if (ret != LIB_NO_ERROR) {
+		if (LIB_IS_FATAL_ERROR(ret)) {
+			comp_err(dev, "failed to set bits per sample: %#x", ret);
+			return ret;
+		}
+		comp_warn(dev, "applied param bits per sample return code: %#x", ret);
+	}
+
+	return 0;
+}
+
 static int cadence_configure_codec_params(struct processing_module *mod)
 {
 	struct cadence_codec_data *cd = module_get_private_data(mod);
@@ -209,6 +268,8 @@ static int cadence_configure_codec_params(struct processing_module *mod)
 	case CADENCE_CODEC_VORBIS_DEC_ID:
 		/* No configuration needed fro Vorbis */
 		return 0;
+	case CADENCE_CODEC_FLAC_DEC_ID:
+		return cadence_configure_flac_dec_params(mod);
 	default:
 		break;
 	}
