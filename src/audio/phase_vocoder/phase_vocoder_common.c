@@ -127,13 +127,12 @@ static void phase_vocoder_interpolation_parameters(struct phase_vocoder_comp_dat
 {
 	struct phase_vocoder_state *state = &cd->state;
 	int64_t input_frame_num_frac;
-	int32_t input_frame_num_prev;
+	int32_t input_frame_num_rnd;
 
-	input_frame_num_frac = (int64_t)state->num_input_fft * cd->speed; /* Q31.29 */
-	input_frame_num_prev = Q_SHIFT_RND(input_frame_num_frac, 29, 0);
-	state->num_input_fft_to_use = input_frame_num_prev + 1;
-	state->interpolate_fraction =
-	    (int32_t)(input_frame_num_frac - ((int64_t)input_frame_num_prev << 29)); /* Q3.29 */
+	input_frame_num_frac = (int64_t)state->num_output_ifft * cd->speed; /* Q31.29 */
+	input_frame_num_rnd = Q_SHIFT_RND(input_frame_num_frac, 29, 0);
+	state->num_input_fft_to_use = input_frame_num_rnd + 1;
+	state->interpolate_fraction = input_frame_num_frac - ((int64_t)input_frame_num_rnd << 29);
 }
 
 #if 0
@@ -176,13 +175,12 @@ static void stft_do_fft_ifft(const struct processing_module *mod)
 	int32_t a;
 	const size_t polar_fft_half_bytes = sizeof(struct ipolar32) * fft->half_fft_size;
 	const size_t int32_fft_half_bytes = sizeof(int32_t) * fft->half_fft_size;
+	int fft_count = 0;
 	int num_fft;
 	int ch;
 	int i;
 
 	num_fft = stft_get_num_ffts_avail(state, 0);
-	comp_info(mod->dev, "num_fft %d", num_fft);
-
 	if (!num_fft)
 		return;
 
@@ -200,10 +198,10 @@ static void stft_do_fft_ifft(const struct processing_module *mod)
 		}
 		state->num_input_fft++;
 		num_fft--;
+		fft_count++;
 	}
 
 	phase_vocoder_interpolation_parameters(cd);
-	comp_info(mod->dev, "interpolate_fraction %d", state->interpolate_fraction);
 	while (state->num_input_fft < state->num_input_fft_to_use && num_fft > 0) {
 		for (ch = 0; ch < cd->channels; ch++) {
 			stft_do_fft(state, ch);
@@ -233,6 +231,7 @@ static void stft_do_fft_ifft(const struct processing_module *mod)
 		}
 		state->num_input_fft++;
 		num_fft--;
+		fft_count++;
 	}
 
 	if (state->num_input_fft < state->num_input_fft_to_use)
@@ -270,6 +269,9 @@ static void stft_do_fft_ifft(const struct processing_module *mod)
 		stft_do_ifft(state, ch);
 	}
 
+	comp_info(mod->dev, "no = %d, ni = %d, fft_count = %d, frac = %d",
+		  state->num_output_ifft, state->num_input_fft, fft_count, frac);
+	state->num_output_ifft++;
 	state->output_ifft_done = true;
 }
 
@@ -314,21 +316,21 @@ static int phase_vocoder_output_zeros_s32(struct phase_vocoder_comp_data *cd, st
 }
 
 static int phase_vocoder_s32(const struct processing_module *mod, struct sof_source *source,
-			     struct sof_sink *sink, uint32_t frames)
+			     struct sof_sink *sink, uint32_t source_frames, uint32_t sink_frames)
 {
 	struct phase_vocoder_comp_data *cd = module_get_private_data(mod);
 
 	/* Get samples from source buffer */
-	phase_vocoder_source_s32(cd, source, frames);
+	phase_vocoder_source_s32(cd, source, source_frames);
 
 	/* Do STFT, processing and inverse STFT */
 	stft_do_fft_ifft(mod);
 
 	/* Get samples from source buffer */
 	if (cd->state.output_ifft_done)
-		phase_vocoder_sink_s32(cd, sink, frames);
+		phase_vocoder_sink_s32(cd, sink, sink_frames);
 	else
-		phase_vocoder_output_zeros_s32(cd, sink, frames);
+		phase_vocoder_output_zeros_s32(cd, sink, sink_frames);
 
 	return 0;
 }
@@ -375,21 +377,21 @@ static int phase_vocoder_output_zeros_s16(struct phase_vocoder_comp_data *cd, st
 }
 
 static int phase_vocoder_s16(const struct processing_module *mod, struct sof_source *source,
-			     struct sof_sink *sink, uint32_t frames)
+			     struct sof_sink *sink, uint32_t source_frames, uint32_t sink_frames)
 {
 	struct phase_vocoder_comp_data *cd = module_get_private_data(mod);
 
 	/* Get samples from source buffer */
-	phase_vocoder_source_s16(cd, source, frames);
+	phase_vocoder_source_s16(cd, source, source_frames);
 
 	/* Do STFT, processing and inverse STFT */
 	stft_do_fft_ifft(mod);
 
 	/* Get samples from source buffer */
 	if (cd->state.output_ifft_done)
-		phase_vocoder_sink_s16(cd, sink, frames);
+		phase_vocoder_sink_s16(cd, sink, sink_frames);
 	else
-		phase_vocoder_output_zeros_s16(cd, sink, frames);
+		phase_vocoder_output_zeros_s16(cd, sink, sink_frames);
 
 	return 0;
 }

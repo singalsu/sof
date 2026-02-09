@@ -31,16 +31,20 @@ int phase_vocoder_source_s32(struct phase_vocoder_comp_data *cd, struct sof_sour
 	struct phase_vocoder_state *state = &cd->state;
 	struct phase_vocoder_buffer *ibuf;
 	int32_t const *x, *x_start, *x_end;
+	int frames_left;
 	int x_size;
-	int bytes = frames * cd->frame_bytes;
-	int frames_left = frames;
+	int bytes;
 	int ret;
 	int n1;
 	int n2;
-	int channels = cd->channels;
 	int n;
 	int i;
 	int j;
+	int channels = cd->channels;
+
+	ibuf = &state->ibuf[0];
+	frames = MIN(frames, ibuf->s_free);
+	bytes = frames * cd->frame_bytes;
 
 	/* Get pointer to source data in circular buffer */
 	ret = source_get_data_s32(source, bytes, &x, &x_start, &x_size);
@@ -52,6 +56,7 @@ int phase_vocoder_source_s32(struct phase_vocoder_comp_data *cd, struct sof_sour
 	 */
 	x_end = x_start + x_size;
 
+	frames_left = frames;
 	while (frames_left) {
 		/* Find out samples to process before first wrap or end of data. */
 		ibuf = &state->ibuf[0];
@@ -108,12 +113,16 @@ int phase_vocoder_sink_s32(struct phase_vocoder_comp_data *cd, struct sof_sink *
 	struct phase_vocoder_state *state = &cd->state;
 	struct phase_vocoder_buffer *obuf;
 	int32_t *y, *y_start, *y_end;
-	int frames_remain = frames;
+	int frames_remain;
 	int channels = cd->channels;
-	int bytes = frames * cd->frame_bytes;
+	int bytes;
 	int y_size;
 	int ret;
 	int ch, n1, n, i;
+
+	obuf = &state->obuf[0];
+	frames = MIN(frames, obuf->s_avail);
+	bytes = frames * cd->frame_bytes;
 
 	/* Get pointer to sink data in circular buffer */
 	ret = sink_get_buffer_s32(sink, bytes, &y, &y_start, &y_size);
@@ -124,6 +133,7 @@ int phase_vocoder_sink_s32(struct phase_vocoder_comp_data *cd, struct sof_sink *
 	 * samples are processed.
 	 */
 	y_end = y_start + y_size;
+	frames_remain = frames;
 	while (frames_remain) {
 		/* Find out samples to process before first wrap or end of data. */
 		obuf = &state->obuf[0];

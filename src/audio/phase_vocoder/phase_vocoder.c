@@ -31,14 +31,11 @@ FILE *stft_debug_ifft_out_fh;
 __cold static void phase_vocoder_reset_parameters(struct processing_module *mod)
 {
 	struct phase_vocoder_comp_data *cd = module_get_private_data(mod);
-	// struct module_data *md = &mod->priv;
-	// struct ipc4_base_module_cfg *base_cfg = &md->cfg.base_cfg;
 
 	memset(cd, 0, sizeof(*cd));
-	// cd->ibs = base_cfg->ibs;
-	// cd->obs = base_cfg->ibs;
 	cd->enable = true; /* processing enabled by default */
-	cd->speed = PHASE_VOCODER_SPEED_NORMAL;
+	// cd->speed = PHASE_VOCODER_SPEED_NORMAL;
+	cd->speed = Q_CONVERT_FLOAT(1.0, 29);
 }
 
 /**
@@ -111,16 +108,17 @@ static int phase_vocoder_process(struct processing_module *mod, struct sof_sourc
 	struct phase_vocoder_comp_data *cd = module_get_private_data(mod);
 	struct sof_source *source = sources[0]; /* One input in this example */
 	struct sof_sink *sink = sinks[0];	/* One output in this example */
-	int frames = source_get_data_frames_available(source);
+	int source_frames = source_get_data_frames_available(source);
 	int sink_frames = sink_get_free_frames(sink);
+	int frames;
 
-	frames = MIN(frames, sink_frames);
 	// comp_info(mod->dev, "frames %d", frames);
 
 	if (cd->enable)
-		return cd->phase_vocoder_func(mod, source, sink, frames);
+		return cd->phase_vocoder_func(mod, source, sink, source_frames, sink_frames);
 
 	/* Just copy from source to sink. */
+	frames = MIN(source_frames, sink_frames);
 	source_to_sink_copy(source, sink, true, frames * cd->frame_bytes);
 	return 0;
 }

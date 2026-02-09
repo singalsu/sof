@@ -26,6 +26,7 @@
 #define PHASE_VOCODER_SPEED_STEP_Q31 Q_CONVERT_FLOAT((2 - 0.5) / 15, 31) /* Steps for enum ctrl */
 #define PHASE_VOCODER_SPEED_NORMAL Q_CONVERT_FLOAT(1.0, 29)		 /* Default to speed 1 */
 #define PHASE_VOCODER_ONE_Q29 Q_CONVERT_FLOAT(1.0, 29)			 /* One as Q29 */
+#define PHASE_VOCODER_HALF_Q29 Q_CONVERT_FLOAT(0.5, 29)			 /* 0.5 as Q29 */
 
 #define PHASE_VOCODER_PI_Q28 843314857	    /* int32(pi * 2^28), Q28 */
 #define PHASE_VOCODER_TWO_PI_Q28 1686629713 /* int32(2 * pi * 2^28), Q28 */
@@ -121,7 +122,8 @@ struct phase_vocoder_state {
  * @frames: Number of audio data frames to process.
  */
 typedef int (*phase_vocoder_func)(const struct processing_module *mod, struct sof_source *source,
-				  struct sof_sink *sink, uint32_t frames);
+				  struct sof_sink *sink, uint32_t source_frames,
+				  uint32_t sink_frames);
 
 /**
  * struct phase_vocoder_comp_data
