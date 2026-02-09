@@ -40,7 +40,6 @@ static int phase_vocoder_get_window(struct phase_vocoder_state *state,
 {
 	struct phase_vocoder_fft *fft = &state->fft;
 
-	// name = STFT_RECTANGULAR_WINDOW;
 	switch (name) {
 	case STFT_RECTANGULAR_WINDOW:
 		win_rectangular_32b(state->window, fft->fft_size);

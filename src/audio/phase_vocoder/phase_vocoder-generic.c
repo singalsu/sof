@@ -414,8 +414,8 @@ void phase_vocoder_apply_window(struct phase_vocoder_state *state)
 	/* Multiply Q1.31 by Q1.15 gives Q2.46, shift right by 15 to get Q2.31, no saturate need */
 	fft_buf_ptr = &fft->fft_buf[0];
 	for (i = 0; i < fft_size; i++) {
-		fft_buf_ptr->real = sat_int32(Q_MULTSR_32X32((int64_t)fft_buf_ptr->real,
-							     state->window[i], 31, 31, 31));
+		fft_buf_ptr->real = sat_int32(
+		    Q_MULTSR_32X32((int64_t)fft_buf_ptr->real, state->window[i], 31, 31, 31));
 		fft_buf_ptr++;
 	}
 }

@@ -136,6 +136,7 @@ static void phase_vocoder_interpolation_parameters(struct phase_vocoder_comp_dat
 	    (int32_t)(input_frame_num_frac - ((int64_t)input_frame_num_prev << 29)); /* Q3.29 */
 }
 
+#if 0
 static int32_t unwrap_angle(int32_t angle)
 {
 	if (angle > PHASE_VOCODER_PI_Q28)
@@ -144,6 +145,18 @@ static int32_t unwrap_angle(int32_t angle)
 		return angle + PHASE_VOCODER_TWO_PI_Q28;
 	else
 		return angle;
+}
+#endif
+
+static int32_t unwrap_angle_q27(int32_t angle)
+{
+	while (angle > PHASE_VOCODER_PI_Q27)
+		angle -= PHASE_VOCODER_TWO_PI_Q27;
+
+	while (angle < -PHASE_VOCODER_PI_Q27)
+		angle += PHASE_VOCODER_TWO_PI_Q27;
+
+	return angle;
 }
 
 static void stft_do_fft_ifft(const struct processing_module *mod)
@@ -183,9 +196,10 @@ static void stft_do_fft_ifft(const struct processing_module *mod)
 			angle_delta_ch = polar->angle_delta[ch];
 			stft_convert_to_polar(&state->fft, polar_data_ch);
 			for (i = 0; i < fft->half_fft_size; i++)
-				angle_delta_ch[i] = polar_data_ch[i].angle >> 1;
+				angle_delta_ch[i] = polar_data_ch[i].angle >> 2;
 		}
 		state->num_input_fft++;
+		num_fft--;
 	}
 
 	phase_vocoder_interpolation_parameters(cd);
@@ -212,9 +226,9 @@ static void stft_do_fft_ifft(const struct processing_module *mod)
 			/* Calculate new delta phase */
 			for (i = 0; i < fft->half_fft_size; i++) {
 				/* Calculate as Q4.28 */
-				a = (polar_data_ch[i].angle >> 1) -
-				    (polar_data_prev_ch[i].angle >> 1);
-				angle_delta_ch[i] = unwrap_angle(a);
+				a = (polar_data_ch[i].angle >> 2) -
+				    (polar_data_prev_ch[i].angle >> 2);
+				angle_delta_ch[i] = unwrap_angle_q27(a);
 			}
 		}
 		state->num_input_fft++;
@@ -242,12 +256,12 @@ static void stft_do_fft_ifft(const struct processing_module *mod)
 			polar->polar_tmp[i].magnitude = p1 + p2;
 
 			a = output_phase_ch[i];
-			p1 = Q_MULTSR_32X32((int64_t)one_minus_frac, angle_delta_prev_ch[i], 29, 28,
-					    28);
-			p2 = Q_MULTSR_32X32((int64_t)frac, angle_delta_ch[i], 29, 28, 28);
+			p1 = Q_MULTSR_32X32((int64_t)one_minus_frac, angle_delta_prev_ch[i], 29, 27,
+					    27);
+			p2 = Q_MULTSR_32X32((int64_t)frac, angle_delta_ch[i], 29, 27, 27);
 			a = output_phase_ch[i] + p1 + p2;
-			output_phase_ch[i] = unwrap_angle(a);
-			polar->polar_tmp[i].angle = a << 1; /* Q29 */
+			output_phase_ch[i] = unwrap_angle_q27(a);
+			polar->polar_tmp[i].angle = output_phase_ch[i] << 2; /* Q29 */
 		}
 
 		/* Convert back to (re, im) complex, and fix upper part */
