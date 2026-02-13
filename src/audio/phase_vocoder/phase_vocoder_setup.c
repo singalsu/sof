@@ -114,9 +114,11 @@ int phase_vocoder_setup(struct processing_module *mod, int sample_rate, int chan
 
 	/* Calculated parameters */
 	prev_size = fft->fft_size - fft->fft_hop_size;
-	ibuf_size = fft->fft_hop_size + cd->max_input_frames;
-	obuf_size = fft->fft_size + fft->fft_hop_size;
+	ibuf_size = 2 * fft->fft_hop_size + cd->max_input_frames;
+	obuf_size = fft->fft_size + fft->fft_hop_size + cd->max_output_frames;
 	state->prev_data_size = prev_size;
+
+	comp_info(dev, "ibuf_size = %d, obuf_size = %d", ibuf_size, obuf_size);
 
 	/* Allocate buffer input samples, overlap buffer, window */
 	sample_buffers_size =

@@ -112,6 +112,11 @@ static int phase_vocoder_process(struct processing_module *mod, struct sof_sourc
 	int frames;
 	int ret;
 
+	source_frames = MIN(source_frames, cd->max_input_frames);
+	sink_frames = MIN(sink_frames, cd->max_output_frames);
+	cd->ibuf_frames_in = 0;
+	cd->obuf_frames_out = 0;
+
 	if (cd->speed_ctrl != cd->state.speed)
 		phase_vocoder_reset_for_new_speed(cd);
 
@@ -120,6 +125,8 @@ static int phase_vocoder_process(struct processing_module *mod, struct sof_sourc
 		if (ret)
 			comp_err(mod->dev, "Failure, check the setup parameters.");
 
+		comp_info(mod->dev, "source %d, sink %d, ibuf_in %d, obuf_out %d",
+			  source_frames, sink_frames, cd->ibuf_frames_in, cd->obuf_frames_out);
 		return ret;
 	}
 
@@ -175,8 +182,8 @@ static int phase_vocoder_prepare(struct processing_module *mod, struct sof_sourc
 	cd->channels = source_get_channels(sources[0]);
 
 	/* Note: dev->frames is zero, use ibs */
-	cd->max_input_frames = base_cfg->ibs / cd->frame_bytes + PHASE_VOCODER_MAX_FRAMES_MARGIN;
-	cd->max_output_frames = base_cfg->obs / cd->frame_bytes + PHASE_VOCODER_MAX_FRAMES_MARGIN;
+	cd->max_input_frames = base_cfg->ibs / cd->frame_bytes;
+	cd->max_output_frames = base_cfg->obs / cd->frame_bytes;
 	source_format = source_get_frm_fmt(sources[0]);
 	comp_info(dev, "source_format %d channels %d max_input_frames %d max_output_frames %d",
 		  source_format, cd->channels, cd->max_input_frames, cd->max_output_frames);

@@ -92,6 +92,7 @@ int phase_vocoder_source_s32(struct phase_vocoder_comp_data *cd, struct sof_sour
 		ibuf->s_free -= frames;
 	}
 
+	cd->ibuf_frames_in = frames;
 	return 0;
 }
 
@@ -174,6 +175,7 @@ int phase_vocoder_sink_s32(struct phase_vocoder_comp_data *cd, struct sof_sink *
 		obuf->s_free += frames;
 	}
 
+	cd->obuf_frames_out = frames;
 	return 0;
 }
 #endif /* CONFIG_FORMAT_S32LE */

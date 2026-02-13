@@ -138,11 +138,14 @@ struct phase_vocoder_comp_data {
 	struct sof_phase_vocoder_config *config;
 	int32_t speed_ctrl;	/**< Speed Q3.29, allowed range 0.5 to 2.0 */
 	int32_t speed_enum;	/**< Speed control from enum 0-15 */
+	int32_t counter;
 	size_t frame_bytes;
 	int source_channel;
 	int max_input_frames;
 	int max_output_frames;
 	int channels;
+	int ibuf_frames_in;
+	int obuf_frames_out;
 	bool enable; /**< Processing enable flag */
 };
 
