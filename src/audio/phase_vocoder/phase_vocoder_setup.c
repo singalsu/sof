@@ -88,8 +88,7 @@ int phase_vocoder_setup(struct processing_module *mod, int sample_rate, int chan
 	}
 
 	if (config->sample_frequency != sample_rate) {
-		comp_err(dev, "Config sample_frequency does not match stream");
-		return -EINVAL;
+		comp_warn(dev, "Config sample_frequency does not match stream");
 	}
 
 	state->sample_rate = sample_rate;

@@ -33,7 +33,7 @@ __cold int phase_vocoder_set_config(struct processing_module *mod, uint32_t para
 		}
 
 		cd->enable = ctl->chanv[0].value;
-		comp_info(dev, "enable = %d.", cd->enable);
+		comp_info(dev, "enable = %d", cd->enable);
 		return 0;
 
 	case SOF_IPC4_ENUM_CONTROL_PARAM_ID:

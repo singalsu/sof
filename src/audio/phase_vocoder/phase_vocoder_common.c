@@ -337,6 +337,7 @@ static int phase_vocoder_s32(const struct processing_module *mod, struct sof_sou
 	struct phase_vocoder_comp_data *cd = module_get_private_data(mod);
 	int ret;
 
+	comp_info(mod->dev, "seppo: s32 %d %d", source_frames, sink_frames);
 	if (phase_vocoder_check_fft_run_need(cd)) {
 		/* Get samples from source buffer */
 		phase_vocoder_source_s32(cd, source, source_frames);
@@ -403,6 +404,7 @@ static int phase_vocoder_s16(const struct processing_module *mod, struct sof_sou
 	struct phase_vocoder_comp_data *cd = module_get_private_data(mod);
 	int ret;
 
+	comp_info(mod->dev, "seppo: s16 %d %d", source_frames, sink_frames);
 	if (phase_vocoder_check_fft_run_need(cd)) {
 		/* Get samples from source buffer */
 		phase_vocoder_source_s16(cd, source, source_frames);
