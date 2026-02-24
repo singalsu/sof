@@ -172,17 +172,17 @@ static int phase_vocoder_prepare(struct processing_module *mod, struct sof_sourc
 
 	/* get source data format */
 	cd->frame_bytes = source_get_frame_bytes(sources[0]);
-	cd->channels = source_get_channels(sources[0]);
+	cd->stream_channels = source_get_channels(sources[0]);
+	cd->sample_rate = source_get_rate(sources[0]);
 
 	/* Note: dev->frames is zero, use ibs */
 	cd->max_input_frames = base_cfg->ibs / cd->frame_bytes + PHASE_VOCODER_MAX_FRAMES_MARGIN;
 	cd->max_output_frames = base_cfg->obs / cd->frame_bytes + PHASE_VOCODER_MAX_FRAMES_MARGIN;
 	source_format = source_get_frm_fmt(sources[0]);
 	comp_info(dev, "source_format %d channels %d max_input_frames %d max_output_frames %d",
-		  source_format, cd->channels, cd->max_input_frames, cd->max_output_frames);
+		  source_format, cd->stream_channels, cd->max_input_frames, cd->max_output_frames);
 
-	ret =
-	    phase_vocoder_setup(mod, source_get_rate(sources[0]), source_get_channels(sources[0]));
+	ret = phase_vocoder_setup(mod);
 	if (ret < 0) {
 		comp_err(dev, "setup failed.");
 		return ret;

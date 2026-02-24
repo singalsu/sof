@@ -30,6 +30,7 @@ int phase_vocoder_source_s32(struct phase_vocoder_comp_data *cd, struct sof_sour
 {
 	struct phase_vocoder_state *state = &cd->state;
 	struct phase_vocoder_buffer *ibuf;
+	int64_t mix;
 	int32_t const *x, *x_start, *x_end;
 	int frames_left;
 	int x_size;
@@ -40,7 +41,9 @@ int phase_vocoder_source_s32(struct phase_vocoder_comp_data *cd, struct sof_sour
 	int n;
 	int i;
 	int j;
-	int channels = cd->channels;
+	int stream_channels = cd->stream_channels;
+	int process_channels = cd->process_channels;
+	bool process_mono = cd->config->mono;
 
 	ibuf = &state->ibuf[0];
 	frames = MIN(frames, ibuf->s_free);
@@ -60,19 +63,29 @@ int phase_vocoder_source_s32(struct phase_vocoder_comp_data *cd, struct sof_sour
 	while (frames_left) {
 		/* Find out samples to process before first wrap or end of data. */
 		ibuf = &state->ibuf[0];
-		n1 = (x_end - x) / channels;
+		n1 = (x_end - x) / stream_channels;
 		n2 = phase_vocoder_buffer_samples_without_wrap(ibuf, ibuf->w_ptr);
 		n = MIN(n1, n2);
 		n = MIN(n, frames_left);
-		for (i = 0; i < n; i++) {
-			for (j = 0; j < channels; j++) {
-				ibuf = &state->ibuf[j];
-				*ibuf->w_ptr++ = *x++;
+		if (process_mono) {
+			mix = 0;
+			for (i = 0; i < n; i++) {
+				for (j = 0; j < stream_channels; j++)
+					mix += *x++;
+
+				*ibuf->w_ptr++ = mix / stream_channels;
+			}
+		} else {
+			for (i = 0; i < n; i++) {
+				for (j = 0; j < stream_channels; j++) {
+					ibuf = &state->ibuf[j];
+					*ibuf->w_ptr++ = *x++;
+				}
 			}
 		}
 
 		/* One of the buffers needs a wrap (or end of data), so check for wrap */
-		for (j = 0; j < channels; j++) {
+		for (j = 0; j < process_channels; j++) {
 			ibuf = &state->ibuf[j];
 			ibuf->w_ptr = phase_vocoder_buffer_wrap(ibuf, ibuf->w_ptr);
 		}
@@ -86,7 +99,7 @@ int phase_vocoder_source_s32(struct phase_vocoder_comp_data *cd, struct sof_sour
 
 	/* Update the source for bytes consumed. Return success. */
 	source_release_data(source, bytes);
-	for (j = 0; j < channels; j++) {
+	for (j = 0; j < process_channels; j++) {
 		ibuf = &state->ibuf[j];
 		ibuf->s_avail += frames;
 		ibuf->s_free -= frames;
@@ -114,11 +127,13 @@ int phase_vocoder_sink_s32(struct phase_vocoder_comp_data *cd, struct sof_sink *
 	struct phase_vocoder_buffer *obuf;
 	int32_t *y, *y_start, *y_end;
 	int frames_remain;
-	int channels = cd->channels;
 	int bytes;
 	int y_size;
 	int ret;
 	int ch, n1, n, i;
+	int stream_channels = cd->stream_channels;
+	int process_channels = cd->process_channels;
+	bool process_mono = cd->config->mono;
 
 	obuf = &state->obuf[0];
 	frames = MIN(frames, obuf->s_avail);
@@ -140,21 +155,30 @@ int phase_vocoder_sink_s32(struct phase_vocoder_comp_data *cd, struct sof_sink *
 	while (frames_remain) {
 		/* Find out samples to process before first wrap or end of data. */
 		obuf = &state->obuf[0];
-		n1 = (y_end - y) / cd->channels;
+		n1 = (y_end - y) / stream_channels;
 		n = phase_vocoder_buffer_samples_without_wrap(obuf, obuf->r_ptr);
 		n = MIN(n1, n);
 		n = MIN(n, frames_remain);
 
-		for (i = 0; i < n; i++) {
-			for (ch = 0; ch < channels; ch++) {
-				obuf = &state->obuf[ch];
-				*y++ = *obuf->r_ptr;
+		if (process_mono) {
+			for (i = 0; i < n; i++) {
+				for (ch = 0; ch < stream_channels; ch++)
+					*y++ = *obuf->r_ptr;
+
 				*obuf->r_ptr++ = 0; /* clear overlap add mix */
+			}
+		} else {
+			for (i = 0; i < n; i++) {
+				for (ch = 0; ch < stream_channels; ch++) {
+					obuf = &state->obuf[ch];
+					*y++ = *obuf->r_ptr;
+					*obuf->r_ptr++ = 0; /* clear overlap add mix */
+				}
 			}
 		}
 
 		/* One of the buffers needs a wrap (or end of data), so check for wrap */
-		for (ch = 0; ch < channels; ch++) {
+		for (ch = 0; ch < process_channels; ch++) {
 			obuf = &state->obuf[ch];
 			obuf->r_ptr = phase_vocoder_buffer_wrap(obuf, obuf->r_ptr);
 		}
@@ -168,7 +192,7 @@ int phase_vocoder_sink_s32(struct phase_vocoder_comp_data *cd, struct sof_sink *
 
 	/* Update the sink for bytes produced. Return success. */
 	sink_commit_buffer(sink, bytes);
-	for (ch = 0; ch < channels; ch++) {
+	for (ch = 0; ch < process_channels; ch++) {
 		obuf = &state->obuf[ch];
 		obuf->s_avail -= frames;
 		obuf->s_free += frames;
@@ -197,22 +221,27 @@ int phase_vocoder_source_s16(struct phase_vocoder_comp_data *cd, struct sof_sour
 {
 	struct phase_vocoder_state *state = &cd->state;
 	struct phase_vocoder_buffer *ibuf;
+	int32_t mix;
 	int16_t const *x, *x_start, *x_end;
 	int16_t in;
+	int frames_left;
 	int x_size;
-	int channels = cd->channels;
 	int bytes;
-
-	ibuf = &state->ibuf[0];
-	frames = MIN(frames, ibuf->s_free);
-	bytes = frames * cd->frame_bytes;
-	int frames_left = frames;
 	int ret;
 	int n1;
 	int n2;
 	int n;
 	int i;
 	int j;
+	int stream_channels = cd->stream_channels;
+	int process_channels = cd->process_channels;
+	bool process_mono = cd->config->mono;
+
+	ibuf = &state->ibuf[0];
+	frames = MIN(frames, ibuf->s_free);
+	bytes = frames * cd->frame_bytes;
+	frames_left = frames;
+
 
 	/* Get pointer to source data in circular buffer, get buffer start and size to
 	 * check for wrap. The size in bytes is converted to number of s16 samples to
@@ -231,20 +260,30 @@ int phase_vocoder_source_s16(struct phase_vocoder_comp_data *cd, struct sof_sour
 	while (frames_left) {
 		/* Find out samples to process before first wrap or end of data. */
 		ibuf = &state->ibuf[0];
-		n1 = (x_end - x) / cd->channels;
+		n1 = (x_end - x) / stream_channels;
 		n2 = phase_vocoder_buffer_samples_without_wrap(ibuf, ibuf->w_ptr);
 		n = MIN(n1, n2);
 		n = MIN(n, frames_left);
-		for (i = 0; i < n; i++) {
-			for (j = 0; j < channels; j++) {
-				ibuf = &state->ibuf[j];
-				in = *x++;
-				*ibuf->w_ptr++ = (int32_t)in << 16;
+		if (process_mono) {
+			mix = 0;
+			for (i = 0; i < n; i++) {
+				for (j = 0; j < stream_channels; j++)
+					mix += *x++;
+
+				*ibuf->w_ptr++ = (mix / stream_channels) << 16;
+			}
+		} else {
+			for (i = 0; i < n; i++) {
+				for (j = 0; j < stream_channels; j++) {
+					ibuf = &state->ibuf[j];
+					in = *x++;
+					*ibuf->w_ptr++ = (int32_t)in << 16;
+				}
 			}
 		}
 
 		/* One of the buffers needs a wrap (or end of data), so check for wrap */
-		for (j = 0; j < channels; j++) {
+		for (j = 0; j < process_channels; j++) {
 			ibuf = &state->ibuf[j];
 			ibuf->w_ptr = phase_vocoder_buffer_wrap(ibuf, ibuf->w_ptr);
 		}
@@ -258,7 +297,7 @@ int phase_vocoder_source_s16(struct phase_vocoder_comp_data *cd, struct sof_sour
 
 	/* Update the source for bytes consumed. Return success. */
 	source_release_data(source, bytes);
-	for (j = 0; j < channels; j++) {
+	for (j = 0; j < process_channels; j++) {
 		ibuf = &state->ibuf[j];
 		ibuf->s_avail += frames;
 		ibuf->s_free -= frames;
@@ -283,13 +322,16 @@ int phase_vocoder_sink_s16(struct phase_vocoder_comp_data *cd, struct sof_sink *
 {
 	struct phase_vocoder_state *state = &cd->state;
 	struct phase_vocoder_buffer *obuf;
+	int16_t sample;
 	int16_t *y, *y_start, *y_end;
 	int frames_remain;
-	int channels = cd->channels;
 	int y_size;
 	int bytes;
 	int ret;
 	int ch, n1, n, i;
+	int stream_channels = cd->stream_channels;
+	int process_channels = cd->process_channels;
+	bool process_mono = cd->config->mono;
 
 	obuf = &state->obuf[0];
 	frames = MIN(frames, obuf->s_avail);
@@ -310,21 +352,31 @@ int phase_vocoder_sink_s16(struct phase_vocoder_comp_data *cd, struct sof_sink *
 	while (frames_remain) {
 		/* Find out samples to process before first wrap or end of data. */
 		obuf = &state->obuf[0];
-		n1 = (y_end - y) / cd->channels;
+		n1 = (y_end - y) / stream_channels;
 		n = phase_vocoder_buffer_samples_without_wrap(obuf, obuf->r_ptr);
 		n = MIN(n1, n);
 		n = MIN(n, frames_remain);
 
-		for (i = 0; i < n; i++) {
-			for (ch = 0; ch < channels; ch++) {
-				obuf = &state->obuf[ch];
-				*y++ = sat_int16(Q_SHIFT_RND(*obuf->r_ptr, 31, 15));
+		if (process_mono) {
+			for (i = 0; i < n; i++) {
+				sample = sat_int16(Q_SHIFT_RND(*obuf->r_ptr, 31, 15));
+				for (ch = 0; ch < stream_channels; ch++)
+					*y++ = sample;
+
 				*obuf->r_ptr++ = 0; /* clear overlap add mix */
+			}
+		} else {
+			for (i = 0; i < n; i++) {
+				for (ch = 0; ch < stream_channels; ch++) {
+					obuf = &state->obuf[ch];
+					*y++ = sat_int16(Q_SHIFT_RND(*obuf->r_ptr, 31, 15));
+					*obuf->r_ptr++ = 0; /* clear overlap add mix */
+				}
 			}
 		}
 
 		/* One of the buffers needs a wrap (or end of data), so check for wrap */
-		for (ch = 0; ch < channels; ch++) {
+		for (ch = 0; ch < process_channels; ch++) {
 			obuf = &state->obuf[ch];
 			obuf->r_ptr = phase_vocoder_buffer_wrap(obuf, obuf->r_ptr);
 		}
@@ -338,7 +390,7 @@ int phase_vocoder_sink_s16(struct phase_vocoder_comp_data *cd, struct sof_sink *
 
 	/* Update the sink for bytes produced. Return success. */
 	sink_commit_buffer(sink, bytes);
-	for (ch = 0; ch < channels; ch++) {
+	for (ch = 0; ch < process_channels; ch++) {
 		obuf = &state->obuf[ch];
 		obuf->s_avail -= frames;
 		obuf->s_free += frames;

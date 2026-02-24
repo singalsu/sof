@@ -194,7 +194,7 @@ static int stft_do_fft_ifft(const struct processing_module *mod)
 
 	/* First analysis FFT */
 	if (!state->num_input_fft) {
-		for (ch = 0; ch < cd->channels; ch++) {
+		for (ch = 0; ch < cd->process_channels; ch++) {
 			stft_do_fft(state, ch);
 
 			/* Convert half-FFT to polar */
@@ -210,7 +210,7 @@ static int stft_do_fft_ifft(const struct processing_module *mod)
 
 	phase_vocoder_interpolation_parameters(cd);
 	while (state->num_input_fft < state->num_input_fft_to_use && num_fft > 0) {
-		for (ch = 0; ch < cd->channels; ch++) {
+		for (ch = 0; ch < cd->process_channels; ch++) {
 			stft_do_fft(state, ch);
 
 			/* Update previous polar data.
@@ -247,7 +247,7 @@ static int stft_do_fft_ifft(const struct processing_module *mod)
 	frac = state->interpolate_fraction;
 	one_minus_frac = PHASE_VOCODER_ONE_Q29 - frac;
 
-	for (ch = 0; ch < cd->channels; ch++) {
+	for (ch = 0; ch < cd->process_channels; ch++) {
 		polar_data_prev_ch = polar->polar_prev[ch];
 		polar_data_ch = polar->polar[ch];
 		angle_delta_ch = polar->angle_delta[ch];
@@ -296,7 +296,7 @@ static int phase_vocoder_output_zeros_s32(struct phase_vocoder_comp_data *cd, st
 					  int frames)
 {
 	int32_t *y, *y_start, *y_end;
-	int samples = frames * cd->channels;
+	int samples = frames * cd->stream_channels;
 	size_t bytes = samples * sizeof(int32_t);
 	int samples_without_wrap;
 	int y_size;
@@ -363,7 +363,7 @@ static int phase_vocoder_output_zeros_s16(struct phase_vocoder_comp_data *cd, st
 					  int frames)
 {
 	int16_t *y, *y_start, *y_end;
-	int samples = frames * cd->channels;
+	int samples = frames * cd->stream_channels;
 	size_t bytes = samples * sizeof(int16_t);
 	int samples_without_wrap;
 	int y_size;

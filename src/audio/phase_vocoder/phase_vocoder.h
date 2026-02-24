@@ -54,7 +54,7 @@ struct sof_phase_vocoder_config {
 	int32_t sample_frequency; /**< Hz. e.g. 16000 */
 	int32_t window_gain_comp; /**< Q1.31 gain for IFFT */
 	int32_t reserved_32;
-	int16_t channel;      /**< -1 expect mono, 0 left, 1 right, ... */
+	int16_t mono;      /**< Set to 1 for mono, zero for all channels */
 	int16_t frame_length; /**< samples, e.g. 400 for 25 ms @ 16 kHz*/
 	int16_t frame_shift;  /**< samples, e.g. 160 for 10 ms @ 16 kHz */
 	int16_t reserved_16;
@@ -106,9 +106,8 @@ struct phase_vocoder_state {
 	int32_t gain_comp;				/**< Gain to compensate window gain */
 	int32_t interpolate_fraction;			/**< Q3.29 coefficient */
 	int32_t speed;					/**< Q3.29 actual render speed */
-	int source_channel;
 	int prev_data_size;
-	int sample_rate;
+	//int sample_rate;
 	bool first_output_ifft_done;
 };
 
@@ -138,11 +137,14 @@ struct phase_vocoder_comp_data {
 	struct sof_phase_vocoder_config *config;
 	int32_t speed_ctrl;	/**< Speed Q3.29, allowed range 0.5 to 2.0 */
 	int32_t speed_enum;	/**< Speed control from enum 0-15 */
+	int32_t sample_rate;
 	size_t frame_bytes;
 	int source_channel;
 	int max_input_frames;
 	int max_output_frames;
-	int channels;
+	int stream_channels;
+	int process_channels;
+	bool mono_mode;
 	bool enable; /**< Processing enable flag */
 };
 
@@ -247,7 +249,7 @@ int phase_vocoder_overlap_add_ifft_buffer(struct phase_vocoder_state *state, int
 
 void phase_vocoder_reset_for_new_speed(struct phase_vocoder_comp_data *cd);
 
-int phase_vocoder_setup(struct processing_module *mod, int rate, int channels);
+int phase_vocoder_setup(struct processing_module *mod);
 
 int phase_vocoder_sink_s16(struct phase_vocoder_comp_data *cd, struct sof_sink *sink, int frames);
 

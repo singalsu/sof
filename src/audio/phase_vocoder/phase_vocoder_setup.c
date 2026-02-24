@@ -62,7 +62,7 @@ static int phase_vocoder_get_window(struct phase_vocoder_state *state,
 /* TODO phase_vocoder setup needs to use the config blob, not hard coded parameters.
  * Also this is a too long function. Split to STFT, Mel filter, etc. parts.
  */
-int phase_vocoder_setup(struct processing_module *mod, int sample_rate, int channels)
+int phase_vocoder_setup(struct processing_module *mod)
 {
 	struct phase_vocoder_comp_data *cd = module_get_private_data(mod);
 	struct comp_dev *dev = mod->dev;
@@ -76,6 +76,7 @@ int phase_vocoder_setup(struct processing_module *mod, int sample_rate, int chan
 	size_t obuf_size;
 	size_t prev_size;
 	int32_t *addr;
+	int channels;
 	int ret;
 	int i;
 
@@ -87,22 +88,16 @@ int phase_vocoder_setup(struct processing_module *mod, int sample_rate, int chan
 		return -EINVAL;
 	}
 
-	if (config->sample_frequency != sample_rate) {
+	if (config->sample_frequency != cd->sample_rate)
 		comp_warn(dev, "Config sample_frequency does not match stream");
-	}
 
-	state->sample_rate = sample_rate;
+	// Force mono, remove this
+	config->mono = 1;
 
-	comp_info(dev, "source_channel = %d, stream_channels = %d", config->channel, channels);
-	if (config->channel >= channels) {
-		comp_err(dev, "Illegal channel");
-		return -EINVAL;
-	}
-
-	if (config->channel < 0)
-		state->source_channel = 0;
+	if (config->mono)
+		cd->process_channels = 1;
 	else
-		state->source_channel = config->channel;
+		cd->process_channels = cd->stream_channels;
 
 	fft->fft_size = config->frame_length;
 	fft->fft_hop_size = config->frame_shift;
@@ -118,8 +113,9 @@ int phase_vocoder_setup(struct processing_module *mod, int sample_rate, int chan
 	state->prev_data_size = prev_size;
 
 	/* Allocate buffer input samples, overlap buffer, window */
-	sample_buffers_size =
-	    sizeof(int32_t) * cd->channels * (ibuf_size + obuf_size + prev_size + fft->fft_size);
+	channels = cd->process_channels;
+	sample_buffers_size = sizeof(int32_t) *
+		channels * (ibuf_size + obuf_size + prev_size + fft->fft_size);
 
 	if (sample_buffers_size > STFT_MAX_ALLOC_SIZE || sample_buffers_size < 0) {
 		comp_err(dev, "Illegal allocation size");
@@ -135,7 +131,7 @@ int phase_vocoder_setup(struct processing_module *mod, int sample_rate, int chan
 
 	memset(addr, 0, sample_buffers_size);
 	state->buffers = addr;
-	for (i = 0; i < cd->channels; i++) {
+	for (i = 0; i < channels; i++) {
 		phase_vocoder_init_buffer(&state->ibuf[i], addr, ibuf_size);
 		addr += ibuf_size;
 		phase_vocoder_init_buffer(&state->obuf[i], addr, obuf_size);
@@ -186,13 +182,9 @@ int phase_vocoder_setup(struct processing_module *mod, int sample_rate, int chan
 	/* Need to compensate the window function gain */
 	state->gain_comp = config->window_gain_comp;
 
-	/* Set initial state for STFT */
-	// state->waiting_fill = true;
-	// state->prev_samples_valid = false;
-
 	/* Allocate buffers for polar format data for magnitude and phase interpolation */
-	polar_buffers_size =
-	    channels * fft->half_fft_size * (2 * sizeof(struct ipolar32) + 3 * sizeof(int32_t));
+	polar_buffers_size = channels *
+		fft->half_fft_size * (2 * sizeof(struct ipolar32) + 3 * sizeof(int32_t));
 	comp_info(dev, "polar buffers size %d", polar_buffers_size);
 	addr = mod_balloc(mod, polar_buffers_size);
 	if (!addr) {
