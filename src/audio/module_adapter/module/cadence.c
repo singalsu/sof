@@ -213,8 +213,8 @@ int cadence_codec_init_memory_tables(struct processing_module *mod)
 			goto err;
 		}
 
-		comp_dbg(dev, "allocated memory of %d bytes and alignment %d for mem. type %d",
-			 mem_size, mem_alignment, mem_type);
+		comp_warn(dev, "allocated memory of %d bytes and alignment %d for mem. type %d",
+			  mem_size, mem_alignment, mem_type);
 	}
 
 	return 0;
