@@ -43,6 +43,9 @@ struct comp_dev;
 /** \brief Maximum supported channel count on output. */
 #define SEL_SINK_CHANNELS_MAX   8
 
+/** \brief Maximum number of configurations in the blob received with set_config() */
+#define SEL_MAX_NUM_CONFIGS	8
+
 #define SEL_NUM_IN_PIN_FMTS	1
 #define SEL_NUM_OUT_PIN_FMTS	1
 
@@ -60,7 +63,8 @@ enum ipc4_selector_config_id {
 
 /** \brief IPC4 mixing coefficients configuration. */
 struct ipc4_selector_coeffs_config {
-	uint16_t rsvd0;	/**< Unused field, keeps the structure aligned with common layout */
+	uint8_t source_channels_count; /**< source channels count when num_configs != 0 */
+	uint8_t sink_channels_count; /**< sink channels count when num_configs != 0 */
 	uint16_t rsvd1;	/**< Unused field, keeps the structure aligned with common layout */
 
 	/** Mixing coefficients in Q10 fixed point format */
@@ -108,7 +112,9 @@ typedef void (*sel_func)(struct comp_dev *dev, struct audio_stream *sink,
 struct comp_data {
 #if CONFIG_IPC_MAJOR_4
 	struct sof_selector_ipc4_config sel_ipc4_cfg;
-	struct ipc4_selector_coeffs_config coeffs_config;
+	struct ipc4_selector_coeffs_config *coeffs_config;
+	struct ipc4_selector_coeffs_config *multi_coeffs_config;
+	size_t multi_coeffs_config_size;
 #endif
 
 	uint32_t source_period_bytes;	/**< source number of period bytes */
@@ -117,6 +123,7 @@ struct comp_data {
 	enum sof_ipc_frame sink_format;		/**< sink frame format */
 	struct sof_sel_config config;	/**< component configuration data */
 	sel_func sel_func;	/**< channel selector processing function */
+	int num_configs;	/**< two or more if multiple mix blobs received */
 };
 
 /** \brief Selector processing functions map. */

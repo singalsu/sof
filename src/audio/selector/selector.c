@@ -572,9 +572,9 @@ static void build_config(struct comp_data *cd, struct module_config *cfg)
 	cd->config.out_channels_count = out_fmt->channels_count;
 
 	/* Build default coefficient array (unity Q10 on diagonal, i.e. pass-through mode) */
-	memset(&cd->coeffs_config, 0, sizeof(cd->coeffs_config));
+	memset(cd->coeffs_config, 0, sizeof(*cd->coeffs_config));
 	for (i = 0; i < MIN(SEL_SOURCE_CHANNELS_MAX, SEL_SINK_CHANNELS_MAX); i++)
-		cd->coeffs_config.coeffs[i][i] = 1 << 10;
+		cd->coeffs_config->coeffs[i][i] = 1 << 10;
 }
 
 static int selector_init(struct processing_module *mod)
@@ -619,6 +619,18 @@ static int selector_init(struct processing_module *mod)
 
 	cd->sel_ipc4_cfg.init_payload_fmt = payload_fmt;
 	md->private = cd;
+
+	/* Allocate space for max number of configurations. */
+	cd->multi_coeffs_config_size =
+		SEL_MAX_NUM_CONFIGS * sizeof(struct ipc4_selector_coeffs_config);
+	cd->multi_coeffs_config = mod_zalloc(mod, cd->multi_coeffs_config_size);
+	if (!cd->multi_coeffs_config) {
+		mod_free(mod, cd);
+		return -ENOMEM;
+	}
+
+	/* Default configuration is set to first configuration */
+	cd->coeffs_config = &cd->multi_coeffs_config[0];
 
 	if (payload_fmt == IPC4_SEL_INIT_PAYLOAD_BASE_WITH_EXT) {
 		size_t size = sizeof(struct sof_selector_ipc4_pin_config);
@@ -733,6 +745,7 @@ static int selector_free(struct processing_module *mod)
 
 	comp_dbg(mod->dev, "entry");
 
+	mod_free(mod, cd->multi_coeffs_config);
 	mod_free(mod, cd);
 
 	return 0;
@@ -769,12 +782,26 @@ static int selector_set_config(struct processing_module *mod, uint32_t config_id
 			       size_t response_size)
 {
 	struct comp_data *cd = module_get_private_data(mod);
+	int n;
 
 	if (config_id == IPC4_SELECTOR_COEFFS_CONFIG_ID) {
-		if (data_offset_size != sizeof(cd->coeffs_config))
+		if (data_offset_size > cd->multi_coeffs_config_size) {
+			comp_err(mod->dev, "The configuration blob is too large");
 			return -EINVAL;
+		}
 
-		memcpy_s(&cd->coeffs_config, sizeof(cd->coeffs_config), fragment, data_offset_size);
+		/* The size must be N times the coefficient vectors size of one channels
+		 * up/down mix profile.
+		 */
+		n = data_offset_size / sizeof(struct ipc4_selector_coeffs_config);
+		if (data_offset_size != n * sizeof(struct ipc4_selector_coeffs_config)) {
+			comp_err(mod->dev, "Invalid configuration size.");
+			return -EINVAL;
+		}
+
+		memcpy_s(cd->multi_coeffs_config, cd->multi_coeffs_config_size,
+			 fragment, data_offset_size);
+		cd->num_configs = n;
 		return 0;
 	}
 
@@ -825,7 +852,10 @@ static int selector_prepare(struct processing_module *mod,
 	struct comp_dev *dev = mod->dev;
 	struct comp_buffer *sinkb, *sourceb;
 	size_t sink_size;
+	unsigned int source_channels;
+	unsigned int sink_channels;
 	int ret;
+	int i;
 
 	comp_dbg(dev, "entry");
 
@@ -855,9 +885,9 @@ static int selector_prepare(struct processing_module *mod,
 	 * proper number of channels [1] for selector to actually
 	 * reduce channel count between source and sink
 	 */
-	comp_info(dev, "source sink channel = %u %u",
-		  audio_stream_get_channels(&sourceb->stream),
-		  audio_stream_get_channels(&sinkb->stream));
+	source_channels = audio_stream_get_channels(&sourceb->stream);
+	sink_channels = audio_stream_get_channels(&sinkb->stream);
+	comp_dbg(dev, "source sink channel = %u %u", source_channels, sink_channels);
 
 	sink_size = audio_stream_get_size(&sinkb->stream);
 
@@ -889,6 +919,19 @@ static int selector_prepare(struct processing_module *mod,
 			 cd->source_format, cd->sink_format,
 			 cd->config.out_channels_count);
 		return -EINVAL;
+	}
+
+	/* The first config for coefficients always exists, from blob or default value ones */
+	cd->coeffs_config = cd->multi_coeffs_config;
+	if (cd->num_configs > 1) {
+		for (i = 0; i < cd->num_configs; i++) {
+			if (cd->multi_coeffs_config[i].source_channels_count == source_channels &&
+			    cd->multi_coeffs_config[i].sink_channels_count == sink_channels) {
+				comp_info(dev, "Coefficients found for %d to %d channels.",
+					  source_channels, sink_channels);
+				cd->coeffs_config = &cd->multi_coeffs_config[i];
+			}
+		}
 	}
 
 	return 0;
