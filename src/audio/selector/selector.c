@@ -924,12 +924,22 @@ static int selector_prepare(struct processing_module *mod,
 	/* The first config for coefficients always exists, from blob or default value ones */
 	cd->coeffs_config = cd->multi_coeffs_config;
 	if (cd->num_configs > 1) {
+		/* Use a 8ch pass-through blob if same number of channels */
+		if (source_channels == sink_channels) {
+			source_channels = 8;
+			sink_channels = 8;
+		}
+
 		for (i = 0; i < cd->num_configs; i++) {
+			comp_dbg(dev, "Blob has %d to %d support",
+				 cd->multi_coeffs_config[i].source_channels_count,
+				 cd->multi_coeffs_config[i].sink_channels_count);
 			if (cd->multi_coeffs_config[i].source_channels_count == source_channels &&
 			    cd->multi_coeffs_config[i].sink_channels_count == sink_channels) {
 				comp_info(dev, "Coefficients found for %d to %d channels.",
 					  source_channels, sink_channels);
 				cd->coeffs_config = &cd->multi_coeffs_config[i];
+				break;
 			}
 		}
 	}
