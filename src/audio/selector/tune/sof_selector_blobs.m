@@ -20,14 +20,14 @@ function sof_selector_blobs()
 
 	% Matrix for 1:1 pass-through
 	sel.ch_count = [8 8];
-        sel.ch_config = [12 12];
+	sel.ch_config = [12 12];
 	sel.ch_out = 8;
 	sel.coeffs = diag(ones(8, 1));
 	passthrough_pack8 = write_blob(sel, "passthrough");
 
 	% Stereo to mono downmix
 	sel.ch_count = [2 1];
-        sel.ch_config = [1 0];
+	sel.ch_config = [1 0];
 	sel.coeffs = zeros(8,8);
 	sel.coeffs(1, 1) = 0.7071;
 	sel.coeffs(1, 2) = 0.7071;
@@ -35,7 +35,7 @@ function sof_selector_blobs()
 
 	% 5.1 to stereo downmix
 	sel.ch_count = [6 2];
-        sel.ch_config = [8 1];
+	sel.ch_config = [8 1];
 	fl = 1; fr = 2; fc = 3; lfe = 4; sl = 5; sr = 6;
 	m = zeros(8,8);
 	m(1, fl) = 1.0000; m(1, fr) = 0.0000; m(1, fc) = 0.7071; m(1, sl) = 0.7071; m(1, sr) = 0.0000;
@@ -47,7 +47,7 @@ function sof_selector_blobs()
 
 	% 5.1 to mono downmix
 	sel.ch_count = [6 1];
-        sel.ch_config = [8 0];
+	sel.ch_config = [8 0];
 	sel.ch_in = 6;
 	sel.ch_out = 1;
 	fl = 1; fr = 2; fc = 3; lfe = 4; sl = 5; sr = 6;
@@ -59,7 +59,7 @@ function sof_selector_blobs()
 
 	% 7.1 to 5.1 downmix
 	sel.ch_count = [8 6];
-        sel.ch_config = [12 8];
+	sel.ch_config = [12 8];
 	sel.ch_in = 8;
 	sel.ch_out = 6;
 	fl8 = 1; fr8 = 2; fc8 = 3; lfe8 = 4; bl8 = 5; br8 = 6;	sl8 = 7; sr8 = 8;
@@ -78,7 +78,7 @@ function sof_selector_blobs()
 
 	% 7.1 to stereo downmix
 	sel.ch_count = [8 2];
-        sel.ch_config = [12 1];
+	sel.ch_config = [12 1];
 	sel.ch_in = 8;
 	sel.ch_out = 2;
 	fl = 1; fr = 2; fc = 3; lfe = 4; bl = 5; br = 6;  sl = 7; sr = 8;
@@ -92,7 +92,7 @@ function sof_selector_blobs()
 
 	% 7.1 to mono downmix
 	sel.ch_count = [8 1];
-        sel.ch_config = [12 0];
+	sel.ch_config = [12 0];
 	sel.ch_in = 8;
 	sel.ch_out = 1;
 	fl = 1; fc = 3; fr = 2; sr = 8; br = 6; bl = 5; sl = 7; lfe = 4;
@@ -104,7 +104,7 @@ function sof_selector_blobs()
 
 	% mono to stereo upmix
 	sel.ch_count = [1 2];
-        sel.ch_config = [0 1];
+	sel.ch_config = [0 1];
 	sel.ch_in = 1;
 	sel.ch_out = 2;
 	sel.coeffs = zeros(8,8);
@@ -114,7 +114,7 @@ function sof_selector_blobs()
 
 	% mono to 5.1 / 7.1 upmix
 	sel.ch_count = [1 6];
-        sel.ch_config = [0 8];
+	sel.ch_config = [0 8];
 	sel.ch_in = 1;
 	sel.ch_out = 6;
 	fc = 3;
@@ -122,14 +122,14 @@ function sof_selector_blobs()
 	sel.coeffs(fc, 1) = 1;
 	mono_to_sixch_pack8 = write_blob(sel, "upmix_mono_to_51");
 	sel.ch_count = [1 8];
-        sel.ch_config = [0 12];
+	sel.ch_config = [0 12];
 	sel.ch_in = 1;
 	sel.ch_out = 8;
 	mono_to_eightch_pack8 = write_blob(sel, "upmix_mono_to_71");
 
 	% stereo to 5.1 / 7.1 upmix
 	sel.ch_count = [2 6];
-        sel.ch_config = [1 8];
+	sel.ch_config = [1 8];
 	sel.ch_in = 2;
 	sel.ch_out = 6;
 	fl = 1; fr = 2;
@@ -138,19 +138,19 @@ function sof_selector_blobs()
 	sel.coeffs(fr, 2) = 1;
 	stereo_to_sixch_pack8 = write_blob(sel, "upmix_stereo_to_51");
 	sel.ch_count = [2 8];
-        sel.ch_config = [1 12];
+	sel.ch_config = [1 12];
 	sel.ch_in = 2;
 	sel.ch_out = 8;
 	stereo_to_eightch_pack8 = write_blob(sel, "upmix_stereo_to_71");
 
-        % For blob format with multiple up/down-mix profiles, intended
-        % for playback decoder offload conversions.
-        multi_pack8 = [passthrough_pack8 mono_to_stereo_pack8 sixch_to_stereo_pack8 eightch_to_stereo_pack8];
-        write_8bit_packed(multi_pack8, 'decoder_offload_stereo_playback');
+	% For blob format with multiple up/down-mix profiles, intended
+	% for playback decoder offload conversions.
+	multi_pack8 = [passthrough_pack8 mono_to_stereo_pack8 sixch_to_stereo_pack8 eightch_to_stereo_pack8];
+	write_8bit_packed(multi_pack8, 'decoder_offload_stereo_playback');
 
 	% Stereo to L,L,R,R
 	sel.ch_count = [2 4];
-        sel.ch_config = [13 13];
+	sel.ch_config = [13 13];
 	sel.ch_in = 2;
 	sel.ch_out = 4;
 	sel.coeffs = [ 1 0 0 0 0 0 0 0 ; ...
@@ -165,7 +165,7 @@ function sof_selector_blobs()
 
 	% Stereo to R,R,L,L
 	sel.ch_count = [2 4];
-        sel.ch_config = [13 13];
+	sel.ch_config = [13 13];
 	sel.ch_in = 2;
 	sel.ch_out = 4;
 	sel.coeffs = [ 0 1 0 0 0 0 0 0 ; ...
@@ -180,7 +180,7 @@ function sof_selector_blobs()
 
 	% Stereo to L,R,L,R
 	sel.ch_count = [2 4];
-        sel.ch_config = [13 13];
+	sel.ch_config = [13 13];
 	sel.ch_in = 2;
 	sel.ch_out = 4;
 	sel.coeffs = [ 1 0 0 0 0 0 0 0 ; ...
@@ -197,8 +197,9 @@ function sof_selector_blobs()
 end
 
 function pack8 = write_blob(sel, blobname)
-        pack8 = pack_selector_config(sel);
-        write_8bit_packed(pack8, blobname);
+	pack8 = pack_selector_config(sel);
+	pack8(1:4) = uint8([0 0 0 0]);
+	write_8bit_packed(pack8, blobname);
 end
 
 function write_8bit_packed(pack8, blobname)
