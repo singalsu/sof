@@ -116,19 +116,22 @@ typedef void (*sel_func)(struct comp_dev *dev, struct audio_stream *sink,
 struct comp_data {
 #if CONFIG_IPC_MAJOR_4
 	struct sof_selector_ipc4_config sel_ipc4_cfg;
-	struct ipc4_selector_coeffs_config *coeffs_config;
+	struct ipc4_selector_coeffs_config coeffs_config;
 	struct ipc4_selector_coeffs_config *multi_coeffs_config;
 	size_t multi_coeffs_config_size;
 #endif
 
 	uint32_t source_period_bytes;	/**< source number of period bytes */
 	uint32_t sink_period_bytes;	/**< sink number of period bytes */
+	uint32_t source_channels;	/**< source number of channels */
+	uint32_t sink_channels;		/**< sink number of channels */
 	enum sof_ipc_frame source_format;	/**< source frame format */
 	enum sof_ipc_frame sink_format;		/**< sink frame format */
 	struct sof_sel_config config;	/**< component configuration data */
 	sel_func sel_func;	/**< channel selector processing function */
 	int num_configs;	/**< two or more if multiple mix blobs received */
 	bool passthrough;	/**< Use a passthrough copy function when no up/down mix */
+	bool new_config;	/**< True if new configuration has been received */
 };
 
 /** \brief Selector processing functions map. */

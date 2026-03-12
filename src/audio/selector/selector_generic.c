@@ -228,7 +228,7 @@ static void sel_s16le(struct processing_module *mod, struct input_stream_buffer 
 		n = MIN(n, nmax);
 		for (i = 0; i < n; i++) {
 			process_frame_s16le(dest, n_chan_sink, src, n_chan_source,
-					    cd->coeffs_config);
+					    &cd->coeffs_config);
 			src += audio_stream_get_channels(source);
 			dest += audio_stream_get_channels(sink);
 		}
@@ -301,7 +301,7 @@ static void sel_s24le(struct processing_module *mod, struct input_stream_buffer 
 		n = MIN(n, nmax);
 		for (i = 0; i < n; i++) {
 			process_frame_s24le(dest, n_chan_sink, src, n_chan_source,
-					    cd->coeffs_config);
+					    &cd->coeffs_config);
 			src += audio_stream_get_channels(source);
 			dest += audio_stream_get_channels(sink);
 		}
@@ -372,7 +372,7 @@ static void sel_s32le(struct processing_module *mod, struct input_stream_buffer 
 		n = MIN(n, nmax);
 		for (i = 0; i < n; i++) {
 			process_frame_s32le(dest, n_chan_sink, src, n_chan_source,
-					    cd->coeffs_config);
+					    &cd->coeffs_config);
 			src += audio_stream_get_channels(source);
 			dest += audio_stream_get_channels(sink);
 		}

@@ -572,9 +572,9 @@ static void build_config(struct comp_data *cd, struct module_config *cfg)
 	cd->config.out_channels_count = out_fmt->channels_count;
 
 	/* Build default coefficient array (unity Q10 on diagonal, i.e. pass-through mode) */
-	memset(cd->coeffs_config, 0, sizeof(*cd->coeffs_config));
+	memset(&cd->coeffs_config, 0, sizeof(cd->coeffs_config));
 	for (i = 0; i < MIN(SEL_SOURCE_CHANNELS_MAX, SEL_SINK_CHANNELS_MAX); i++)
-		cd->coeffs_config->coeffs[i][i] = SEL_COEF_ONE_Q10;
+		cd->coeffs_config.coeffs[i][i] = SEL_COEF_ONE_Q10;
 }
 
 static int selector_init(struct processing_module *mod)
@@ -617,21 +617,9 @@ static int selector_init(struct processing_module *mod)
 	if (!cd)
 		return -ENOMEM;
 
+	md->private = cd;
 	cd->sel_ipc4_cfg.init_payload_fmt = payload_fmt;
 
-	/* Allocate space for max number of configurations. */
-	cd->multi_coeffs_config_size =
-		SEL_MAX_NUM_CONFIGS * sizeof(struct ipc4_selector_coeffs_config);
-	cd->multi_coeffs_config = mod_zalloc(mod, cd->multi_coeffs_config_size);
-	if (!cd->multi_coeffs_config) {
-		mod_free(mod, cd);
-		return -ENOMEM;
-	}
-
-	/* Default configuration is set to first configuration */
-	cd->coeffs_config = &cd->multi_coeffs_config[0];
-
-	md->private = cd;
 	if (payload_fmt == IPC4_SEL_INIT_PAYLOAD_BASE_WITH_EXT) {
 		size_t size = sizeof(struct sof_selector_ipc4_pin_config);
 
@@ -801,6 +789,24 @@ static int selector_set_config(struct processing_module *mod, uint32_t config_id
 		}
 
 		cd->num_configs = n;
+		if (cd->multi_coeffs_config) {
+			if (cd->multi_coeffs_config_size < data_offset_size) {
+				/* Configuration exist but the allocation is too
+				 * small to write over.
+				 */
+				mod_free(mod, cd->multi_coeffs_config);
+				cd->multi_coeffs_config_size = data_offset_size;
+				cd->multi_coeffs_config =
+					mod_alloc(mod, cd->multi_coeffs_config_size);
+			}
+		} else {
+			/* No existing configuration */
+			cd->multi_coeffs_config_size = data_offset_size;
+			cd->multi_coeffs_config = mod_alloc(mod, cd->multi_coeffs_config_size);
+		}
+
+		/* Copy the configuration and notify for need to re-configure */
+		cd->new_config = true;
 		return memcpy_s(cd->multi_coeffs_config, cd->multi_coeffs_config_size,
 				fragment, data_offset_size);
 	}
@@ -816,41 +822,6 @@ static int selector_get_config(struct processing_module *mod, uint32_t config_id
 }
 
 /**
- * \brief Copies and processes stream data.
- * \param[in,out] mod Selector base module device.
- * \return Error code.
- */
-static int selector_process(struct processing_module *mod,
-			    struct input_stream_buffer *input_buffers,
-			    int num_input_buffers,
-			    struct output_stream_buffer *output_buffers,
-			    int num_output_buffers)
-{
-	struct audio_stream *source;
-	struct audio_stream *sink;
-	struct comp_data *cd = module_get_private_data(mod);
-	uint32_t avail_frames = input_buffers[0].size;
-	uint32_t samples;
-
-	comp_dbg(mod->dev, "entry");
-
-	if (cd->passthrough) {
-		source = input_buffers->data;
-		sink = output_buffers->data;
-		samples = avail_frames * audio_stream_get_channels(source);
-		audio_stream_copy(source, 0, sink, 0, samples);
-		module_update_buffer_position(input_buffers, output_buffers, avail_frames);
-		return 0;
-	}
-
-	if (avail_frames)
-		/* copy selected channels from in to out */
-		cd->sel_func(mod, input_buffers, output_buffers, avail_frames);
-
-	return 0;
-}
-
-/**
  * \brief Loop the array of mix coefficients sets and find a set with matching channels
  * in and out count.
  * \param[in,out] cd Selector component data.
@@ -860,17 +831,17 @@ static int selector_process(struct processing_module *mod,
  * \return Boolean value set to true if match was found and cd->coeffs_config is pointed
  * to the coefficients.
  */
-static bool selector_config_array_search(struct comp_data *cd, int source_channels,
-					 int sink_channels)
+static struct ipc4_selector_coeffs_config *selector_config_array_search(struct comp_data *cd,
+									int source_channels,
+									int sink_channels)
 {
+	struct ipc4_selector_coeffs_config *found = NULL;
 	int i;
-	bool found = false;
 
 	for (i = 0; i < cd->num_configs; i++) {
 		if (cd->multi_coeffs_config[i].source_channels_count == source_channels &&
 		    cd->multi_coeffs_config[i].sink_channels_count == sink_channels) {
-			cd->coeffs_config = &cd->multi_coeffs_config[i];
-			found = true;
+			found = &cd->multi_coeffs_config[i];
 			break;
 		}
 	}
@@ -888,33 +859,42 @@ static bool selector_config_array_search(struct comp_data *cd, int source_channe
  *
  * \return Error code.
  */
-static int selector_find_coefficients(struct processing_module *mod, int source_channels,
-				      int sink_channels)
+static int selector_find_coefficients(struct processing_module *mod)
 {
 	struct comp_data *cd = module_get_private_data(mod);
 	struct comp_dev *dev = mod->dev;
+	struct ipc4_selector_coeffs_config *config;
+	uint32_t source_channels = cd->source_channels;
+	uint32_t sink_channels = cd->sink_channels;
 	int i, j;
 	int16_t coef;
-	bool found;
 
-	/* The first config for coefficients always exists. It originates from configuration
-	 * blob for a single mix profile or from default values (1.0) from set_selector_params().
+	/* In set_config() the blob is copied to cd->multi_coeffs_config. A legacy blob contains a
+	 * single set of mix coefficients without channels information. A new blob with multiple
+	 * configurations has the source and sink channels count information. If there has been no
+	 * set_config(), then the cd->coeffs_config has been initialized in set_selector_params()
+	 * to mix with coefficients SEL_COEF_ONE_Q10 for matching input and output channels.
 	 */
-	cd->coeffs_config = cd->multi_coeffs_config;
-	if (cd->num_configs > 1) {
-		found = selector_config_array_search(cd, source_channels, sink_channels);
-		if (!found &&  source_channels == sink_channels) {
-			/* The pass-through mix is defined for the max channels count (8) */
-			source_channels = SEL_SOURCE_CHANNELS_MAX;
-			sink_channels = SEL_SINK_CHANNELS_MAX;
-			found = selector_config_array_search(cd, source_channels, sink_channels);
+	if (cd->multi_coeffs_config) {
+		config = cd->multi_coeffs_config;
+		if (cd->num_configs > 1) {
+			config = selector_config_array_search(cd, source_channels, sink_channels);
+			/* If not found, check if pass-through mix is defined for the max
+			 * channels count (8).
+			 */
+			if (!config &&  source_channels == sink_channels)
+				config = selector_config_array_search(cd, SEL_SOURCE_CHANNELS_MAX,
+								      SEL_SINK_CHANNELS_MAX);
+
+			if (!config) {
+				comp_err(dev, "No mix coefficients found for %d to %d channels.",
+					 source_channels, sink_channels);
+				return -EINVAL;
+			}
 		}
 
-		if (!found) {
-			comp_err(dev, "No mix coefficients found for %d to %d channels.",
-				 source_channels, sink_channels);
-			return -EINVAL;
-		}
+		memcpy_s(&cd->coeffs_config, sizeof(struct ipc4_selector_coeffs_config),
+			 config, sizeof(*config));
 	}
 
 	/* The pass-through copy function can be used if coefficients are a unit matrix for
@@ -924,7 +904,7 @@ static int selector_find_coefficients(struct processing_module *mod, int source_
 		cd->passthrough = true;
 		for (i = 0; i < sink_channels; i++) {
 			for (j = 0; j < source_channels; j++) {
-				coef = cd->coeffs_config->coeffs[i][j];
+				coef = cd->coeffs_config.coeffs[i][j];
 				if ((i == j && coef != SEL_COEF_ONE_Q10) || (i != j && coef != 0)) {
 					cd->passthrough = false;
 					break;
@@ -945,6 +925,44 @@ static int selector_find_coefficients(struct processing_module *mod, int source_
 }
 
 /**
+ * \brief Copies and processes stream data.
+ * \param[in,out] mod Selector base module device.
+ * \return Error code.
+ */
+static int selector_process(struct processing_module *mod,
+			    struct input_stream_buffer *input_buffers,
+			    int num_input_buffers,
+			    struct output_stream_buffer *output_buffers,
+			    int num_output_buffers)
+{
+	struct audio_stream *source;
+	struct audio_stream *sink;
+	struct comp_data *cd = module_get_private_data(mod);
+	uint32_t avail_frames = input_buffers[0].size;
+
+	comp_dbg(mod->dev, "entry");
+
+	if (cd->new_config) {
+		selector_find_coefficients(mod);
+		cd->new_config = false;
+	}
+
+	if (cd->passthrough) {
+		source = input_buffers->data;
+		sink = output_buffers->data;
+		audio_stream_copy(source, 0, sink, 0, avail_frames * cd->source_channels);
+		module_update_buffer_position(input_buffers, output_buffers, avail_frames);
+		return 0;
+	}
+
+	if (avail_frames)
+		/* copy selected channels from in to out */
+		cd->sel_func(mod, input_buffers, output_buffers, avail_frames);
+
+	return 0;
+}
+
+/**
  * \brief Prepares selector component for processing.
  * \param[in,out] mod Selector base module device.
  * \return Error code.
@@ -958,8 +976,6 @@ static int selector_prepare(struct processing_module *mod,
 	struct comp_dev *dev = mod->dev;
 	struct comp_buffer *sinkb, *sourceb;
 	size_t sink_size;
-	unsigned int source_channels;
-	unsigned int sink_channels;
 	int ret;
 
 	comp_dbg(dev, "entry");
@@ -990,9 +1006,9 @@ static int selector_prepare(struct processing_module *mod,
 	 * proper number of channels [1] for selector to actually
 	 * reduce channel count between source and sink
 	 */
-	source_channels = audio_stream_get_channels(&sourceb->stream);
-	sink_channels = audio_stream_get_channels(&sinkb->stream);
-	comp_dbg(dev, "source sink channel = %u %u", source_channels, sink_channels);
+	cd->source_channels = audio_stream_get_channels(&sourceb->stream);
+	cd->sink_channels = audio_stream_get_channels(&sinkb->stream);
+	comp_dbg(dev, "source sink channel = %u %u", cd->source_channels, cd->sink_channels);
 
 	sink_size = audio_stream_get_size(&sinkb->stream);
 
@@ -1026,7 +1042,7 @@ static int selector_prepare(struct processing_module *mod,
 		return -EINVAL;
 	}
 
-	return selector_find_coefficients(mod, source_channels, sink_channels);
+	return selector_find_coefficients(mod);
 }
 
 /**
