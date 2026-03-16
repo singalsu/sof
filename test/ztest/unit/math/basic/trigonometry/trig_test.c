@@ -31,6 +31,7 @@
 #include <sof/math/cordic.h>
 #include <sof/math/lut_trig.h>
 #include "trig_tables.h"
+#include "atan2_tables.h"
 
 /* Define M_PI if not available */
 #ifndef M_PI
@@ -47,6 +48,7 @@
 #define CMP_TOLERANCE_ASIN_16B	0.0001152158f
 #define CMP_TOLERANCE_ACOS_16B	0.0001196862f
 #define CMP_TOLERANCE_SIN	3.1e-5f
+#define CMP_TOLERANCE_ATAN2	2.0e-5 /* ~0.001 degrees in radians */
 
 /*
  * Helper function for rounding double values to nearest integer
@@ -228,6 +230,36 @@ ZTEST(trigonometry, test_sin_lut_16b_fixed)
 		zassert_true(delta <= CMP_TOLERANCE_SIN,
 			     "sin_lut_16b_fixed failed for angle %d", theta);
 	}
+}
+
+/* Test sofm_atan2 function */
+ZTEST(trigonometry, test_atan2)
+{
+	double delta;
+	double delta_max = 0.0;
+	int32_t result_q29_max = 0;
+	int32_t result_q29;
+	double result;
+	double reference;
+	int i_max = -1;
+	int i;
+
+	for (i = 203; i < ATAN2_TEST_TABLE_SIZE; ++i) {
+		result_q29 = sofm_atan2_32b(atan2_test_y[i], atan2_test_x[i]);
+		result = Q_CONVERT_QTOF(result_q29, 29);
+		reference = Q_CONVERT_QTOF(atan2_test_ref[i], 29);
+		delta = fabsf(reference - result);
+		if (delta > delta_max) {
+			result_q29_max = result_q29;
+			delta_max = delta;
+			i_max = i;
+		}
+		zassert_true(delta <= CMP_TOLERANCE_ATAN2,
+			     "sofm_atan2 failed for input %d: (%d, %d) result %d",
+			     i, atan2_test_y[i], atan2_test_x[i], result_q29);
+	}
+	printf(" INFO - Maximum delta for atan2 test %d: %.6e (%d, %d) result %d\n",
+	       i_max, delta_max, atan2_test_y[i_max], atan2_test_x[i_max], result_q29_max);
 }
 
 ZTEST_SUITE(trigonometry, NULL, NULL, NULL, NULL, NULL);
