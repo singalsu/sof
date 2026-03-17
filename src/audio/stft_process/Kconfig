@@ -1,5 +1,7 @@
 # SPDX-License-Identifier: BSD-3-Clause
 
+rsource "Kconfig.simd"
+
 config COMP_STFT_PROCESS
 	tristate "STFT processing component"
 	default n
