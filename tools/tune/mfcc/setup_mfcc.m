@@ -14,6 +14,28 @@
 function setup_mfcc(cfg)
 
 if nargin < 1
+	cfg = get_mfcc_default_config();
+end
+
+cfg.tplg_fn = '../../topology/topology1/m4/mfcc/mfcc_config.m4';
+cfg.tplg_ver = 1;
+cfg.ipc_ver = 3;
+export_mfcc_setup(cfg);
+
+cfg.tplg_fn = '../../topology/topology2/include/components/mfcc/default.conf';
+cfg.tplg_ver = 2;
+cfg.ipc_ver = 4;
+export_mfcc_setup(cfg);
+
+wcfg = get_whisper_mel_config();
+wcfg.tplg_fn = '../../topology/topology2/include/components/mfcc/whisper_mel.conf';
+wcfg.tplg_ver = 2;
+wcfg.ipc_ver = 4;
+export_mfcc_setup(wcfg);
+
+end
+
+function cfg = get_mfcc_default_config()
 	cfg.blackman_coef = 0.42;
 	cfg.cepstral_lifter = 22.0;
 	cfg.channel = -1; % -1 expect mono, 0 left, 1 right ...
@@ -45,16 +67,37 @@ if nargin < 1
 	cfg.top_db = 200; % Set to 80 for librosa
 end
 
-cfg.tplg_fn = '../../topology/topology1/m4/mfcc/mfcc_config.m4';
-cfg.tplg_ver = 1;
-cfg.ipc_ver = 3;
-export_mfcc_setup(cfg);
-
-cfg.tplg_fn = '../../topology/topology2/include/components/mfcc/default.conf';
-cfg.tplg_ver = 2;
-cfg.ipc_ver = 4;
-export_mfcc_setup(cfg);
-
+function cfg = get_whisper_mel_config()
+	%% Whisper-style Mel spectrogram: 80 Mel bins, no cepstral coefficients
+	cfg.blackman_coef = 0;
+	cfg.cepstral_lifter = 0;
+	cfg.channel = -1;
+	cfg.dither = 0;
+	cfg.energy_floor = 1.0;
+	cfg.frame_length = 25.0; % 400 samples at 16 kHz
+	cfg.frame_shift = 10.0; % 160 samples at 16 kHz
+	cfg.high_freq = 0;
+	cfg.htk_compat = false;
+	cfg.low_freq = 0;
+	cfg.num_ceps = 0; % Mel-only mode, no DCT
+	cfg.min_duration = 0;
+	cfg.norm = 'none';
+	cfg.num_mel_bins = 80;
+	cfg.preemphasis_coefficient = 0;
+	cfg.raw_energy = false;
+	cfg.remove_dc_offset = false;
+	cfg.round_to_power_of_two = true;
+	cfg.sample_frequency = 16000;
+	cfg.snip_edges = true;
+	cfg.subtract_mean = false;
+	cfg.use_energy = false;
+	cfg.vtln_high = 0;
+	cfg.vtln_low = 0;
+	cfg.vtln_warp = 1.0;
+	cfg.window_type = 'hann';
+	cfg.mel_log = 'log';
+	cfg.pmin = 1e-10;
+	cfg.top_db = 200;
 end
 
 function export_mfcc_setup(cfg)
