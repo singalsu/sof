@@ -19,9 +19,9 @@
 #include <stdint.h>
 
 /* Definitions for cepstral lifter */
-#define PI_Q23 Q_CONVERT_FLOAT(3.1415926536, 23)
+#define PI_Q23     Q_CONVERT_FLOAT(3.1415926536, 23)
 #define TWO_PI_Q23 Q_CONVERT_FLOAT(6.2831853072, 23)
-#define ONE_Q9 Q_CONVERT_FLOAT(1, 9)
+#define ONE_Q9     Q_CONVERT_FLOAT(1, 9)
 
 LOG_MODULE_REGISTER(mfcc_setup, CONFIG_SOF_LOG_LEVEL);
 
@@ -74,12 +74,14 @@ static int mfcc_get_cepstral_lifter(struct processing_module *mod, struct mfcc_c
 	int32_t sin;
 	int i;
 
-	if (cl->num_ceps > DCT_MATRIX_SIZE_MAX)
+	if (cl->num_ceps > DCT_MATRIX_SIZE_MAX) {
 		return -EINVAL;
+	}
 
 	cl->matrix = mod_mat_matrix_alloc_16b(mod, 1, cl->num_ceps, 9); /* Use Q7.9 */
-	if (!cl->matrix)
+	if (!cl->matrix) {
 		return -ENOMEM;
+	}
 
 	inv_cepstral_lifter = (1 << 30) / cl->cepstral_lifter; /* Q2.30 / Q7.9 -> Q1.21 */
 
@@ -119,8 +121,8 @@ int mfcc_setup(struct processing_module *mod, int max_frames, int sample_rate, i
 	}
 
 	/* Check currently hard-coded features to match configuration request */
-	if (!config->round_to_power_of_two || !config->snip_edges ||
-	    config->subtract_mean || config->use_energy) {
+	if (!config->round_to_power_of_two || !config->snip_edges || config->subtract_mean ||
+	    config->use_energy) {
 		comp_err(dev, "Can't change currently hard-coded features");
 		return -EINVAL;
 	}
@@ -139,17 +141,17 @@ int mfcc_setup(struct processing_module *mod, int max_frames, int sample_rate, i
 		return -EINVAL;
 	}
 
-	comp_info(dev, "source_channel = %d, stream_channels = %d",
-		  config->channel, channels);
+	comp_info(dev, "source_channel = %d, stream_channels = %d", config->channel, channels);
 	if (config->channel >= channels) {
 		comp_err(dev, "Illegal channel");
 		return -EINVAL;
 	}
 
-	if (config->channel < 0)
+	if (config->channel < 0) {
 		state->source_channel = 0;
-	else
+	} else {
 		state->source_channel = config->channel;
+	}
 
 	state->emph.enable = config->preemphasis_coefficient > 0;
 	state->emph.coef = -config->preemphasis_coefficient; /* Negate config parameter */
@@ -159,19 +161,19 @@ int mfcc_setup(struct processing_module *mod, int max_frames, int sample_rate, i
 	fft->half_fft_size = (fft->fft_padded_size >> 1) + 1;
 
 	comp_info(dev, "emphasis = %d, fft_size = %d, fft_padded_size = %d, fft_hop_size = %d",
-		  config->preemphasis_coefficient,
-		  fft->fft_size, fft->fft_padded_size, fft->fft_hop_size);
+		  config->preemphasis_coefficient, fft->fft_size, fft->fft_padded_size,
+		  fft->fft_hop_size);
 
 	/* Calculated parameters */
 	state->prev_data_size = fft->fft_size - fft->fft_hop_size;
 	state->buffer_size = fft->fft_size + max_frames;
 
 	/* Allocate buffer input samples and overlap buffer */
-	state->sample_buffers_size = sizeof(int16_t) *
-		(state->buffer_size + state->prev_data_size + fft->fft_size);
+	state->sample_buffers_size =
+		sizeof(int16_t) * (state->buffer_size + state->prev_data_size + fft->fft_size);
 
-	comp_info(dev, "buffer_size = %d, prev_size = %d",
-		  state->buffer_size, state->prev_data_size);
+	comp_info(dev, "buffer_size = %d, prev_size = %d", state->buffer_size,
+		  state->prev_data_size);
 
 	state->buffers = mod_zalloc(mod, state->sample_buffers_size);
 	if (!state->buffers) {
@@ -215,10 +217,9 @@ int mfcc_setup(struct processing_module *mod, int max_frames, int sample_rate, i
 		goto free_fft_out;
 	}
 
-	comp_info(dev, "window = %d, num_mel_bins = %d, num_ceps = %d, norm = %d",
-		  config->window, config->num_mel_bins, config->num_ceps, config->norm);
-	comp_info(dev, "low_freq = %d, high_freq = %d",
-		  state->low_freq, state->high_freq);
+	comp_info(dev, "window = %d, num_mel_bins = %d, num_ceps = %d, norm = %d", config->window,
+		  config->num_mel_bins, config->num_ceps, config->norm);
+	comp_info(dev, "low_freq = %d, high_freq = %d", state->low_freq, state->high_freq);
 
 	/* Setup window */
 	ret = mfcc_get_window(state, config->window);
@@ -235,8 +236,8 @@ int mfcc_setup(struct processing_module *mod, int max_frames, int sample_rate, i
 	fb->start_freq = state->low_freq;
 	fb->end_freq = state->high_freq;
 	fb->mel_bins = config->num_mel_bins;
-	fb->slaney_normalize = config->norm == MFCC_MEL_NORM_SLANEY; /* True if slaney */
-	fb->mel_log_scale = (enum psy_mel_log_scale)((int)config->mel_log);  /* LOG, LOG10 or DB */
+	fb->slaney_normalize = config->norm == MFCC_MEL_NORM_SLANEY;        /* True if slaney */
+	fb->mel_log_scale = (enum psy_mel_log_scale)((int)config->mel_log); /* LOG, LOG10 or DB */
 	fb->fft_bins = fft->fft_padded_size;
 	fb->half_fft_bins = (fft->fft_padded_size >> 1) + 1;
 	fb->scratch_data1 = (int16_t *)fft->fft_buf;
@@ -249,23 +250,37 @@ int mfcc_setup(struct processing_module *mod, int max_frames, int sample_rate, i
 		goto free_fft_out;
 	}
 
-	/* Setup DCT */
-	dct->num_in = config->num_mel_bins;
-	dct->num_out = config->num_ceps;
-	dct->type = (enum dct_type)config->dct;
-	dct->ortho = true;
-	ret = mod_dct_initialize_16(mod, dct);
-	if (ret < 0) {
-		comp_err(dev, "Failed DCT init");
-		goto free_melfb_data;
-	}
+	/* Setup DCT and cepstral lifter only when num_ceps > 0.
+	 * When num_ceps is zero, skip DCT/lifter and output Mel
+	 * log spectra directly.
+	 */
+	if (config->num_ceps > 0) {
+		dct->num_in = config->num_mel_bins;
+		dct->num_out = config->num_ceps;
+		dct->type = (enum dct_type)config->dct;
+		dct->ortho = true;
+		ret = mod_dct_initialize_16(mod, dct);
+		if (ret < 0) {
+			comp_err(dev, "Failed DCT init");
+			goto free_melfb_data;
+		}
 
-	state->lifter.num_ceps = config->num_ceps;
-	state->lifter.cepstral_lifter = config->cepstral_lifter; /* Q7.9 max 64.0*/
-	ret = mfcc_get_cepstral_lifter(mod, &state->lifter);
-	if (ret < 0) {
-		comp_err(dev, "Failed cepstral lifter");
-		goto free_dct_matrix;
+		state->lifter.num_ceps = config->num_ceps;
+		state->lifter.cepstral_lifter = config->cepstral_lifter; /* Q7.9 max 64.0*/
+		ret = mfcc_get_cepstral_lifter(mod, &state->lifter);
+		if (ret < 0) {
+			comp_err(dev, "Failed cepstral lifter");
+			goto free_dct_matrix;
+		}
+
+		state->mel_only = false;
+	} else {
+		comp_info(dev, "num_ceps is 0, Mel log spectra output mode");
+		dct->num_in = config->num_mel_bins;
+		dct->num_out = 0;
+		dct->matrix = NULL;
+		state->lifter.matrix = NULL;
+		state->mel_only = true;
 	}
 
 	/* Scratch overlay during runtime
@@ -289,8 +304,12 @@ int mfcc_setup(struct processing_module *mod, int max_frames, int sample_rate, i
 	/* Use FFT buffer as scratch for later computed data */
 	state->power_spectra = (int32_t *)&fft->fft_buf[0];
 	state->mel_spectra = (struct mat_matrix_16b *)&fft->fft_out[0];
-	state->cepstral_coef = (struct mat_matrix_16b *)
-		&state->mel_spectra->data[state->dct.num_in];
+	if (!state->mel_only) {
+		state->cepstral_coef =
+			(struct mat_matrix_16b *)&state->mel_spectra->data[state->dct.num_in];
+	} else {
+		state->cepstral_coef = NULL;
+	}
 
 	/* Set initial state for STFT */
 	state->waiting_fill = true;
