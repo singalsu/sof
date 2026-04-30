@@ -45,6 +45,8 @@ static int mfcc_stft_process(const struct comp_dev *dev, struct mfcc_state *stat
 	int i;
 	int m;
 	int cc_count = 0;
+	int16_t mel_value;
+	int16_t mmax;
 
 	/* Phase 1, wait until whole fft_size is filled with valid data. This way
 	 * first output cepstral coefficients originate from streamed data and not
@@ -122,6 +124,16 @@ static int mfcc_stft_process(const struct comp_dev *dev, struct mfcc_state *stat
 		if (state->mel_only) {
 			/* In Mel-only mode output Mel log spectra directly */
 			cc_count += state->dct.num_in;
+
+			/* Clamp Mel values lower than mmax and scale by 4.0*/
+			mmax = -855; // int32(-6.68182*2^7)
+			for (i = 0; i < state->dct.num_in; i++) {
+				mel_value = state->mel_spectra->data[i];
+				if (mel_value < mmax)
+					mel_value = mmax;
+
+				state->mel_spectra->data[i] = (mel_value + 512) >> 2;
+			}
 		} else {
 			/* Multiply Mel spectra with DCT matrix to get cepstral coefficients */
 			mat_init_16b(state->cepstral_coef, 1, state->dct.num_out, 7); /* Q8.7 */
