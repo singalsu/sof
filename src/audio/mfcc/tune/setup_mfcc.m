@@ -57,6 +57,11 @@ function cfg = get_mfcc_default_config()
 	cfg.mel_log = 'log'; % Set to 'db' for librosa, set to 'log10' for matlab
 	cfg.pmin = 5e-10; % Set to 1e-10 for librosa
 	cfg.top_db = 200; % Set to 80 for librosa
+	cfg.mel_offset = 0; % For mel_only mode, no impact with num_ceps > 0
+	cfg.mel_scale = 0; % same
+	cfg.mmax_init = 0; % same
+	cfg.mmax_coef = 0; % same
+	cfg.dynamic_mmax = false; % same
 end
 
 function cfg = get_mel_spectrogram_config()
@@ -89,6 +94,11 @@ function cfg = get_mel_spectrogram_config()
 	cfg.mel_log = 'log10';
 	cfg.pmin = 1e-10;
 	cfg.top_db = 8; % applied for log10, would be 80 dB clamp for decibels as 10*log10()
+	cfg.mel_offset = 4.0; % For whisper like Mel scale and normalize
+	cfg.mel_scale = 0.25; % For whisper like Mel scale and normalize
+	cfg.mmax_init = 0; % Initial value max Mel value, data clamp is mmax - top_db
+	cfg.mmax_coef = 1e-3; % Dynamic max Mel valuye decay coefficient
+	cfg.dynamic_mmax = true;
 end
 
 function export_mfcc_setup(gen_cfg, cfg)
@@ -117,7 +127,14 @@ j = nbytes_abi + 1;
 
 %% Apply default MFCC configuration, first struct header and reserved, then data
 [b8, j] = add_w32b(nbytes_data, b8, j);
-for i = 1:8
+
+v = q_convert(cfg.mel_offset, 7);                [b8, j] = add_w16b(v, b8, j);
+v = q_convert(cfg.mel_scale, 12);                [b8, j] = add_w16b(v, b8, j);
+v = q_convert(cfg.mmax_init, 7);                 [b8, j] = add_w16b(v, b8, j);
+v = q_convert(cfg.mmax_coef, 15);                [b8, j] = add_w16b(v, b8, j);
+
+% Reserved
+for i = 1:6
 	[b8, j] = add_w32b(0, b8, j);
 end
 
@@ -150,6 +167,7 @@ v = cfg.round_to_power_of_two;                   [b8, j] = add_w8b(v, b8, j); % 
 v = cfg.snip_edges;                              [b8, j] = add_w8b(v, b8, j); % bool
 v = cfg.subtract_mean;                           [b8, j] = add_w8b(v, b8, j); % bool
 v = cfg.use_energy;                              [b8, j] = add_w8b(v, b8, j); % bool
+v = cfg.dynamic_mmax;                            [b8, j] = add_w8b(v, b8, j); % bool
 
 %% Export
 tplg_fn = [gen_cfg.mfcc_conf_path cfg.tplg_fn];
