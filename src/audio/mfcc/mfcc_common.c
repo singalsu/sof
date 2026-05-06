@@ -121,6 +121,9 @@ static int mfcc_stft_process(const struct comp_dev *dev, struct mfcc_comp_data *
 #if MFCC_FFT_BITS == 16
 		psy_apply_mel_filterbank_16(&state->melfb, fft->fft_out, state->power_spectra,
 					    state->mel_spectra->data, mel_scale_shift);
+		/* Convert Q9.7 int16_t mel log to Q9.23 int32_t for downstream processing */
+		for (j = 0; j < state->dct.num_in; j++)
+			state->mel_log_32[j] = (int32_t)state->mel_spectra->data[j] << 16;
 #else
 		psy_apply_mel_filterbank_32(&state->melfb, fft->fft_out, state->power_spectra,
 					    state->mel_log_32, mel_scale_shift);
@@ -199,6 +202,62 @@ static int mfcc_stft_process(const struct comp_dev *dev, struct mfcc_comp_data *
 	 * cepstral coefficients sets return is an open.
 	 */
 	return cc_count;
+}
+
+void mfcc_fill_fft_buffer(struct mfcc_state *state)
+{
+	struct mfcc_buffer *buf = &state->buf;
+	struct mfcc_fft *fft = &state->fft;
+#if MFCC_FFT_BITS == 16
+	int16_t *d = &fft->fft_buf[fft->fft_fill_start_idx].real;
+	const int fft_elem_inc = sizeof(fft->fft_buf[0]) / sizeof(int16_t);
+#else
+	int32_t *d = &fft->fft_buf[fft->fft_fill_start_idx].real;
+	const int fft_elem_inc = sizeof(fft->fft_buf[0]) / sizeof(int32_t);
+#endif
+	int16_t *prev = state->prev_data;
+	int16_t *prev_end = prev + state->prev_data_size;
+	int16_t *r = buf->r_ptr;
+	int copied;
+	int nmax;
+	int n;
+	int j;
+
+	/* Copy overlapped samples from state buffer. The fft_buf has been
+	 * cleared by caller so imaginary part remains zero.
+	 */
+	while (prev < prev_end) {
+		*d = *prev++;
+		d += fft_elem_inc;
+	}
+
+	/* Copy hop size of new data from circular buffer */
+	for (copied = 0; copied < fft->fft_hop_size; copied += n) {
+		nmax = fft->fft_hop_size - copied;
+		n = mfcc_buffer_samples_without_wrap(buf, r);
+		n = MIN(n, nmax);
+		for (j = 0; j < n; j++) {
+			*d = *r++;
+			d += fft_elem_inc;
+		}
+		r = mfcc_buffer_wrap(buf, r);
+	}
+
+	buf->s_avail -= copied;
+	buf->s_free += copied;
+	buf->r_ptr = r;
+
+	/* Copy for next time data back to overlap buffer */
+#if MFCC_FFT_BITS == 16
+	d = (int16_t *)&fft->fft_buf[fft->fft_fill_start_idx + fft->fft_hop_size].real;
+#else
+	d = (int32_t *)&fft->fft_buf[fft->fft_fill_start_idx + fft->fft_hop_size].real;
+#endif
+	prev = state->prev_data;
+	while (prev < prev_end) {
+		*prev++ = *d;
+		d += fft_elem_inc;
+	}
 }
 
 #if CONFIG_FORMAT_S16LE

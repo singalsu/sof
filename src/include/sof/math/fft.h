@@ -11,6 +11,7 @@
 
 #include <sof/audio/module_adapter/module/generic.h>
 #include <sof/audio/format.h>
+#include <sof/math/icomplex16.h>
 #include <sof/math/icomplex32.h>
 #include <sof/common.h>
 #include <stdbool.h>
