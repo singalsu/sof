@@ -128,8 +128,9 @@ int mfcc_setup(struct processing_module *mod, int max_frames, int sample_rate, i
 	}
 
 	if (config->sample_frequency != sample_rate) {
-		comp_err(dev, "Config sample_frequency does not match stream");
-		return -EINVAL;
+		comp_warn(dev, "Config sample_frequency %d does not match stream %d",
+			  config->sample_frequency, sample_rate);
+		sample_rate = config->sample_frequency;
 	}
 
 	cd->max_frames = max_frames;
