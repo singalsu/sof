@@ -18,6 +18,10 @@
 #include <stddef.h>
 #include <stdint.h>
 
+#ifdef CONFIG_COMP_MFCC_VAD
+#include <sof/audio/mfcc/mfcc_vad.h>
+#endif
+
 /* Definitions for cepstral lifter */
 #define PI_Q23 Q_CONVERT_FLOAT(3.1415926536, 23)
 #define TWO_PI_Q23 Q_CONVERT_FLOAT(6.2831853072, 23)
@@ -346,9 +350,23 @@ int mfcc_setup(struct processing_module *mod, int max_frames, int sample_rate, i
 	state->waiting_fill = true;
 	state->prev_samples_valid = false;
 	state->magic_pending = false;
+#ifdef CONFIG_COMP_MFCC_VAD
+	state->vad_pending = false;
+	state->vad_flag = 0;
+#endif
 	state->out_data_ptr = NULL;
 	state->out_data_ptr_32 = NULL;
 	state->out_remain = 0;
+
+#ifdef CONFIG_COMP_MFCC_VAD
+	ret = mfcc_vad_init(&cd->vad, config->num_mel_bins, sample_rate);
+	if (ret < 0) {
+		comp_err(dev, "Failed VAD init");
+		goto free_lifter;
+	}
+
+	comp_info(dev, "VAD enabled, num_mel_bins = %d", config->num_mel_bins);
+#endif
 
 	comp_dbg(dev, "done");
 	return 0;

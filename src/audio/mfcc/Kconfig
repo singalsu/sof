@@ -24,3 +24,14 @@ config COMP_MFCC
 	  The characteristic of the audio features are defined in the binary
 	  control blob. Directory tools/tune/mfcc contains a tool to create
 	  the configurations.
+
+config COMP_MFCC_VAD
+	bool "MFCC Voice Activity Detection"
+	depends on COMP_MFCC
+	default n
+	help
+	  This option enables a Voice Activity Detector (VAD) that operates
+	  on the Mel spectrum values produced by the MFCC component. The VAD
+	  flag is inserted into the output stream as the first int32_t value
+	  after the magic header word. The VAD tracks a per-bin noise floor
+	  and detects speech using a weighted energy delta with hangover.

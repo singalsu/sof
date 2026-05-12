@@ -12,6 +12,7 @@
 #include <sof/math/auditory.h>
 #include <sof/math/dct.h>
 #include <sof/math/fft.h>
+#include <sof/audio/mfcc/mfcc_vad.h>
 #include <stddef.h>
 #include <stdint.h>
 
@@ -106,6 +107,10 @@ struct mfcc_state {
 	bool waiting_fill; /**< booleans */
 	bool prev_samples_valid;
 	bool magic_pending; /**< True when magic word not yet written for current output */
+#ifdef CONFIG_COMP_MFCC_VAD
+	bool vad_pending; /**< True when VAD flag not yet written for current output */
+	int32_t vad_flag; /**< Current VAD result: 1 = speech, 0 = silence */
+#endif
 	size_t sample_buffers_size; /**< bytes */
 	int16_t *out_data_ptr; /**< Read pointer into scratch data for multi-period output */
 	int32_t *out_data_ptr_32; /**< Read pointer for 32-bit mel-only output */
@@ -115,6 +120,9 @@ struct mfcc_state {
 /* MFCC component private data */
 struct mfcc_comp_data {
 	struct mfcc_state state;
+#ifdef CONFIG_COMP_MFCC_VAD
+	struct mfcc_vad_state vad;
+#endif
 	struct comp_data_blob_handler *model_handler;
 	struct sof_mfcc_config *config;
 	int max_frames;

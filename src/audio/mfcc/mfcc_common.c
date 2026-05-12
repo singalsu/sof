@@ -21,6 +21,10 @@
 #include <stddef.h>
 #include <stdint.h>
 
+#ifdef CONFIG_COMP_MFCC_VAD
+#include <sof/audio/mfcc/mfcc_vad.h>
+#endif
+
 LOG_MODULE_REGISTER(mfcc_common, CONFIG_SOF_LOG_LEVEL);
 
 /*
@@ -144,6 +148,10 @@ static int mfcc_stft_process(const struct comp_dev *dev, struct mfcc_comp_data *
 					sat_int32(Q_MULTSR_32X32(s, config->mel_scale, 23, 12, 23));
 			}
 
+#ifdef CONFIG_COMP_MFCC_VAD
+			/* Run VAD on the mel log spectrum before further processing */
+			state->vad_flag = mfcc_vad_update(&cd->vad, state->mel_log_32);
+#endif
 			/* Store Q9.7 version in mel_spectra for s16 output mode */
 			for (j = 0; j < state->dct.num_in; j++)
 				state->mel_spectra->data[j] =
@@ -289,6 +297,9 @@ void mfcc_s16_default(struct processing_module *mod, struct input_stream_buffer 
 
 		state->out_remain = num_ceps;
 		state->magic_pending = true;
+#ifdef CONFIG_COMP_MFCC_VAD
+		state->vad_pending = true;
+#endif
 	}
 
 	/* Write to sink, limited by period size */
@@ -300,6 +311,15 @@ void mfcc_s16_default(struct processing_module *mod, struct input_stream_buffer 
 		sink_samples -= num_magic;
 		state->magic_pending = false;
 	}
+
+#ifdef CONFIG_COMP_MFCC_VAD
+	/* Write VAD flag as first value after magic (as two int16_t = one int32_t) */
+	if (state->vad_pending && sink_samples >= 2) {
+		w_ptr = mfcc_sink_copy_data_s16(sink, w_ptr, 2, (int16_t *)&state->vad_flag);
+		sink_samples -= 2;
+		state->vad_pending = false;
+	}
+#endif
 
 	/* Write cepstral/mel data from scratch buffer */
 	to_copy = MIN(state->out_remain, sink_samples);
@@ -392,6 +412,9 @@ void mfcc_s24_default(struct processing_module *mod, struct input_stream_buffer 
 
 		state->out_remain = num_ceps;
 		state->magic_pending = true;
+#ifdef CONFIG_COMP_MFCC_VAD
+		state->vad_pending = true;
+#endif
 	}
 
 	/* Write to sink, limited by period size */
@@ -403,6 +426,15 @@ void mfcc_s24_default(struct processing_module *mod, struct input_stream_buffer 
 		sink_samples -= num_magic;
 		state->magic_pending = false;
 	}
+
+#ifdef CONFIG_COMP_MFCC_VAD
+	/* Write VAD flag as first value after magic */
+	if (state->vad_pending && sink_samples >= 1) {
+		w_ptr = mfcc_sink_copy_data_s32(sink, w_ptr, 1, &state->vad_flag);
+		sink_samples -= 1;
+		state->vad_pending = false;
+	}
+#endif
 
 	if (state->mel_only) {
 		/* Write 32-bit mel data Q9.15, one value per int32_t */
@@ -467,6 +499,9 @@ void mfcc_s32_default(struct processing_module *mod, struct input_stream_buffer 
 
 		state->out_remain = num_ceps;
 		state->magic_pending = true;
+#ifdef CONFIG_COMP_MFCC_VAD
+		state->vad_pending = true;
+#endif
 	}
 
 	/* Write to sink, limited by period size */
@@ -478,6 +513,15 @@ void mfcc_s32_default(struct processing_module *mod, struct input_stream_buffer 
 		sink_samples -= num_magic;
 		state->magic_pending = false;
 	}
+
+#ifdef CONFIG_COMP_MFCC_VAD
+	/* Write VAD flag as first value after magic */
+	if (state->vad_pending && sink_samples >= 1) {
+		w_ptr = mfcc_sink_copy_data_s32(sink, w_ptr, 1, &state->vad_flag);
+		sink_samples -= 1;
+		state->vad_pending = false;
+	}
+#endif
 
 	if (state->mel_only) {
 		/* Write 32-bit mel data Q9.23, one value per int32_t */
