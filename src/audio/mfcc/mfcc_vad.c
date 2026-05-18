@@ -18,7 +18,9 @@
 
 #ifdef CONFIG_COMP_MFCC_VAD
 
+#include <sof/audio/component.h>
 #include <sof/audio/format.h>
+#include <sof/audio/module_adapter/module/module_interface.h>
 #include <sof/math/auditory.h>
 #include <sof/trace/trace.h>
 #include <errno.h>
@@ -117,14 +119,15 @@ static void mfcc_vad_build_weights(int16_t *weights, int num_mel, int sample_rat
 	}
 }
 
-int mfcc_vad_init(struct mfcc_vad_state *vad, int num_mel_bins, int sample_rate)
+int mfcc_vad_init(struct mfcc_vad_state *vad, int num_mel_bins, int sample_rate,
+		  struct processing_module *mod)
 {
 	int i;
 
 	if (!vad)
 		return -EINVAL;
 
-	if (num_mel_bins <= 0 || num_mel_bins > MFCC_VAD_MAX_MEL_BINS)
+	if (num_mel_bins <= 0)
 		return -EINVAL;
 
 	vad->num_mel_bins = num_mel_bins;
@@ -137,6 +140,16 @@ int mfcc_vad_init(struct mfcc_vad_state *vad, int num_mel_bins, int sample_rate)
 	vad->frame_count = 0;
 	vad->is_speech = false;
 	vad->initialized = false;
+
+	/* Allocate per-bin noise floor */
+	vad->noise_floor = mod_zalloc(mod, num_mel_bins * sizeof(int32_t));
+	if (!vad->noise_floor)
+		return -ENOMEM;
+
+	/* Allocate and compute per-bin weights */
+	vad->weights = mod_zalloc(mod, num_mel_bins * sizeof(int16_t));
+	if (!vad->weights)
+		return -ENOMEM;
 
 	for (i = 0; i < num_mel_bins; i++)
 		vad->noise_floor[i] = 0;

@@ -28,7 +28,7 @@ config COMP_MFCC
 config COMP_MFCC_VAD
 	bool "MFCC Voice Activity Detection"
 	depends on COMP_MFCC
-	default n
+	default y
 	help
 	  This option enables a Voice Activity Detector (VAD) that operates
 	  on the Mel spectrum values produced by the MFCC component. The VAD

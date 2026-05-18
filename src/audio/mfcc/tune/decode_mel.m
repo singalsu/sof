@@ -1,4 +1,4 @@
-% [mel, t, n] = decode_mel(fn, num_mel, fmt, num_channels)
+% [mel, t, n, vad] = decode_mel(fn, num_mel, fmt, num_channels)
 %
 % Input
 %   fn - File with Mel data in .raw or .wav format
@@ -10,17 +10,18 @@
 %   mel - Mel coefficients
 %   t - time vector for plotting
 %   n - mel 1..num_mel vector for plotting
+%   vad - VAD flag per frame from DSP
 
 % SPDX-License-Identifier: BSD-3-Clause
 % Copyright(c) 2026 Intel Corporation.
 
-function [mel, t, n] = decode_mel(fn, num_mel, fmt, num_channels)
+function [mel, t, n, vad] = decode_mel(fn, num_mel, fmt, num_channels)
 
 if nargin < 3
 	fmt = 's16';
 end
 if nargin < 4
-	num_channels = 1;
+	num_channels = 2;
 end
 
 % MFCC stream
@@ -74,26 +75,42 @@ if (last > length(data))
     num_frames = num_frames - 1;
 end
 
+% VAD flag is first int32 after magic, followed by num_mel coefficients
+payload_len = 1 + num_mel;
+
+payload = zeros(payload_len, num_frames);
+for i = 1:num_frames
+	i1 = idx(i) + num_magic;
+	i2 = i1 + payload_len - 1;
+	payload(:,i) = double(data(i1:i2));
+end
+
+vad = payload(1, :);
+mel = payload(2:payload_len, :) / 2^qformat;
+
 t_mel = period_mel / num_channels / fs;
 t = (0:num_frames -1) * t_mel;
 n = 1:num_mel;
 
-mel = zeros(num_mel, num_frames);
-for i = 1:num_frames
-	i1 = idx(i) + num_magic;
-	i2 = i1 + num_mel - 1;
-	mel(:,i) = double(data(i1:i2)) / 2^qformat;
-end
-
-figure;
+%figure(1);
+figure
+subplot(2,1,1);
 imagesc(t, n, mel);
 axis xy;
 colormap(jet);
 colorbar;
 tstr = sprintf('SOF MFCC Mel coefficients (%s)', fn);
 title(tstr, 'Interpreter', 'None');
-xlabel('Time (s)');
 ylabel('Mel coef #');
+
+subplot(2,1,2);
+level = sum(mel(:,:));
+plot(t, vad)
+ax = axis();
+axis([ax(1:2) -0.1 1.1]);
+grid on;
+xlabel('Time (s)');
+ylabel('VAD flag');
 
 end
 

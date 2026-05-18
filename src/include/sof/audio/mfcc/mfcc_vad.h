@@ -23,10 +23,7 @@
 
 #ifdef CONFIG_COMP_MFCC_VAD
 
-/**
- * \brief Maximum number of Mel bins supported by VAD.
- */
-#define MFCC_VAD_MAX_MEL_BINS	128
+struct processing_module;
 
 /**
  * \brief Number of frames for fast noise floor convergence at startup (~1 s at 10 ms/frame).
@@ -34,9 +31,9 @@
 #define MFCC_VAD_NOISE_INIT_FRAMES	100
 
 /**
- * \brief Slow noise floor rise coefficient in Q1.15 (0.0025 * 32768 = 82).
+ * \brief Slow noise floor rise coefficient in Q1.15 (0.0010 * 32768 = 3).
  */
-#define MFCC_VAD_NOISE_RISE_ALPHA	82
+#define MFCC_VAD_NOISE_RISE_ALPHA	33
 
 /**
  * \brief Fast noise floor rise coefficient in Q1.15 (0.05 * 32768 = 1638).
@@ -44,9 +41,9 @@
 #define MFCC_VAD_NOISE_RISE_ALPHA_FAST	1638
 
 /**
- * \brief Energy threshold for speech detection in Q9.23 (0.30 * 2^23 = 2516582).
+ * \brief Energy threshold for speech detection in Q9.23 (0.4 * 2^23 = 3355443).
  */
-#define MFCC_VAD_ENERGY_THRESHOLD	2516582
+#define MFCC_VAD_ENERGY_THRESHOLD	3554435 
 
 /**
  * \brief Hangover frame count to keep VAD active after last speech detection.
@@ -57,8 +54,8 @@
  * \brief VAD state structure.
  */
 struct mfcc_vad_state {
-	int32_t noise_floor[MFCC_VAD_MAX_MEL_BINS]; /**< Per-bin noise floor in Q9.23 */
-	int16_t weights[MFCC_VAD_MAX_MEL_BINS]; /**< Speech-frequency emphasis weights Q1.15 */
+	int32_t *noise_floor; /**< Per-bin noise floor in Q9.23 */
+	int16_t *weights; /**< Speech-frequency emphasis weights Q1.15 */
 	int32_t energy_threshold; /**< Energy threshold Q9.23 */
 	int16_t noise_rise_alpha_slow; /**< Slow rise alpha Q1.15 */
 	int16_t noise_rise_alpha_fast; /**< Fast rise alpha Q1.15 */
@@ -75,11 +72,13 @@ struct mfcc_vad_state {
  * \brief Initialize VAD state.
  *
  * \param[out] vad Pointer to VAD state to initialize.
- * \param[in] num_mel_bins Number of Mel bins (must be <= MFCC_VAD_MAX_MEL_BINS).
+ * \param[in] num_mel_bins Number of Mel bins.
  * \param[in] sample_rate Audio sample rate in Hz.
+ * \param[in] mod Processing module for memory allocation.
  * \return 0 on success, negative error code on failure.
  */
-int mfcc_vad_init(struct mfcc_vad_state *vad, int num_mel_bins, int sample_rate);
+int mfcc_vad_init(struct mfcc_vad_state *vad, int num_mel_bins, int sample_rate,
+		  struct processing_module *mod);
 
 /**
  * \brief Process one Mel spectrum frame and update VAD decision.

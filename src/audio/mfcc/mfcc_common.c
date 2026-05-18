@@ -290,16 +290,17 @@ void mfcc_s16_default(struct processing_module *mod, struct input_stream_buffer 
 
 	/* If new output produced, set up pointer into scratch data and mark magic pending */
 	if (num_ceps > 0) {
-		if (state->mel_only)
+		if (state->mel_only) {
 			state->out_data_ptr = state->mel_spectra->data;
-		else
+#ifdef CONFIG_COMP_MFCC_VAD
+			state->vad_pending = true;
+#endif
+		} else {
 			state->out_data_ptr = state->cepstral_coef->data;
+		}
 
 		state->out_remain = num_ceps;
 		state->magic_pending = true;
-#ifdef CONFIG_COMP_MFCC_VAD
-		state->vad_pending = true;
-#endif
 	}
 
 	/* Write to sink, limited by period size */
@@ -406,15 +407,15 @@ void mfcc_s24_default(struct processing_module *mod, struct input_stream_buffer 
 				state->mel_log_32[k] >>= 8;
 
 			state->out_data_ptr_32 = state->mel_log_32;
+#ifdef CONFIG_COMP_MFCC_VAD
+			state->vad_pending = true;
+#endif
 		} else {
 			state->out_data_ptr = state->cepstral_coef->data;
 		}
 
 		state->out_remain = num_ceps;
 		state->magic_pending = true;
-#ifdef CONFIG_COMP_MFCC_VAD
-		state->vad_pending = true;
-#endif
 	}
 
 	/* Write to sink, limited by period size */
@@ -493,15 +494,15 @@ void mfcc_s32_default(struct processing_module *mod, struct input_stream_buffer 
 	if (num_ceps > 0) {
 		if (state->mel_only) {
 			state->out_data_ptr_32 = state->mel_log_32;
+#ifdef CONFIG_COMP_MFCC_VAD
+			state->vad_pending = true;
+#endif
 		} else {
 			state->out_data_ptr = state->cepstral_coef->data;
 		}
 
 		state->out_remain = num_ceps;
 		state->magic_pending = true;
-#ifdef CONFIG_COMP_MFCC_VAD
-		state->vad_pending = true;
-#endif
 	}
 
 	/* Write to sink, limited by period size */

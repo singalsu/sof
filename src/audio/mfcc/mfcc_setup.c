@@ -359,13 +359,11 @@ int mfcc_setup(struct processing_module *mod, int max_frames, int sample_rate, i
 	state->out_remain = 0;
 
 #ifdef CONFIG_COMP_MFCC_VAD
-	ret = mfcc_vad_init(&cd->vad, config->num_mel_bins, sample_rate);
+	ret = mfcc_vad_init(&cd->vad, config->num_mel_bins, sample_rate, mod);
 	if (ret < 0) {
 		comp_err(dev, "Failed VAD init");
 		goto free_lifter;
 	}
-
-	comp_info(dev, "VAD enabled, num_mel_bins = %d", config->num_mel_bins);
 #endif
 
 	comp_dbg(dev, "done");
