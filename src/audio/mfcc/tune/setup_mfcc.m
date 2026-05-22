@@ -25,6 +25,12 @@ function setup_mfcc()
 	setup.tplg_fn = 'mel80.conf';
 	export_mfcc_setup(gen_cfg, setup);
 
+	% Blob for mel spectrogram with compress PCM output
+	setup = get_mel_spectrogram_config();
+	setup.compress_output = true;
+	setup.tplg_fn = 'mel80_compress.conf';
+	export_mfcc_setup(gen_cfg, setup);
+
 end
 
 function cfg = get_mfcc_default_config()
@@ -65,6 +71,7 @@ function cfg = get_mfcc_default_config()
 	cfg.enable_vad = false;
 	cfg.enable_dtx = false;
 	cfg.update_controls = false;
+	cfg.compress_output = false;
 end
 
 function cfg = get_mel_spectrogram_config()
@@ -105,6 +112,7 @@ function cfg = get_mel_spectrogram_config()
 	cfg.enable_vad = true;
 	cfg.enable_dtx = false;
 	cfg.update_controls = true;
+	cfg.compress_output = false;
 end
 
 function export_mfcc_setup(gen_cfg, cfg)
@@ -181,8 +189,9 @@ v = cfg.dynamic_mmax;                            [b8, j] = add_w8b(v, b8, j); % 
 v = cfg.enable_vad;                              [b8, j] = add_w8b(v, b8, j); % bool
 v = cfg.enable_dtx;                              [b8, j] = add_w8b(v, b8, j); % bool
 v = cfg.update_controls;                         [b8, j] = add_w8b(v, b8, j); % bool
-% reserved_bool[5]
-for i = 1:5
+v = cfg.compress_output;                         [b8, j] = add_w8b(v, b8, j); % bool
+% reserved_bool[4]
+for i = 1:4
 	[b8, j] = add_w8b(0, b8, j);
 end
 
