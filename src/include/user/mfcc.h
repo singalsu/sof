@@ -89,7 +89,8 @@ struct sof_mfcc_config {
 	bool enable_vad; /**< Run VAD algorithm */
 	bool enable_dtx; /**< Reserved (stream once per second non-speech frames) */
 	bool update_controls; /**< Update controls with VAD decision */
-	bool reserved_bool[5]; /* Reserved for future boolean flags, set to false (0) */
+	bool compress_output; /**< Use compress PCM output: variable size, no zero padding */
+	bool reserved_bool[4]; /* Reserved for future boolean flags, set to false (0) */
 } __attribute__((packed));
 
 #endif /* __USER_MFCC_H__ */

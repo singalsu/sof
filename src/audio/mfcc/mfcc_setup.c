@@ -338,11 +338,14 @@ int mfcc_setup(struct processing_module *mod, int max_frames, int sample_rate, i
 	 * max_out_per_hop + 12 (magic header) int16_t output values. The sink provides
 	 * at least fft_hop_size * channels int16_t samples per hop (worst case s16).
 	 * If output exceeds this, data accumulates and will eventually overflow.
+	 * This check is not needed in compress output mode where only actual data
+	 * bytes are committed without zero padding.
 	 */
 	int out_per_hop = max_out_per_hop + sizeof(state->header) / sizeof(int16_t);
 	int sink_per_hop = fft->fft_hop_size * channels;
+	bool skip_size_check = config->compress_output;
 
-	if (out_per_hop > sink_per_hop) {
+	if (!skip_size_check && out_per_hop > sink_per_hop) {
 		comp_err(dev, "Output %d int16 per hop exceeds sink capacity %d (hop %d x ch %d)",
 			 out_per_hop, sink_per_hop, fft->fft_hop_size, channels);
 		ret = -EINVAL;
