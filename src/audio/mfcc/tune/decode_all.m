@@ -6,10 +6,11 @@
 num_ceps = 13;
 num_mel = 80;
 
-% MFCC cepstral output files
+% MFCC cepstral output files (all int32 output, Q25.7)
 ceps_files = {'mfcc_s16.raw', 'mfcc_s24.raw', 'mfcc_s32.raw'};
 
-% Mel output files with corresponding format
+% Mel output files with corresponding source format (determines Q format)
+% All files are int32: s16 -> Q25.7, s24 -> Q17.15, s32 -> Q9.23
 mel_files = {'mel_s16.raw', 'mel_s24.raw', 'mel_s32.raw'};
 mel_fmts  = {'s16',         's24',          's32'};
 

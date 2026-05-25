@@ -39,6 +39,16 @@ function setup_mfcc()
 	setup.tplg_fn = 'mel80_compress_dtx.conf';
 	export_mfcc_setup(gen_cfg, setup);
 
+	% Default MFCC (cepstral) with compress PCM output
+	setup = get_mfcc_default_config();
+	setup.compress_output = true;
+	setup.enable_vad = true;
+	setup.enable_dtx = true;
+	setup.dtx_trailing_silence_hops = 20;
+	setup.update_controls = true;
+	setup.tplg_fn = 'default_compress_dtx.conf';
+	export_mfcc_setup(gen_cfg, setup);
+
 	end
 
 function cfg = get_mfcc_default_config()

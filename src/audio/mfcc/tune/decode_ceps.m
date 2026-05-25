@@ -26,20 +26,14 @@ end
 
 % MFCC stream
 fs = 16e3;
-qformat = 7;
-magic = [25443 28006]; % ASCII 'mfcc' as int16
-num_magic = 2; % magic word is 2 x int16
+qformat = 7; % Q25.7 in int32
+magic = int32(1835426659); % 0x6D666363 as int32
+num_magic = 1; % magic word is 1 x int32
 
-% Load output data
+% Load output data (always int32)
 [data, num_channels] = get_file(fn, num_channels);
 
-idx1 = find(data == magic(1));
-idx = [];
-for i = 1:length(idx1)
-	if data(idx1(i) + 1) == magic(2)
-		idx = [idx idx1(i)];
-	end
-end
+idx = find(data == magic);
 
 if isempty(idx)
 	error('No magic value markers found from stream');
@@ -49,8 +43,8 @@ period_ceps = idx(2)-idx(1);
 num_frames = length(idx);
 
 % Header after magic is [frame_number, reserved, energy, noise_energy, vad_flag]
-% as int32 (10 int16 slots), followed by num_ceps coefficients.
-payload_len = 10 + num_ceps; % 5 int32 = 10 int16, then ceps data
+% as int32, followed by num_ceps coefficients (int32).
+payload_len = 5 + num_ceps;
 
 % Last frame can be incomplete due to span over multiple periods
 last = idx(end) + num_magic + payload_len - 1;
@@ -69,14 +63,12 @@ for i = 1:num_frames
 	payload(:,i) = double(data(i1:i2));
 end
 
-% Reassemble int32 from pairs of int16 (little-endian).
-% Low half must be treated as unsigned with mod() to handle negative int16.
-frame_number = mod(payload(1,:), 65536) + payload(2,:) * 65536;
-% payload(3:4,:) is reserved, skip
-energy = (mod(payload(5,:), 65536) + payload(6,:) * 65536) / 2^23;
-noise_energy = (mod(payload(7,:), 65536) + payload(8,:) * 65536) / 2^23;
-vad = mod(payload(9,:), 65536) + payload(10,:) * 65536;
-ceps = payload(11:payload_len, :) / 2^qformat;
+frame_number = payload(1, :);
+% payload(2,:) is reserved, skip
+energy = payload(3, :) / 2^23;
+noise_energy = payload(4, :) / 2^23;
+vad = payload(5, :);
+ceps = payload(6:payload_len, :) / 2^qformat;
 
 figure;
 surf(t, n, ceps, 'EdgeColor', 'none');
@@ -96,18 +88,18 @@ function [data, num_channels] = get_file(fn, num_channels)
 switch lower(ext)
 	case '.raw'
 		fh = fopen(fn, 'r');
-		data = fread(fh, 'int16');
+		data = fread(fh, 'int32');
 		fclose(fh);
 	case '.wav'
 		tmp = audioread(fn, 'native');
 		t = whos('tmp');
-		if ~strcmp(t.class, 'int16')
-			error('Only 16-bit wav file format is supported');
+		if ~strcmp(t.class, 'int32')
+			error('Expected 32-bit wav for int32 MFCC output format');
 		end
 		s = size(tmp);
 		num_channels = s(2);
 		if num_channels > 1
-			data = int16(zeros(prod(s), 1));
+			data = int32(zeros(prod(s), 1));
 			for i = 1:num_channels
 				data(i:num_channels:end) = tmp(:, i);
 			end
