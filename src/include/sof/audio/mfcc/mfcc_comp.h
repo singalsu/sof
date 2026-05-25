@@ -122,10 +122,11 @@ struct mfcc_state {
 	bool header_pending; /**< True when data header not yet written for current output */
 	struct mfcc_data_header header; /**< Data header for current output frame */
 	size_t sample_buffers_size; /**< bytes */
-	int16_t *out_data_ptr; /**< Read pointer into scratch data for multi-period output */
-	int32_t *out_data_ptr_32; /**< Read pointer for 32-bit mel-only output */
-	int out_remain; /**< Remaining int16_t samples to write to sink from scratch */
+	int32_t *out_data_ptr; /**< Read pointer into scratch data for multi-period output */
+	int out_remain; /**< Remaining int32_t samples to write to sink from scratch */
 	uint32_t hop_count; /**< FFT hop counter, increments every processed hop */
+	int vad_silence_count; /**< Consecutive VAD=0 hops since last speech */
+	int dtx_trailing_silence; /**< Number of trailing silence frames to send, from config */
 };
 
 /* MFCC component private data */

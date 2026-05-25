@@ -335,18 +335,18 @@ int mfcc_setup(struct processing_module *mod, int max_frames, int sample_rate, i
 
 	/* Check that output data can be drained within the periods spanned by one
 	 * FFT hop. Each hop consumes fft_hop_size input samples and produces
-	 * max_out_per_hop + 12 (magic header) int16_t output values. The sink provides
-	 * at least fft_hop_size * channels int16_t samples per hop (worst case s16).
+	 * max_out_per_hop + header int32_t output values. The sink provides
+	 * at least fft_hop_size * channels int32_t samples per hop (worst case s32).
 	 * If output exceeds this, data accumulates and will eventually overflow.
 	 * This check is not needed in compress output mode where only actual data
 	 * bytes are committed without zero padding.
 	 */
-	int out_per_hop = max_out_per_hop + sizeof(state->header) / sizeof(int16_t);
+	int out_per_hop = max_out_per_hop + sizeof(state->header) / sizeof(int32_t);
 	int sink_per_hop = fft->fft_hop_size * channels;
 	bool skip_size_check = config->compress_output;
 
 	if (!skip_size_check && out_per_hop > sink_per_hop) {
-		comp_err(dev, "Output %d int16 per hop exceeds sink capacity %d (hop %d x ch %d)",
+		comp_err(dev, "Output %d int32 per hop exceeds sink capacity %d (hop %d x ch %d)",
 			 out_per_hop, sink_per_hop, fft->fft_hop_size, channels);
 		ret = -EINVAL;
 		goto free_lifter;
@@ -360,8 +360,9 @@ int mfcc_setup(struct processing_module *mod, int max_frames, int sample_rate, i
 	memset(&state->header, 0, sizeof(state->header));
 	state->header.magic = MFCC_MAGIC;
 	state->out_data_ptr = NULL;
-	state->out_data_ptr_32 = NULL;
 	state->out_remain = 0;
+	state->vad_silence_count = 0;
+	state->dtx_trailing_silence = config->dtx_trailing_silence_hops;
 
 	if (config->enable_vad) {
 		ret = mfcc_vad_init(&cd->vad, config->num_mel_bins, sample_rate, mod);

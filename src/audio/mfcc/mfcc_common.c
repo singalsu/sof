@@ -146,11 +146,6 @@ int mfcc_stft_process(struct processing_module *mod, struct mfcc_comp_data *cd)
 					sat_int32(Q_MULTSR_32X32(s, config->mel_scale, 23, 12, 23));
 			}
 
-			/* Store Q9.7 version in mel_spectra for s16 output mode */
-			for (j = 0; j < state->dct.num_in; j++)
-				state->mel_spectra->data[j] =
-					sat_int16(state->mel_log_32[j] >> 16);
-
 			/* Enable this to check mmax decay */
 			comp_dbg(dev, "state->mmax = %d", state->mmax);
 		} else {

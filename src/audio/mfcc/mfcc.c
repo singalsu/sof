@@ -186,24 +186,24 @@ static int mfcc_process(struct processing_module *mod,
 	/* Run STFT and Mel/DCT processing */
 	num_ceps = mfcc_stft_process(mod, cd);
 
-	/* If new output produced, set up output pointers for multi-period draining */
+	/* If new output produced, set up output pointers for multi-period draining.
+	 * All output is int32: mel-only uses Q9.23 from mel_log_32, cepstral
+	 * uses Q25.7 (int16 Q9.7 widened to int32).
+	 */
 	if (num_ceps > 0) {
 		if (state->mel_only) {
-			if (!cd->config->compress_output &&
-			    cd->source_format != SOF_IPC_FRAME_S16_LE) {
-				/* S24/S32 mel: use int32 output from mel_log_32 */
-				if (cd->source_format == SOF_IPC_FRAME_S24_4LE) {
-					int k;
-
-					for (k = 0; k < num_ceps; k++)
-						state->mel_log_32[k] >>= 8;
-				}
-				state->out_data_ptr_32 = state->mel_log_32;
-			} else {
-				state->out_data_ptr = state->mel_spectra->data;
-			}
+			state->out_data_ptr = state->mel_log_32;
 		} else {
-			state->out_data_ptr = state->cepstral_coef->data;
+			/* Widen int16 Q9.7 cepstral coefficients to int32 Q25.7.
+			 * Copy backwards to avoid overwriting source data since
+			 * cepstral_coef overlays fft_out while mel_log_32 is in fft_buf.
+			 */
+			int k;
+
+			for (k = 0; k < num_ceps; k++)
+				state->mel_log_32[k] = (int32_t)state->cepstral_coef->data[k];
+
+			state->out_data_ptr = state->mel_log_32;
 		}
 
 		state->out_remain = num_ceps;
@@ -212,20 +212,33 @@ static int mfcc_process(struct processing_module *mod,
 
 	if (cd->config->compress_output) {
 		/* Compress mode: commit only actual data bytes, no zero padding.
-		 * Suppress VAD silence frames entirely.
+		 * When VAD is enabled and DTX is on, send a configurable
+		 * number of trailing silence frames after speech ends, then
+		 * suppress the rest until speech resumes.
 		 */
 		size_t out_bytes;
 
 		if (num_ceps <= 0)
 			return 0;
 
-		out_bytes = sizeof(state->header) + num_ceps * sizeof(int16_t);
+		out_bytes = sizeof(state->header) + num_ceps * sizeof(int32_t);
 
 		if (cd->config->enable_vad && !cd->vad.is_speech) {
-			comp_dbg(dev, "VAD silence, suppressing output");
-			state->header_pending = false;
-			state->out_remain = 0;
-			return 0;
+			state->vad_silence_count++;
+			/* With DTX enabled, send trailing silence frames
+			 * (configurable count) then suppress. This gives
+			 * the host enough silence to detect end-of-speech.
+			 * Without DTX, output every frame regardless of VAD.
+			 */
+			if (cd->config->enable_dtx) {
+				if (state->vad_silence_count > state->dtx_trailing_silence) {
+					state->header_pending = false;
+					state->out_remain = 0;
+					return 0;
+				}
+			}
+		} else {
+			state->vad_silence_count = 0;
 		}
 
 		commit_bytes = out_bytes;
@@ -244,7 +257,7 @@ static int mfcc_process(struct processing_module *mod,
 				      (uint8_t *)&state->header, sizeof(state->header));
 		mfcc_sink_write_bytes(&dst, sink_start, sink_buf_size,
 				      (uint8_t *)state->out_data_ptr,
-				      num_ceps * sizeof(int16_t));
+				      num_ceps * sizeof(int32_t));
 
 		state->header_pending = false;
 		state->out_remain = 0;
@@ -288,59 +301,23 @@ static int mfcc_process(struct processing_module *mod,
 			}
 		}
 
-		/* Write pending feature data.
-		 * S24/S32 mel: write int32 values from out_data_ptr_32
-		 * S24/S32 cepstral: write packed int16 pairs as int32
-		 * S16: write int16 values from out_data_ptr
-		 */
+		/* Write pending feature data (always int32) */
 		if (state->out_remain > 0 && avail > 0) {
 			size_t data_bytes;
 			size_t to_write;
-			bool use_32bit = cd->source_format != SOF_IPC_FRAME_S16_LE;
 
-			if (use_32bit && state->mel_only) {
-				data_bytes = state->out_remain * sizeof(int32_t);
-				to_write = MIN(data_bytes, avail) & ~(size_t)3;
-				if (to_write > 0) {
-					int n32;
+			data_bytes = state->out_remain * sizeof(int32_t);
+			to_write = MIN(data_bytes, avail) & ~(size_t)3;
+			if (to_write > 0) {
+				int n32;
 
-					mfcc_sink_write_bytes(&dst, sink_start,
-							      sink_buf_size,
-							      (uint8_t *)state->out_data_ptr_32,
-							      to_write);
-					n32 = to_write / sizeof(int32_t);
-					state->out_data_ptr_32 += n32;
-					state->out_remain -= n32;
-				}
-			} else if (use_32bit) {
-				int remain_s32 = (state->out_remain + 1) / 2;
-
-				data_bytes = remain_s32 * sizeof(int32_t);
-				to_write = MIN(data_bytes, avail) & ~(size_t)3;
-				if (to_write > 0) {
-					int n32;
-
-					mfcc_sink_write_bytes(&dst, sink_start,
-							      sink_buf_size,
-							      (uint8_t *)state->out_data_ptr,
-							      to_write);
-					n32 = to_write / sizeof(int32_t);
-					state->out_data_ptr += n32 * 2;
-					state->out_remain -= n32 * 2;
-					if (state->out_remain < 0)
-						state->out_remain = 0;
-				}
-			} else {
-				data_bytes = state->out_remain * sizeof(int16_t);
-				to_write = MIN(data_bytes, avail) & ~(size_t)1;
-				if (to_write > 0) {
-					mfcc_sink_write_bytes(&dst, sink_start,
-							      sink_buf_size,
-							      (uint8_t *)state->out_data_ptr,
-							      to_write);
-					state->out_data_ptr += to_write / sizeof(int16_t);
-					state->out_remain -= to_write / sizeof(int16_t);
-				}
+				mfcc_sink_write_bytes(&dst, sink_start,
+						      sink_buf_size,
+						      (uint8_t *)state->out_data_ptr,
+						      to_write);
+				n32 = to_write / sizeof(int32_t);
+				state->out_data_ptr += n32;
+				state->out_remain -= n32;
 			}
 		}
 	}
@@ -406,6 +383,9 @@ static int mfcc_prepare(struct processing_module *mod,
 
 	if (cd->config->compress_output)
 		comp_info(dev, "compress PCM output mode enabled");
+
+	if (cd->config->enable_dtx && !cd->config->compress_output)
+		comp_warn(dev, "enable_dtx ignored in normal PCM mode, only applies to compress");
 
 	/* Initialize VAD switch control notification if enabled */
 	if (cd->config->enable_vad && cd->config->update_controls) {
