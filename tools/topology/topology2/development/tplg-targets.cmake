@@ -487,12 +487,23 @@ SDW_AMP_FEEDBACK=false,SDW_SPK_STREAM=Playback-SmartAmp,SDW_DMIC_STREAM=Capture-
 SDW_JACK_OUT_STREAM=Playback-SimpleJack,SDW_JACK_IN_STREAM=Capture-SimpleJack,\
 SDW_JACK_AUDIO_FEATURE_CAPTURE=true,SDW_DMIC_AUDIO_FEATURE_CAPTURE=true"
 
-# Soundwire topologies with compress MFCC audio features capture
-"cavs-sdw\;sof-mtl-rt713-l0-rt1316-l12-mfcc-compr\;PLATFORM=mtl,NUM_SDW_AMP_LINKS=2,\
-HDMI1_ID=4,HDMI2_ID=5,HDMI3_ID=6,SDW_JACK_COMPR_AUDIO_FEATURE_CAPTURE=true"
+# Soundwire topologies with compress MFCC mel audio features capture
+"cavs-sdw\;sof-mtl-rt713-l0-rt1316-l12-mfcc-mel-compr\;PLATFORM=mtl,NUM_SDW_AMP_LINKS=2,\
+HDMI1_ID=4,HDMI2_ID=5,HDMI3_ID=6,SDW_JACK_COMPR_AUDIO_FEATURE_CAPTURE=true,\
+MFCC_FRAME_BYTES=344,MFCC_BLOB=mel"
 
-"cavs-sdw\;sof-arl-cs42l43-l0-cs35l56-l23-mfcc-compr\;PLATFORM=mtl,NUM_SDW_AMP_LINKS=2,SDW_DMIC=1,\
+# Soundwire topologies with compress MFCC cepstral audio features capture
+"cavs-sdw\;sof-mtl-rt713-l0-rt1316-l12-mfcc-ceps-compr\;PLATFORM=mtl,NUM_SDW_AMP_LINKS=2,\
+HDMI1_ID=4,HDMI2_ID=5,HDMI3_ID=6,SDW_JACK_COMPR_AUDIO_FEATURE_CAPTURE=true,\
+MFCC_FRAME_BYTES=76,MFCC_BLOB=ceps"
+
+"cavs-sdw\;sof-arl-cs42l43-l0-cs35l56-l23-mfcc-mel-compr\;PLATFORM=mtl,NUM_SDW_AMP_LINKS=2,SDW_DMIC=1,\
 SDW_AMP_FEEDBACK=false,SDW_SPK_STREAM=Playback-SmartAmp,SDW_DMIC_STREAM=Capture-SmartMic,\
 SDW_JACK_OUT_STREAM=Playback-SimpleJack,SDW_JACK_IN_STREAM=Capture-SimpleJack,\
-SDW_JACK_COMPR_AUDIO_FEATURE_CAPTURE=true"
+SDW_JACK_COMPR_AUDIO_FEATURE_CAPTURE=true,MFCC_FRAME_BYTES=344,MFCC_BLOB=mel"
+
+"cavs-sdw\;sof-arl-cs42l43-l0-cs35l56-l23-mfcc-ceps-compr\;PLATFORM=mtl,NUM_SDW_AMP_LINKS=2,SDW_DMIC=1,\
+SDW_AMP_FEEDBACK=false,SDW_SPK_STREAM=Playback-SmartAmp,SDW_DMIC_STREAM=Capture-SmartMic,\
+SDW_JACK_OUT_STREAM=Playback-SimpleJack,SDW_JACK_IN_STREAM=Capture-SimpleJack,\
+SDW_JACK_COMPR_AUDIO_FEATURE_CAPTURE=true,MFCC_FRAME_BYTES=76,MFCC_BLOB=ceps"
 )
