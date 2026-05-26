@@ -150,3 +150,40 @@ Whisper model: whisper-medium-int4-ov (encoder: CPU, decoder: CPU)
 
   >> "Hello computer"
 ```
+
+## Live Spectrogram Viewers
+
+### Mel Spectrogram
+
+The `sof_mel_spectrogram_compress.py` script captures Mel spectrogram
+frames from a SOF compress PCM device and displays them as a live
+scrolling spectrogram with VAD status. This is a lightweight viewer
+that does not run Whisper inference.
+
+```bash
+python3 sof_mel_spectrogram_compress.py --card 0 --device 48 --width 300
+```
+
+### Cepstral Spectrogram
+
+The `sof_ceps_spectrogram_compress.py` script is similar but displays
+cepstral coefficients (MFCC) instead of Mel bands.
+
+```bash
+python3 sof_ceps_spectrogram_compress.py --card 0 --device 48 --num-ceps 13 --width 300
+```
+
+## Live Whisper Transcription with Compress PCM
+
+The `sof_mel_to_text_live_compress.py` script captures Mel spectrogram
+frames from a SOF compress PCM device and performs live Whisper
+transcription using OpenVINO. Unlike `sof_mel_to_text_live_dsp_vad.py`
+which uses `arecord`, this script reads directly from the compress PCM
+device with DTX-aware frame handling.
+
+```bash
+python3 sof_mel_to_text_live_compress.py --card 0 --device 48 --model whisper-medium-int4-ov
+```
+
+The same OpenVINO prerequisites and pip packages apply as described above
+for `sof_mel_to_text_live_dsp_vad.py`.

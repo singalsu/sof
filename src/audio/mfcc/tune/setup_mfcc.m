@@ -31,7 +31,27 @@ function setup_mfcc()
 	setup.tplg_fn = 'mel80_compress.conf';
 	export_mfcc_setup(gen_cfg, setup);
 
-end
+	% Blob for mel spectrogram with compress PCM output and DTX
+	setup = get_mel_spectrogram_config();
+	setup.compress_output = true;
+	setup.enable_dtx = true;
+	setup.dtx_trailing_silence_hops = 20;
+	setup.dtx_silence_hops_interval = 500;
+	setup.tplg_fn = 'mel80_compress_dtx.conf';
+	export_mfcc_setup(gen_cfg, setup);
+
+	% Default MFCC (cepstral) with compress PCM output
+	setup = get_mfcc_default_config();
+	setup.compress_output = true;
+	setup.enable_vad = true;
+	setup.enable_dtx = true;
+	setup.dtx_trailing_silence_hops = 20;
+	setup.dtx_silence_hops_interval = 500;
+	setup.update_controls = true;
+	setup.tplg_fn = 'ceps13_compress_dtx.conf';
+	export_mfcc_setup(gen_cfg, setup);
+
+	end
 
 function cfg = get_mfcc_default_config()
 	cfg.blackman_coef = 0.42;
@@ -70,6 +90,8 @@ function cfg = get_mfcc_default_config()
 	cfg.dynamic_mmax = false; % same
 	cfg.enable_vad = false;
 	cfg.enable_dtx = false;
+	cfg.dtx_trailing_silence_hops = 0;
+	cfg.dtx_silence_hops_interval = 0;
 	cfg.update_controls = false;
 	cfg.compress_output = false;
 end
@@ -111,6 +133,8 @@ function cfg = get_mel_spectrogram_config()
 	cfg.dynamic_mmax = true;
 	cfg.enable_vad = true;
 	cfg.enable_dtx = false;
+	cfg.dtx_trailing_silence_hops = 0;
+	cfg.dtx_silence_hops_interval = 0;
 	cfg.update_controls = true;
 	cfg.compress_output = false;
 end
@@ -147,8 +171,10 @@ v = q_convert(cfg.mel_scale, 12);                [b8, j] = add_w16b(v, b8, j);
 v = q_convert(cfg.mmax_init, 7);                 [b8, j] = add_w16b(v, b8, j);
 v = q_convert(cfg.mmax_coef, 15);                [b8, j] = add_w16b(v, b8, j);
 
+v = cfg.dtx_trailing_silence_hops;                [b8, j] = add_w16b(v, b8, j); % DTX trailing silence hops
+v = cfg.dtx_silence_hops_interval;                [b8, j] = add_w16b(v, b8, j); % DTX silence frame interval
 % Reserved
-for i = 1:6
+for i = 1:5
 	[b8, j] = add_w32b(0, b8, j);
 end
 
