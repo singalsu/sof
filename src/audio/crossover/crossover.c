@@ -350,15 +350,23 @@ static int crossover_free(struct processing_module *mod)
  * \brief Verifies that the config is formatted correctly.
  *
  * The function can only be called after the buffers have been initialized.
+ *
+ * \param[in] mod      Processing module owning the configuration.
+ * \param[in] config   Configuration blob to validate.
+ * \param[in] new_size Size in bytes reported by the framework for \p config;
+ *                     must match the size field embedded in the blob header.
+ * \return 0 on success, negative errno on invalid configuration.
  */
 static int crossover_validate_config(struct processing_module *mod,
-				     struct sof_crossover_config *config)
+				     struct sof_crossover_config *config, size_t new_size)
 {
 	struct comp_dev *dev = mod->dev;
 	uint32_t size = config->size;
+	size_t required_size;
 	int32_t num_assigned_sinks;
+	int32_t num_lr4s;
 
-	if (size > SOF_CROSSOVER_MAX_SIZE || !size) {
+	if (size > SOF_CROSSOVER_MAX_SIZE || !size || size != new_size) {
 		comp_err(dev, "size %d is invalid", size);
 		return -EINVAL;
 	}
@@ -367,6 +375,18 @@ static int crossover_validate_config(struct processing_module *mod,
 	    config->num_sinks < 2) {
 		comp_err(dev, "invalid num_sinks %i, expected number between 2 and %i",
 			 config->num_sinks, SOF_CROSSOVER_MAX_STREAMS);
+		return -EINVAL;
+	}
+
+	/* Each channel reads 2 * num_lr4s biquads from config->coef[]; the
+	 * runtime uses 1 LR4 pair for 2-way and 3 LR4 pairs otherwise.
+	 * See tune/sof_crossover_generate_config.m script.
+	 */
+	num_lr4s = (config->num_sinks == CROSSOVER_2WAY_NUM_SINKS) ? 1 : 3;
+	required_size = sizeof(*config) + (size_t)num_lr4s * 2 * sizeof(struct sof_eq_iir_biquad);
+	if (size < required_size) {
+		comp_err(dev, "size %u too small for num_sinks %u, need at least %zu",
+			 size, config->num_sinks, required_size);
 		return -EINVAL;
 	}
 
@@ -448,6 +468,7 @@ static int crossover_process_audio_stream(struct processing_module *mod,
 	uint32_t frames = input_buffers[0].size;
 	uint32_t frame_bytes = audio_stream_frame_bytes(input_buffers[0].data);
 	uint32_t processed_bytes;
+	size_t cfg_size;
 	int ret;
 	int i;
 
@@ -455,7 +476,12 @@ static int crossover_process_audio_stream(struct processing_module *mod,
 
 	/* Check for changed configuration */
 	if (comp_is_new_data_blob_available(cd->model_handler)) {
-		cd->config = comp_get_data_blob(cd->model_handler, NULL, NULL);
+		cd->config = comp_get_data_blob(cd->model_handler, &cfg_size, NULL);
+		if (!cd->config || !cfg_size ||
+		    crossover_validate_config(mod, cd->config, cfg_size) < 0) {
+			comp_err(dev, "invalid runtime config blob");
+			return -EINVAL;
+		}
 		ret = crossover_setup(mod, audio_stream_get_channels(source));
 		if (ret < 0) {
 			comp_err(dev, "failed Crossover setup");
@@ -547,7 +573,7 @@ static int crossover_prepare(struct processing_module *mod,
 
 	/* Initialize Crossover */
 	if (cd->config &&
-	    (!data_size || crossover_validate_config(mod, cd->config) < 0)) {
+	    (!data_size || crossover_validate_config(mod, cd->config, data_size) < 0)) {
 		/* If the configuration is invalid fail the prepare */
 		comp_err(dev, "invalid binary config format");
 		return -EINVAL;
