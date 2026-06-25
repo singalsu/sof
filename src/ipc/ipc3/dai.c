@@ -95,6 +95,7 @@ int dai_config_dma_channel(struct dai_data *dd, struct comp_dev *dev, const void
 		break;
 	case SOF_DAI_AMD_HS:
 	case SOF_DAI_AMD_HS_VIRTUAL:
+	case SOF_DAI_AMD_TDM:
 	case SOF_DAI_AMD_SDW: {
 		struct dai_config *params = (struct dai_config *)dd->dai->dev->config;
 
@@ -195,6 +196,7 @@ int ipc_dai_data_config(struct dai_data *dd, struct comp_dev *dev)
 	case SOF_DAI_AMD_SP_VIRTUAL:
 	case SOF_DAI_AMD_HS:
 	case SOF_DAI_AMD_HS_VIRTUAL:
+	case SOF_DAI_AMD_TDM:
 #if defined(CONFIG_AMD) && !defined(CONFIG_SOC_ACP_6_0)
 	{
 		struct acp_dma_dev_data *tdm_data = dd->dma->z_dev->data;
@@ -213,6 +215,15 @@ int ipc_dai_data_config(struct dai_data *dd, struct comp_dev *dev)
 			tdm_ctx = (struct tdm_context *)tdm_data->dai_index_ptr;
 		}
 		tdm_ctx->index = dd->dai->index;
+		tdm_ctx->frame_fmt = dev->ipc_config.frame_fmt;
+		/* AMD HW needs 24-bit data MSB-aligned in 32-bit word */
+		if (dev->ipc_config.frame_fmt == SOF_IPC_FRAME_S24_4LE) {
+			dev->ipc_config.frame_fmt = SOF_IPC_FRAME_S24_4LE_MSB;
+			if (dd->dma_buffer) {
+				audio_stream_set_frm_fmt(&dd->dma_buffer->stream,
+							 dev->ipc_config.frame_fmt);
+			}
+		}
 	}
 #endif
 		break;
