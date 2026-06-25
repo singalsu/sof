@@ -422,10 +422,13 @@ struct sdw_pin_data {
 };
 
 struct tdm_context {
+	uint64_t prev_pos;
+	uint32_t buff_size;
 	uint32_t tdm_instance;
 	uint32_t pin_dir;
 	uint32_t dma_channel;
 	uint32_t index;
+	uint32_t frame_fmt;
 };
 
 struct dmic_context {
