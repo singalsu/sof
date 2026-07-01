@@ -218,6 +218,39 @@ static int multiband_drc_setup(struct processing_module *mod, int16_t channels,
 	return multiband_drc_init_coef(mod, channels, rate);
 }
 
+static int multiband_drc_validator(struct comp_dev *dev, void *new_data, uint32_t new_data_size)
+{
+	struct sof_multiband_drc_config *config = new_data;
+	size_t expected;
+
+	if (new_data_size < sizeof(struct sof_multiband_drc_config) ||
+	    new_data_size > SOF_MULTIBAND_DRC_MAX_BLOB_SIZE) {
+		comp_err(dev, "invalid configuration blob, size %u", new_data_size);
+		return -EINVAL;
+	}
+
+	if (new_data_size != config->size) {
+		comp_err(dev, "blob size %u does not match header size %u",
+			 new_data_size, config->size);
+		return -EINVAL;
+	}
+
+	if (!config->num_bands || config->num_bands > SOF_MULTIBAND_DRC_MAX_BANDS) {
+		comp_err(dev, "invalid num_bands %u", config->num_bands);
+		return -EINVAL;
+	}
+
+	expected = sizeof(struct sof_multiband_drc_config) +
+		   (size_t)config->num_bands * sizeof(struct sof_drc_params);
+	if (new_data_size != expected) {
+		comp_err(dev, "blob size %u does not match expected %zu for %u bands",
+			 new_data_size, expected, config->num_bands);
+		return -EINVAL;
+	}
+
+	return 0;
+}
+
 /*
  * End of Multiband DRC setup code. Next the standard component methods.
  */
@@ -251,6 +284,11 @@ static int multiband_drc_init(struct processing_module *mod)
 		mod_free(mod, cd);
 		return -ENOMEM;
 	}
+
+	/* Reject malformed blobs at IPC time so a bad run-time update cannot
+	 * replace the working configuration.
+	 */
+	comp_data_blob_set_validator(cd->model_handler, multiband_drc_validator);
 
 	multiband_drc_reset_state(mod, &cd->state);
 
@@ -342,7 +380,6 @@ static int multiband_drc_prepare(struct processing_module *mod,
 	struct multiband_drc_comp_data *cd = module_get_private_data(mod);
 	struct comp_dev *dev = mod->dev;
 	struct comp_buffer *sourceb;
-	size_t data_size;
 	int channels;
 	int rate;
 	int ret = 0;
@@ -368,15 +405,9 @@ static int multiband_drc_prepare(struct processing_module *mod,
 	/* Initialize DRC */
 	comp_dbg(dev, "source_format=%d, sink_format=%d",
 		 cd->source_format, cd->source_format);
-	cd->config = comp_get_data_blob(cd->model_handler, &data_size, NULL);
-	/* the blob holds a base struct followed by num_bands variable-length
-	 * band coefficients; require the base struct first, then the full
-	 * per-band payload, so setup cannot read past the blob
-	 */
-	if (cd->config && data_size >= sizeof(struct sof_multiband_drc_config) &&
-	    cd->config->num_bands <= SOF_MULTIBAND_DRC_MAX_BANDS &&
-	    data_size >= sizeof(struct sof_multiband_drc_config) +
-		    (size_t)cd->config->num_bands * sizeof(struct sof_drc_params)) {
+	cd->config = comp_get_data_blob(cd->model_handler, NULL, NULL);
+
+	if (cd->config) {
 		ret = multiband_drc_setup(mod, channels, rate);
 		if (ret < 0) {
 			comp_err(dev, "error: multiband_drc_setup failed.");
