@@ -363,5 +363,5 @@ BT_NAME=SSP1-BT,BT_INDEX=1,BT_PCM_ID=20,BT_ID=8,BT_PCM_NAME=Bluetooth,ADD_BT=tru
 NUM_SDW_AMP_LINKS=1,SDW_SPK_STREAM=SDW2-Playback,SDW_AMP_FEEDBACK=false,\
 SDW_JACK_CAPTURE_CH=1,SDW_SPK_ENHANCED_PLAYBACK=false"
 
-"sof-arl-cs42l43-l0-cs35l56-l23-tflm\;sof-arl-cs42l43-l0-cs35l56-l23-tflm\;"
+"sof-arl-cs42l43-l0-cs35l56-l23-tflm\;sof-arl-cs42l43-l0-cs35l56-l23-tflm\;HDA_MIC_MFCC_PARAMS=default"
 )
