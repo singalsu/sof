@@ -290,15 +290,26 @@ The stock model only recognizes `yes`/`no` (plus `silence`/`unknown`). To recogn
 
 ### 1. Generate a synthetic dataset with Piper-TTS
 
-Getting hundreds of real speakers to say a made-up keyword isn't practical — generate it with TTS instead:
+Getting hundreds of real speakers to say a made-up keyword isn't practical — generate it with TTS instead. Install in an isolated venv (Piper pulls a full `torch`/`librosa` stack that will fight anything else — e.g. an OpenVINO env — over `numpy`/`onnxruntime` versions):
 
 ```bash
+python3 -m venv ~/venvs/piper
+source ~/venvs/piper/bin/activate
+pip install --upgrade pip
 pip install piper-sample-generator
 ```
 
+The tool is a proper Python package (repackaged upstream in 2025) — no `requirements.txt` in the git clone anymore. If you want to hack on the generation loop, `git clone` the repo and `pip install -e .` instead of the PyPI install.
+
 Two voice sources:
-- Individual Piper voices (`.onnx` + `.onnx.json`, one voice = one speaker) — download 10-20 `en_US`/`en_GB` voices for variety.
-- The LibriTTS-R "generator" checkpoint, which mixes speaker embeddings from up to 904 underlying speakers via `--max-speakers`/`--slerp-weights` — more voice diversity from a single model file; avoid the highest-numbered speaker indices (the tool's own docs warn these have few training samples and produce artifacts).
+- Individual Piper voices (`.onnx` + `.onnx.json`, one voice = one speaker) — download 10-20 `en_US`/`en_GB` voices for variety from https://huggingface.co/rhasspy/piper-voices.
+- The LibriTTS-R "generator" checkpoint, which mixes speaker embeddings from up to 904 underlying speakers via `--max-speakers`/`--slerp-weights` — more voice diversity from a single model file; avoid the highest-numbered speaker indices (the tool's own docs warn these have few training samples and produce artifacts). Fetch once:
+
+```bash
+mkdir -p models
+wget -O models/en_US-libritts_r-medium.pt \
+  https://github.com/rhasspy/piper-sample-generator/releases/download/v2.0.0/en_US-libritts_r-medium.pt
+```
 
 Generate per keyword, looping over voices and speaking rates so samples aren't all one speaker/prosody:
 
@@ -313,10 +324,11 @@ for voice in voices/*.onnx; do
 done
 ```
 
-Augment with the tool's own augmentation pass — randomizes volume, convolves with room impulse responses, resamples to 16kHz:
+Augment with the tool's own augmentation pass — randomizes volume, convolves with room impulse responses, and resamples (pass `--sample-rate 16000` so the output matches what SOF MFCC ingests; input/output dirs are positional):
 
 ```bash
-python3 -m piper_sample_generator.augment --input-dir raw/<keyword> --output-dir data/<keyword>
+python3 -m piper_sample_generator.augment --sample-rate 16000 \
+    raw/<keyword>/ data/<keyword>/
 ```
 
 Optionally mix in background noise (Speech Commands v2's `_background_noise_` clips work well) at a few SNR levels for extra robustness.
