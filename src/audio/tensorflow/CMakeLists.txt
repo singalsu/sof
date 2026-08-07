@@ -25,11 +25,19 @@ endif()
 
 set(NN_HIFI_PATH ${sof_top_dir}/../nnlib-hifi4/xa_nnlib)
 
-# paths for dependencies
-set(TFLM_PATH ${sof_top_dir}/../tflite-micro)
-set(FLATBUFFERS_PATH ${sof_top_dir}/../flatbuffers)
-set(GEMMLOWP_PATH ${sof_top_dir}/../gemmlowp)
-set(RUY_PATH ${sof_top_dir}/../ruy)
+# paths for dependencies (each may be overridden with -D<var>=<path>)
+if(NOT TFLM_PATH)
+	set(TFLM_PATH ${sof_top_dir}/../tflite-micro)
+endif()
+if(NOT FLATBUFFERS_PATH)
+	set(FLATBUFFERS_PATH ${sof_top_dir}/../flatbuffers)
+endif()
+if(NOT GEMMLOWP_PATH)
+	set(GEMMLOWP_PATH ${sof_top_dir}/../gemmlowp)
+endif()
+if(NOT RUY_PATH)
+	set(RUY_PATH ${sof_top_dir}/../ruy)
+endif()
 
 # Toolchain include dirs are per-platform (SOC_TOOLCHAIN_NAME matches both
 # the zephyr-sdk gnu/xtensa-<name>_zephyr-elf toolchain dir and the
@@ -368,6 +376,10 @@ target_compile_options(tflm_lib PRIVATE
 	-DXTENSA
 	-DTF_LITE_MCU_DEBUG_LOG
 	-DTF_LITE_USE_CTIME
+	# TFLM's stock debug_log.cc calls vfprintf(stderr, ...), which pulls in
+	# stdio.  Zephyr's minimal libc has no stderr.  Stripping error strings
+	# neutralizes DebugLog() to a no-op and drops the dep entirely.
+	-DTF_LITE_STRIP_ERROR_STRINGS
 	-mlongcalls
 	-Wno-shadow
 )
@@ -428,6 +440,9 @@ if(NOT CONFIG_COMP_TENSORFLOW STREQUAL "m")
   set(TFLM_LIBC_SHIM_MEMBERS
     libc_stdlib_abs.c.o
     libm_math_s_floor.c.o
+    # TFLM QuantizeMultiplier() uses double frexp() + round() at Prepare time.
+    libm_math_s_frexp.c.o
+    libm_common_s_round.c.o
     libm_math_sf_exp.c.o
     libm_math_sf_log.c.o
     libm_common_sf_fmax.c.o

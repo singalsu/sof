@@ -4,11 +4,19 @@
 # TODO: detect Hifi4/5 for NN lib kernels
 set(NN_HIFI_PATH ${sof_top_dir}/../nnlib-hifi4/xa_nnlib)
 
-# paths for dependencies
-set(TFLM_PATH ${sof_top_dir}/../tflite-micro)
-set(FLATBUFFERS_PATH ${sof_top_dir}/../flatbuffers)
-set(GEMMLOWP_PATH ${sof_top_dir}/../gemmlowp)
-set(RUY_PATH ${sof_top_dir}/../ruy)
+# paths for dependencies (each may be overridden with -D<var>=<path>)
+if(NOT TFLM_PATH)
+	set(TFLM_PATH ${sof_top_dir}/../tflite-micro)
+endif()
+if(NOT FLATBUFFERS_PATH)
+	set(FLATBUFFERS_PATH ${sof_top_dir}/../flatbuffers)
+endif()
+if(NOT GEMMLOWP_PATH)
+	set(GEMMLOWP_PATH ${sof_top_dir}/../gemmlowp)
+endif()
+if(NOT RUY_PATH)
+	set(RUY_PATH ${sof_top_dir}/../ruy)
+endif()
 
 if(CMAKE_C_COMPILER_ID STREQUAL "Xtensa")
 set(TFLM_EXTRA_LIBS nn_hifi_lib)

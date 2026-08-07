@@ -3,8 +3,8 @@
 // Copyright(c) 2025 Intel Corporation. All rights reserved.
 
 #include <algorithm>
-#include <cmath>
 #include <cstdint>
+#include <cstring>
 #include <iterator>
 
 #include "tensorflow/lite/core/c/common.h"
@@ -57,23 +57,25 @@ static int Init_Interpreter(struct tf_classify *tfc);
 //     M = 1 / (input_scale * 2^23)
 // into a normalized int32 multiplier in [2^30, 2^31) and a right-shift, so the
 // runtime hot path can do (mel_q23 * mult) >> shift in pure integer math.
+// Unpacks IEEE 754 bits directly rather than calling frexpf so that this file
+// pulls in no libm symbols on the minimal-libc SOF build.
 static void ComputeInputRequantizeMultiplier(float input_scale,
 					     int32_t *out_mult, int *out_shift)
 {
-	double m = 1.0 / (static_cast<double>(input_scale) * static_cast<double>(1 << 23));
-	if (!(m > 0.0)) {
+	float m = 1.0f / (input_scale * static_cast<float>(1 << 23));
+	if (!(m > 0.0f)) {
 		*out_mult = 0;
 		*out_shift = 0;
 		return;
 	}
-	int exp = 0;
-	double mant = std::frexp(m, &exp);   // m = mant * 2^exp, mant in [0.5, 1.0)
-	int64_t q = static_cast<int64_t>(std::llround(mant * static_cast<double>(1LL << 31)));
-	if (q == (1LL << 31)) {
-		q >>= 1;
-		exp++;
-	}
-	*out_mult = static_cast<int32_t>(q);
+	uint32_t bits;
+	std::memcpy(&bits, &m, sizeof(bits));
+	// IEEE 754 binary32: bias-127 exponent; frexp uses [0.5, 1.0) => bias-126.
+	int exp = static_cast<int>((bits >> 23) & 0xffu) - 126;
+	// Reinsert the implicit leading 1, then shift the 24-bit mantissa into bit
+	// 30 so the result is Q0.31 with MSB set, i.e. in [2^30, 2^31).
+	int32_t mult = static_cast<int32_t>(((bits & 0x7fffffu) | 0x800000u) << 7);
+	*out_mult = mult;
 	*out_shift = 31 - exp;
 }
 
