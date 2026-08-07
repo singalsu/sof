@@ -288,7 +288,7 @@ add_library(tflm_lib STATIC
 	${TFLM_PATH}/tensorflow/lite/micro/memory_planner/linear_memory_planner.cc
 	${TFLM_PATH}/tensorflow/lite/micro/micro_utils.cc
 	${TFLM_PATH}/tensorflow/lite/micro/micro_interpreter.cc
-	micro_speech_quantized_model_data.cc
+	hey_linux_quantized_model_data.cc
 	speech.cc
 )
 

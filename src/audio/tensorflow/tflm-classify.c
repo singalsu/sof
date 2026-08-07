@@ -138,7 +138,7 @@ static bool g_tflm_initialized = false;
 static struct tflm_comp_data *g_tflm_cd = NULL;
 static struct comp_dev *g_tflm_dev = NULL;
 static uint64_t last_inference_timer = 0;
-static uint32_t g_category_totals[TFLM_CATEGORY_COUNT] = {0, 0, 0, 0};
+static uint32_t g_category_totals[TFLM_CATEGORY_COUNT] = {0};
 static uint32_t g_total_inferences = 0;
 static uint32_t g_kpb_trigger_events = 0;
 
@@ -146,10 +146,20 @@ __cold static void tflm_log_summary_at_shutdown(struct processing_module *mod)
 {
 	struct comp_dev *dev = mod ? mod->dev : NULL;
 	char summary_buf[256];
-	snprintk(summary_buf, sizeof(summary_buf),
-		 "[TFLM STREAM SHUTDOWN SUMMARY] Total Inferences=%u | Keyword Events: Silence=%u, Unknown=%u, Yes=%u, No=%u | Total KPB Triggers=%u",
-		 g_total_inferences, g_category_totals[0], g_category_totals[1],
-		 g_category_totals[2], g_category_totals[3], g_kpb_trigger_events);
+	size_t off;
+	int i;
+
+	off = snprintk(summary_buf, sizeof(summary_buf),
+		       "[TFLM STREAM SHUTDOWN SUMMARY] Total Inferences=%u | Keyword Events:",
+		       g_total_inferences);
+	for (i = 0; i < TFLM_CATEGORY_COUNT && off < sizeof(summary_buf); i++) {
+		off += snprintk(summary_buf + off, sizeof(summary_buf) - off,
+				"%s %s=%u", i ? "," : "",
+				prediction[i], g_category_totals[i]);
+	}
+	if (off < sizeof(summary_buf))
+		snprintk(summary_buf + off, sizeof(summary_buf) - off,
+			 " | Total KPB Triggers=%u", g_kpb_trigger_events);
 	sof_ut_log(summary_buf);
 	if (dev)
 		comp_info(dev, "%s", summary_buf);

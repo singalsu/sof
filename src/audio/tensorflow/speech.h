@@ -15,8 +15,8 @@
 #define TFLM_FEATURE_STRIDE_MS 20
 #define TFLM_FEATURE_DURATION_MS 30
 
-#define TFLM_CATEGORY_COUNT  4
-#define TFLM_CATEGORY_DATA   {"silence", "unknown", "yes", "no",}
+#define TFLM_CATEGORY_COUNT  3
+#define TFLM_CATEGORY_DATA   {"silence", "unknown", "hey_linux",}
 struct tf_classify {
 	int8_t *audio_features;
 	size_t audio_data_size;

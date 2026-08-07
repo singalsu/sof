@@ -14,7 +14,7 @@
 #include "speech.h"
 
 // hard code the model today
-#include "micro_speech_quantized_model_data.h"
+#include "hey_linux_quantized_model_data.h"
 
 // The following values are derived from values used during model training.
 // If you change the way you preprocess the input, update all these constants.
@@ -131,7 +131,7 @@ int TF_SetModel(struct tf_classify *tfc, unsigned char *model_tflite)
 
 	// Map the model into a usable data structure. This doesn't involve any
 	// copying or parsing, it's a very lightweight operation.
-	model = tflite::GetModel(g_micro_speech_quantized_model_data);
+	model = tflite::GetModel(g_hey_linux_quantized_model_data);
 	if (model->version() != TFLITE_SCHEMA_VERSION) {
 		tfc->error = "failed to load model";
 		return -EINVAL;
