@@ -367,7 +367,7 @@ add_library(tflm_lib STATIC
 	#${TFLM_PATH}/tensorflow/lite/micro/kernels/mul_common.cc
 	#${TFLM_PATH}/tensorflow/lite/micro/kernels/mul.cc
 	#${TFLM_PATH}/tensorflow/lite/micro/kernels/neg.cc
-	#${TFLM_PATH}/tensorflow/lite/micro/kernels/pack.cc
+	${TFLM_PATH}/tensorflow/lite/micro/kernels/pack.cc
 	#${TFLM_PATH}/tensorflow/lite/micro/kernels/pooling_common.cc
 	#${TFLM_PATH}/tensorflow/lite/micro/kernels/prelu_common.cc
 	#${TFLM_PATH}/tensorflow/lite/micro/kernels/prelu.cc
@@ -379,7 +379,7 @@ add_library(tflm_lib STATIC
 	#${TFLM_PATH}/tensorflow/lite/micro/kernels/resize_nearest_neighbor.cc
 	#${TFLM_PATH}/tensorflow/lite/micro/kernels/round.cc
 	#${TFLM_PATH}/tensorflow/lite/micro/kernels/select.cc
-	#${TFLM_PATH}/tensorflow/lite/micro/kernels/shape.cc
+	${TFLM_PATH}/tensorflow/lite/micro/kernels/shape.cc
 	#${TFLM_PATH}/tensorflow/lite/micro/kernels/slice.cc
 	${TFLM_PATH}/tensorflow/lite/micro/kernels/softmax_common.cc
 	#${TFLM_PATH}/tensorflow/lite/micro/kernels/space_to_batch_nd.cc
@@ -388,7 +388,7 @@ add_library(tflm_lib STATIC
 	#${TFLM_PATH}/tensorflow/lite/micro/kernels/split_v.cc
 	#${TFLM_PATH}/tensorflow/lite/micro/kernels/squared_difference.cc
 	#${TFLM_PATH}/tensorflow/lite/micro/kernels/squeeze.cc
-	#${TFLM_PATH}/tensorflow/lite/micro/kernels/strided_slice_common.cc
+	${TFLM_PATH}/tensorflow/lite/micro/kernels/strided_slice_common.cc
 	#${TFLM_PATH}/tensorflow/lite/micro/kernels/sub_common.cc
 	#${TFLM_PATH}/tensorflow/lite/micro/kernels/svdf_common.cc
 	#${TFLM_PATH}/tensorflow/lite/micro/kernels/tanh.cc

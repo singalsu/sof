@@ -38,6 +38,8 @@ static void sof_ut_log(const char *msg)
 #include <errno.h>
 #include <stddef.h>
 #include <stdint.h>
+#include <stdarg.h>
+#include <stdio.h>
 
 #include <ipc4/base-config.h>
 #include <ipc4/header.h>
@@ -49,6 +51,20 @@ static void sof_ut_log(const char *msg)
 #include <rtos/timer.h>
 #include <sof/audio/mfcc/mfcc_comp.h>
 #include "speech.h"
+
+/* TFLM error strings land here.  Route to printk/mtrace so AllocateTensors()
+ * and Invoke() failures print their real reason instead of vanishing.
+ */
+void DebugLog(const char *format, va_list args)
+{
+	vprintk(format, args);
+}
+
+int DebugVsnprintf(char *buffer, size_t buf_size, const char *format,
+		   va_list vlist)
+{
+	return vsnprintf(buffer, buf_size, format, vlist);
+}
 
 /* MFCC's non-compress output prepends a struct mfcc_data_header (24 bytes)
  * to each hop, followed by TFLM_FEATURE_SIZE int32_t Q9.23 mel-log values
@@ -428,11 +444,19 @@ static int tflm_process(struct processing_module *mod,
 				snprintk(ut_buf, sizeof(ut_buf), "[TFLM MODEL GRAPH] Total Nodes = %d", cd->tfc.op_count);
 				sof_ut_log(ut_buf);
 
-				snprintk(ut_buf, sizeof(ut_buf),
-					 "[DBG raw_output] ret=%d silence=%d unknown=%d yes=%d no=%d",
-					 ret, cd->tfc.raw_output[0], cd->tfc.raw_output[1],
-					 cd->tfc.raw_output[2], cd->tfc.raw_output[3]);
-				sof_ut_log(ut_buf);
+				{
+					char raw_buf[160];
+					int off = snprintk(raw_buf, sizeof(raw_buf),
+							   "[DBG raw_output] ret=%d", ret);
+					for (int i = 0; i < TFLM_CATEGORY_COUNT &&
+					     off < (int)sizeof(raw_buf); i++)
+						off += snprintk(raw_buf + off,
+								sizeof(raw_buf) - off,
+								" %s=%d",
+								prediction[i],
+								cd->tfc.raw_output[i]);
+					sof_ut_log(raw_buf);
+				}
 
 				for (int k = 0; k < cd->tfc.op_count && k < 10; k++) {
 					snprintk(ut_buf, sizeof(ut_buf), "  Node %d (OpCode=%d): %u cycles",
@@ -455,26 +479,33 @@ static int tflm_process(struct processing_module *mod,
 					if (max_idx >= 0 && max_idx < TFLM_CATEGORY_COUNT)
 						g_category_totals[max_idx]++;
 
-					char result_buf[160];
+					char result_buf[200];
 					int max_pct = (int)(max_score * 100.0f);
 					if (max_pct < 0) max_pct = 0;
-					snprintk(result_buf, sizeof(result_buf), "TFLM top prediction: %s confidence=%d pct (inferences=%u): silence=%u, unknown=%u, yes=%u, no=%u",
-						 prediction[max_idx], max_pct, g_total_inferences,
-						 g_category_totals[0], g_category_totals[1], g_category_totals[2], g_category_totals[3]);
+					int off = snprintk(result_buf, sizeof(result_buf),
+							   "TFLM top prediction: %s confidence=%d pct (inferences=%u):",
+							   prediction[max_idx], max_pct,
+							   g_total_inferences);
+					for (int i = 0; i < TFLM_CATEGORY_COUNT &&
+					     off < (int)sizeof(result_buf); i++)
+						off += snprintk(result_buf + off,
+								sizeof(result_buf) - off,
+								" %s=%u",
+								prediction[i],
+								g_category_totals[i]);
 					sof_ut_log(result_buf);
 					printk("%s\n", result_buf);
 
-					if (max_score >= 0.50f) {
-						char ut_buf[160];
-						int max_pct = (int)(max_score * 100.0f);
-						snprintk(ut_buf, sizeof(ut_buf), "TFLM KEYWORD DETECTED: %s confidence=%d pct",
+					// Only announce a keyword hit for real keyword classes
+					// (indices >= 2, i.e. not silence/unknown).
+					if (max_idx >= 2 && max_score >= 0.50f) {
+						snprintk(ut_buf, sizeof(ut_buf),
+							 "TFLM KEYWORD DETECTED: %s confidence=%d pct",
 							 prediction[max_idx], max_pct);
 						sof_ut_log(ut_buf);
 
-						if (max_idx >= 2) {
-							g_kpb_trigger_events++;
-							tflm_notify_kpb(mod);
-						}
+						g_kpb_trigger_events++;
+						tflm_notify_kpb(mod);
 					}
 				}
 			}
@@ -516,13 +547,16 @@ static int tflm_prepare(struct processing_module *mod,
 
 	ret = TF_InitOps(&cd->tfc);
 	if (ret < 0) {
-		printk("[TFLM PREPARE] FAILED: TF_InitOps returned %d\n", ret);
+		printk("[TFLM PREPARE] FAILED: TF_InitOps returned %d (%s)\n",
+		       ret, cd->tfc.error ? cd->tfc.error : "no detail");
 		return ret;
 	}
 
 	g_tflm_initialized = true;
 	last_inference_timer = sof_cycle_get_64();
 	printk("[TFLM PREPARE] TFLM model & ops initialized successfully!\n");
+	printk("[TFLM PREPARE] arena_used=%zu / capacity=%zu bytes\n",
+	       TF_ArenaUsedBytes(), TF_ArenaCapacity());
 	printk("[DBG quant] input_scale_x1e6=%d input_zero_point=%d\n",
 	       (int)(cd->tfc.input_scale * 1000000.0f), cd->tfc.input_zero_point);
 	return 0;

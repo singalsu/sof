@@ -24,10 +24,10 @@ static constexpr int kFeatureSize = TFLM_FEATURE_SIZE;
 static constexpr int kFeatureCount = TFLM_FEATURE_COUNT;
 static constexpr int kFeatureElementCount = TFLM_FEATURE_ELEM_COUNT;
 
-// Arena size is a guesstimate, followed by use of
-// MicroInterpreter::arena_used_bytes() on both the AudioPreprocessor and
-// MicroSpeech models and using the larger of the two results.
-static constexpr size_t kArenaSize = 28584;  // xtensa p6
+// Sized for the retrained hey_linux tiny_conv DS-CNN.  Tune down to
+// interpreter->arena_used_bytes() (printed by tflm-classify.c on success)
+// once the model is finalized.
+static constexpr size_t kArenaSize = 131072;
 alignas(16) static uint8_t g_arena[kArenaSize];
 
 // type for features
@@ -39,7 +39,7 @@ static TfLiteTensor *input;
 static TfLiteTensor *output;
 static tflite::MicroInterpreter *interpreter;
 
-using MicroSpeechOpResolver = tflite::MicroMutableOpResolver<4>;
+using MicroSpeechOpResolver = tflite::MicroMutableOpResolver<7>;
 static MicroSpeechOpResolver *op_resolver;
 
 // Adding more kernels is quite efficient. TODO add more
@@ -48,6 +48,10 @@ int RegisterOps(MicroSpeechOpResolver *op_resolver) {
 	TF_LITE_ENSURE_STATUS(op_resolver->AddFullyConnected());
 	TF_LITE_ENSURE_STATUS(op_resolver->AddDepthwiseConv2D());
 	TF_LITE_ENSURE_STATUS(op_resolver->AddSoftmax());
+	/* Dynamic-Reshape triple emitted by newer TF/Keras -> tflite converters. */
+	TF_LITE_ENSURE_STATUS(op_resolver->AddShape());
+	TF_LITE_ENSURE_STATUS(op_resolver->AddStridedSlice());
+	TF_LITE_ENSURE_STATUS(op_resolver->AddPack());
 	return 0;
 }
 
@@ -125,9 +129,18 @@ static int Init_Interpreter(struct tf_classify *tfc)
 		return -EINVAL;
 	}
 
-	// check input shape is compatible with our feature data size
-	if (kFeatureElementCount != input->dims->data[input->dims->size - 1]){
+	// Accept any input rank as long as the total element count matches
+	// (retrained tiny_conv is [1,49,40,1] rather than a flat [1,1960]).
+	int input_elems = 1;
+	for (int i = 0; i < input->dims->size; i++)
+		input_elems *= input->dims->data[i];
+	if (kFeatureElementCount != input_elems) {
 		tfc->error = "input interpreter shape incompatible";
+		MicroPrintf("TFLM: input rank=%d elems=%d expected=%d",
+			    input->dims->size, input_elems, kFeatureElementCount);
+		for (int i = 0; i < input->dims->size; i++)
+			MicroPrintf("TFLM: input dim[%d]=%d", i,
+				    input->dims->data[i]);
 		return -EINVAL;
 	}
 
@@ -137,9 +150,14 @@ static int Init_Interpreter(struct tf_classify *tfc)
 		return -EINVAL;
 	}
 
-	// check output shape is compatible with our number of prediction categories
-	if (tfc->categories != output->dims->data[output->dims->size - 1]) {
+	// Accept any output rank as long as total element count == categories.
+	int output_elems = 1;
+	for (int i = 0; i < output->dims->size; i++)
+		output_elems *= output->dims->data[i];
+	if (tfc->categories != output_elems) {
 		tfc->error = "output shape != categories";
+		MicroPrintf("TFLM: output rank=%d elems=%d categories=%d",
+			    output->dims->size, output_elems, tfc->categories);
 		return -EINVAL;
 	}
 
@@ -172,7 +190,6 @@ int TF_SetModel(struct tf_classify *tfc, unsigned char *model_tflite)
 int TF_ProcessClassify(struct tf_classify *tfc)
 {
 	Features *features = reinterpret_cast<Features *>(tfc->audio_features);
-
 	float output_scale = output->params.scale;
 	int output_zero_point = output->params.zero_point;
 
@@ -194,4 +211,14 @@ int TF_ProcessClassify(struct tf_classify *tfc)
 	}
 
 return 0;
+}
+
+size_t TF_ArenaUsedBytes(void)
+{
+	return interpreter ? interpreter->arena_used_bytes() : 0;
+}
+
+size_t TF_ArenaCapacity(void)
+{
+	return kArenaSize;
 }

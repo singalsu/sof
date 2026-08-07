@@ -55,6 +55,14 @@ extern "C"
 	/* 3rd - perform the inference */
 	int TF_ProcessClassify(struct tf_classify *tfc);
 
+	/* Interpreter tensor-arena usage after AllocateTensors(); 0 if the
+	 * interpreter is not initialized. Diagnostic for tuning kArenaSize.
+	 */
+	size_t TF_ArenaUsedBytes(void);
+
+	/* Total tensor-arena capacity provisioned in the firmware image. */
+	size_t TF_ArenaCapacity(void);
+
 #ifdef __cplusplus
 }
 #endif

@@ -228,7 +228,7 @@ add_library(tflm_lib STATIC
 	#${TFLM_PATH}/tensorflow/lite/micro/kernels/mul_common.cc
 	#${TFLM_PATH}/tensorflow/lite/micro/kernels/mul.cc
 	#${TFLM_PATH}/tensorflow/lite/micro/kernels/neg.cc
-	#${TFLM_PATH}/tensorflow/lite/micro/kernels/pack.cc
+	${TFLM_PATH}/tensorflow/lite/micro/kernels/pack.cc
 	#${TFLM_PATH}/tensorflow/lite/micro/kernels/pooling_common.cc
 	#${TFLM_PATH}/tensorflow/lite/micro/kernels/prelu_common.cc
 	#${TFLM_PATH}/tensorflow/lite/micro/kernels/prelu.cc
@@ -240,7 +240,7 @@ add_library(tflm_lib STATIC
 	#${TFLM_PATH}/tensorflow/lite/micro/kernels/resize_nearest_neighbor.cc
 	#${TFLM_PATH}/tensorflow/lite/micro/kernels/round.cc
 	#${TFLM_PATH}/tensorflow/lite/micro/kernels/select.cc
-	#${TFLM_PATH}/tensorflow/lite/micro/kernels/shape.cc
+	${TFLM_PATH}/tensorflow/lite/micro/kernels/shape.cc
 	#${TFLM_PATH}/tensorflow/lite/micro/kernels/slice.cc
 	${TFLM_PATH}/tensorflow/lite/micro/kernels/softmax_common.cc
 	#${TFLM_PATH}/tensorflow/lite/micro/kernels/space_to_batch_nd.cc
@@ -249,7 +249,8 @@ add_library(tflm_lib STATIC
 	#${TFLM_PATH}/tensorflow/lite/micro/kernels/split_v.cc
 	#${TFLM_PATH}/tensorflow/lite/micro/kernels/squared_difference.cc
 	#${TFLM_PATH}/tensorflow/lite/micro/kernels/squeeze.cc
-	#${TFLM_PATH}/tensorflow/lite/micro/kernels/strided_slice_common.cc
+	${TFLM_PATH}/tensorflow/lite/micro/kernels/strided_slice.cc
+	${TFLM_PATH}/tensorflow/lite/micro/kernels/strided_slice_common.cc
 	#${TFLM_PATH}/tensorflow/lite/micro/kernels/sub_common.cc
 	#${TFLM_PATH}/tensorflow/lite/micro/kernels/svdf_common.cc
 	#${TFLM_PATH}/tensorflow/lite/micro/kernels/tanh.cc
@@ -285,7 +286,8 @@ add_library(tflm_lib STATIC
 	${TFLM_PATH}/tensorflow/lite/micro/micro_profiler.cc
 	${TFLM_PATH}/tensorflow/lite/micro/micro_time.cc
 	#${TFLM_PATH}/tensorflow/lite/micro/static_vector_test.cc
-	${TFLM_PATH}/tensorflow/lite/micro/debug_log.cc
+	# debug_log.cc is replaced by our printk-backed DebugLog() in tflm-classify.c.
+	#${TFLM_PATH}/tensorflow/lite/micro/debug_log.cc
 	${TFLM_PATH}/tensorflow/lite/micro/test_helpers.cc
 	${TFLM_PATH}/tensorflow/lite/micro/micro_op_resolver.cc
 	${TFLM_PATH}/tensorflow/lite/micro/recording_micro_allocator.cc
@@ -376,10 +378,6 @@ target_compile_options(tflm_lib PRIVATE
 	-DXTENSA
 	-DTF_LITE_MCU_DEBUG_LOG
 	-DTF_LITE_USE_CTIME
-	# TFLM's stock debug_log.cc calls vfprintf(stderr, ...), which pulls in
-	# stdio.  Zephyr's minimal libc has no stderr.  Stripping error strings
-	# neutralizes DebugLog() to a no-op and drops the dep entirely.
-	-DTF_LITE_STRIP_ERROR_STRINGS
 	-mlongcalls
 	-Wno-shadow
 )
@@ -445,6 +443,7 @@ if(NOT CONFIG_COMP_TENSORFLOW STREQUAL "m")
     libm_common_s_round.c.o
     libm_math_sf_exp.c.o
     libm_math_sf_log.c.o
+    libm_math_sf_ceil.c.o
     libm_common_sf_fmax.c.o
     libm_common_sf_fmin.c.o
     libm_common_sf_round.c.o
@@ -464,7 +463,7 @@ if(NOT CONFIG_COMP_TENSORFLOW STREQUAL "m")
     COMMAND ${CMAKE_AR} x ${TFLM_TOOLCHAIN_LIBC_ARCHIVE} ${TFLM_LIBC_SHIM_MEMBERS}
     COMMAND ${CMAKE_AR} rcs ${TFLM_LIBC_SHIM_ARCHIVE} ${TFLM_LIBC_SHIM_MEMBERS}
     WORKING_DIRECTORY ${TFLM_LIBC_SHIM_DIR}
-    DEPENDS ${TFLM_TOOLCHAIN_LIBC_ARCHIVE}
+    DEPENDS ${TFLM_TOOLCHAIN_LIBC_ARCHIVE} ${CMAKE_CURRENT_LIST_FILE}
     COMMENT "Extracting abs()/libm members TFLM needs from the toolchain libc.a"
   )
   add_custom_target(tflm_libc_shim_gen DEPENDS ${TFLM_LIBC_SHIM_ARCHIVE})
