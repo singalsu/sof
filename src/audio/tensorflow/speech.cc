@@ -3,6 +3,7 @@
 // Copyright(c) 2025 Intel Corporation. All rights reserved.
 
 #include <algorithm>
+#include <cmath>
 #include <cstdint>
 #include <iterator>
 
@@ -51,6 +52,30 @@ int RegisterOps(MicroSpeechOpResolver *op_resolver) {
 }
 
 static int Init_Interpreter(struct tf_classify *tfc);
+
+// Decompose the Q9.23 -> int8 requantize factor
+//     M = 1 / (input_scale * 2^23)
+// into a normalized int32 multiplier in [2^30, 2^31) and a right-shift, so the
+// runtime hot path can do (mel_q23 * mult) >> shift in pure integer math.
+static void ComputeInputRequantizeMultiplier(float input_scale,
+					     int32_t *out_mult, int *out_shift)
+{
+	double m = 1.0 / (static_cast<double>(input_scale) * static_cast<double>(1 << 23));
+	if (!(m > 0.0)) {
+		*out_mult = 0;
+		*out_shift = 0;
+		return;
+	}
+	int exp = 0;
+	double mant = std::frexp(m, &exp);   // m = mant * 2^exp, mant in [0.5, 1.0)
+	int64_t q = static_cast<int64_t>(std::llround(mant * static_cast<double>(1LL << 31)));
+	if (q == (1LL << 31)) {
+		q >>= 1;
+		exp++;
+	}
+	*out_mult = static_cast<int32_t>(q);
+	*out_shift = 31 - exp;
+}
 
 int TF_InitOps(struct tf_classify *tfc)
 {
@@ -121,6 +146,8 @@ static int Init_Interpreter(struct tf_classify *tfc)
 	// scale/zero_point.
 	tfc->input_scale = input->params.scale;
 	tfc->input_zero_point = input->params.zero_point;
+	ComputeInputRequantizeMultiplier(tfc->input_scale,
+					 &tfc->input_mult, &tfc->input_shift);
 
 	return 0;
 }

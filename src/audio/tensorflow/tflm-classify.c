@@ -226,17 +226,27 @@ static const int8_t expected_feature_yes[TFLM_FEATURE_SIZE] = {
  * MFCC's mel-log output is Q9.23 fixed point, normalized by the mel40.conf
  * profile's mel_offset/mel_scale/top_db tuning to approximately the 0..1
  * range (see the dynamic_mmax clamp + offset + scale in mfcc_common.c).
- * Requantize that real-valued range against the model's own input tensor
- * scale/zero_point (as populated by TF_InitOps()/Init_Interpreter() in
- * speech.cc), instead of assuming a fixed scale/zero_point.
+ * We requantize that into int8 features using the model's own input tensor
+ * scale/zero_point (populated by TF_InitOps()/Init_Interpreter() in speech.cc).
+ *
+ * The float-domain operation is
+ *   int8_pre = round((mel_q23 / 2^23) / input_scale) + input_zero_point
+ * which we execute in integer math using a pre-decomposed multiplier and
+ * right-shift so this per-sample hot path (40 features x ~50 hops/sec)
+ * needs no float divides or FPU support:
+ *   int8_pre = round((int64)mel_q23 * input_mult >> input_shift) + input_zero_point
+ * with input_mult/input_shift set once at model prepare time.
  */
-static inline int8_t mfcc_mel_q23_to_int8(int32_t mel_q23, float input_scale,
-					   int input_zero_point)
+static inline int8_t mfcc_mel_q23_to_int8(int32_t mel_q23, int32_t input_mult,
+					   int input_shift, int input_zero_point)
 {
-	float norm = (float)mel_q23 / (float)(1 << 23); /* Q9.23 -> float, ~0..1 */
-	float q = norm / input_scale + (float)input_zero_point;
-	int32_t scaled = (int32_t)(q >= 0.0f ? q + 0.5f : q - 0.5f);
+	int64_t prod = (int64_t)mel_q23 * (int64_t)input_mult;
+	int64_t abs_prod = prod >= 0 ? prod : -prod;
+	int64_t rounding = (int64_t)1 << (input_shift - 1);
+	int32_t abs_scaled = (int32_t)((abs_prod + rounding) >> input_shift);
+	int32_t scaled = prod >= 0 ? abs_scaled : -abs_scaled;
 
+	scaled += input_zero_point;
 	if (scaled > 127)
 		scaled = 127;
 	else if (scaled < -128)
@@ -314,7 +324,8 @@ static int tflm_process(struct processing_module *mod,
 
 			for (int i = 0; i < TFLM_FEATURE_SIZE; i++)
 				hop_features[i] = mfcc_mel_q23_to_int8(mel[i],
-					cd->tfc.input_scale, cd->tfc.input_zero_point);
+					cd->tfc.input_mult, cd->tfc.input_shift,
+					cd->tfc.input_zero_point);
 
 			{
 				static int dbg_hop_count;
