@@ -85,24 +85,39 @@ def split_train_val(
 
 def representative_dataset(
     X: np.ndarray,
+    y: np.ndarray,
     n_samples: int,
 ):
-    """Yield ~n_samples calibration inputs drawn from the training set."""
+    """Yield calibration inputs stratified across classes.
+
+    Uniform random picks under-represent minority classes (e.g. a positive
+    keyword class with ~5% of the data), which biases int8 activation
+    scales toward the majority class and destroys keyword recall after
+    quantization. Pick roughly ``n_samples / n_classes`` per class.
+    """
     rng = np.random.default_rng(0)
-    idx = rng.choice(X.shape[0], size=min(n_samples, X.shape[0]), replace=False)
-    for i in idx:
+    classes = np.unique(y)
+    per_class = max(1, n_samples // classes.size)
+    picks: list[int] = []
+    for c in classes:
+        cls_idx = np.where(y == c)[0]
+        take = min(per_class, cls_idx.size)
+        picks.extend(rng.choice(cls_idx, size=take, replace=False).tolist())
+    rng.shuffle(picks)
+    for i in picks:
         yield [X[i : i + 1].astype(np.float32)]
 
 
 def convert_to_tflite_int8(
     model: tf.keras.Model,
     rep_X: np.ndarray,
+    rep_y: np.ndarray,
     n_rep: int,
 ) -> bytes:
     converter = tf.lite.TFLiteConverter.from_keras_model(model)
     converter.optimizations = [tf.lite.Optimize.DEFAULT]
     converter.representative_dataset = lambda: representative_dataset(
-        rep_X, n_rep
+        rep_X, rep_y, n_rep
     )
     converter.target_spec.supported_ops = [
         tf.lite.OpsSet.TFLITE_BUILTINS_INT8
@@ -166,10 +181,16 @@ def parse_args() -> argparse.Namespace:
     ap.add_argument("--lr", type=float, default=1e-3)
     ap.add_argument("--val-frac", type=float, default=0.15)
     ap.add_argument("--seed", type=int, default=1)
-    ap.add_argument("--rep-samples", type=int, default=500,
-                    help="Number of representative-dataset samples for int8.")
+    ap.add_argument("--rep-samples", type=int, default=1500,
+                    help="Total calibration samples for int8 (stratified per class).")
     ap.add_argument("--window-hop-step", type=int, default=None,
                     help="Windowing stride in hops (default: non-overlapping).")
+    ap.add_argument("--feature-clip-min", type=float, default=-1.0,
+                    help="Lower bound applied to features before training/calibration.")
+    ap.add_argument("--feature-clip-max", type=float, default=4.0,
+                    help="Upper bound applied to features. Rare mel-log outliers above "
+                         "this get clipped; the int8 saturation on-device produces the "
+                         "same behaviour at inference.")
     return ap.parse_args()
 
 
@@ -182,6 +203,11 @@ def main() -> int:
         args.feat_root, args.labels, hop_step=args.window_hop_step
     )
     print(f"    X={X.shape} y={y.shape} counts={np.bincount(y).tolist()}")
+    if args.feature_clip_min is not None or args.feature_clip_max is not None:
+        pre_min, pre_max = float(X.min()), float(X.max())
+        X = np.clip(X, args.feature_clip_min, args.feature_clip_max)
+        print(f"    clip [{args.feature_clip_min}, {args.feature_clip_max}]: "
+              f"range {pre_min:.3f}..{pre_max:.3f} -> {float(X.min()):.3f}..{float(X.max()):.3f}")
 
     X_tr, y_tr, X_va, y_va = split_train_val(X, y, args.val_frac, args.seed)
     print(f"    train={X_tr.shape[0]} val={X_va.shape[0]}")
@@ -204,7 +230,7 @@ def main() -> int:
     )
 
     print(">>> Converting to int8 tflite")
-    tflite_bytes = convert_to_tflite_int8(model, X_tr, args.rep_samples)
+    tflite_bytes = convert_to_tflite_int8(model, X_tr, y_tr, args.rep_samples)
 
     out_dir = Path(args.out_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
