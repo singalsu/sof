@@ -14,6 +14,7 @@
 
 #include <rtos/alloc.h>
 #include <ipc/topology.h>
+#include <zephyr/sys/printk.h>
 
 LOG_MODULE_REGISTER(ring_buffer, CONFIG_SOF_LOG_LEVEL);
 
@@ -387,6 +388,10 @@ struct ring_buffer *ring_buffer_create(struct comp_dev *dev, size_t min_availabl
 	tr_info(&ring_buffer_tr, "Ring buffer created, id: %u shared: %u min_available: %u min_free_space %u, size %u",
 		id, ring_buffer_is_shared(ring_buffer), min_available, min_free_space,
 		ring_buffer->data_buffer_size);
+
+	printk("[RING_BUF NEW] comp=0x%x id=%u min_avail=%u min_free=%u size=%u\n",
+	       dev->ipc_config.id, id, (unsigned)min_available,
+	       (unsigned)min_free_space, (unsigned)ring_buffer->data_buffer_size);
 
 	/* return a pointer to allocated structure */
 	return ring_buffer;

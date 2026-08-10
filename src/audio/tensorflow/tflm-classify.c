@@ -298,6 +298,7 @@ static int tflm_process(struct processing_module *mod,
 	struct comp_dev *dev = mod->dev;
 	g_tflm_dev = dev;
 
+
 	/* Guard: skip processing if TFLM interpreter was not prepared */
 	if (!g_tflm_initialized) {
 		printk("[TFLM PROCESS] WARNING: not initialized, skipping frame\n");
@@ -330,12 +331,29 @@ static int tflm_process(struct processing_module *mod,
 			break;
 
 		{
+			/* Ring buffer may wrap inside a single hop; copy the
+			 * 184-byte header+mel payload into a contiguous scratch
+			 * so hdr / mel[] accesses (and the sink copy) can treat
+			 * it as linear.
+			 */
+			uint8_t hop_scratch[MFCC_HOP_BYTES];
+			const uint8_t *src_end = (const uint8_t *)buf_start + buf_size;
+			size_t src_until_wrap = src_end - (const uint8_t *)data_ptr;
+
+			if (src_until_wrap >= MFCC_HOP_BYTES) {
+				memcpy(hop_scratch, data_ptr, MFCC_HOP_BYTES);
+			} else {
+				memcpy(hop_scratch, data_ptr, src_until_wrap);
+				memcpy(hop_scratch + src_until_wrap, buf_start,
+				       MFCC_HOP_BYTES - src_until_wrap);
+			}
+
 			/* Strip the mfcc_data_header and requantize the
 			 * TFLM_FEATURE_SIZE int32 Q9.23 mel-log values into
 			 * int8 features for this hop.
 			 */
 			const int32_t *mel = (const int32_t *)
-				((const uint8_t *)data_ptr + sizeof(struct mfcc_data_header));
+				(hop_scratch + sizeof(struct mfcc_data_header));
 			int8_t hop_features[TFLM_FEATURE_SIZE];
 
 			for (int i = 0; i < TFLM_FEATURE_SIZE; i++)
@@ -344,24 +362,27 @@ static int tflm_process(struct processing_module *mod,
 					cd->tfc.input_zero_point);
 
 			{
+				const struct mfcc_data_header *hdr =
+					(const struct mfcc_data_header *)hop_scratch;
 				static int dbg_hop_count;
+				int32_t mel_min = mel[0], mel_max = mel[0];
+				int8_t f_min = hop_features[0], f_max = hop_features[0];
+				char dbg_buf[192];
+
 				dbg_hop_count++;
-				if (dbg_hop_count % 25 == 0) {
-					int32_t mel_min = mel[0], mel_max = mel[0];
-					int8_t f_min = hop_features[0], f_max = hop_features[0];
-					for (int i = 1; i < TFLM_FEATURE_SIZE; i++) {
-						if (mel[i] < mel_min) mel_min = mel[i];
-						if (mel[i] > mel_max) mel_max = mel[i];
-						if (hop_features[i] < f_min) f_min = hop_features[i];
-						if (hop_features[i] > f_max) f_max = hop_features[i];
-					}
-					char dbg_buf[160];
-					snprintk(dbg_buf, sizeof(dbg_buf),
-						 "[DBG hop %d] mel[0..3]=%d,%d,%d,%d mel_min=%d mel_max=%d f_min=%d f_max=%d",
-						 dbg_hop_count, mel[0], mel[1], mel[2], mel[3],
-						 mel_min, mel_max, f_min, f_max);
-					sof_ut_log(dbg_buf);
+				for (int i = 1; i < TFLM_FEATURE_SIZE; i++) {
+					if (mel[i] < mel_min) mel_min = mel[i];
+					if (mel[i] > mel_max) mel_max = mel[i];
+					if (hop_features[i] < f_min) f_min = hop_features[i];
+					if (hop_features[i] > f_max) f_max = hop_features[i];
 				}
+				snprintk(dbg_buf, sizeof(dbg_buf),
+					 "[DBG hop %d] vad=%d E=%d Ne=%d mel[0..3]=%d,%d,%d,%d mel_min=%d mel_max=%d f_min=%d f_max=%d",
+					 dbg_hop_count, (int)hdr->vad_flag,
+					 (int)hdr->energy, (int)hdr->noise_energy,
+					 mel[0], mel[1], mel[2], mel[3],
+					 mel_min, mel_max, f_min, f_max);
+				sof_ut_log(dbg_buf);
 			}
 
 			/* Shift 49-frame sliding window history by 1 frame (20ms hop) */
@@ -379,13 +400,27 @@ static int tflm_process(struct processing_module *mod,
 				if (sret == 0 && snk_ptr) {
 					size_t size_to_wrap = (uint8_t *)snk_buf_start + snk_buf_size - (uint8_t *)snk_ptr;
 					if (MFCC_HOP_BYTES <= size_to_wrap) {
-						memcpy(snk_ptr, data_ptr, MFCC_HOP_BYTES);
+						memcpy(snk_ptr, hop_scratch, MFCC_HOP_BYTES);
 					} else {
-						memcpy(snk_ptr, data_ptr, size_to_wrap);
-						memcpy(snk_buf_start, (const uint8_t *)data_ptr + size_to_wrap,
+						memcpy(snk_ptr, hop_scratch, size_to_wrap);
+						memcpy(snk_buf_start, hop_scratch + size_to_wrap,
 						       MFCC_HOP_BYTES - size_to_wrap);
 					}
 					sink_commit_buffer(sinks[0], MFCC_HOP_BYTES);
+				} else {
+					/* Rate-limited: first 5, then every 100th failure. */
+					static uint32_t dbg_sink_fail_count;
+
+					dbg_sink_fail_count++;
+					if (dbg_sink_fail_count <= 5 ||
+					    dbg_sink_fail_count % 100 == 0) {
+						size_t free_sz = sink_get_free_size(sinks[0]);
+
+						printk("[TFLM SINK FAIL #%u] sink_get_buffer(%u) ret=%d snk_ptr=%p free=%zu\n",
+						       dbg_sink_fail_count,
+						       (unsigned)MFCC_HOP_BYTES, sret,
+						       snk_ptr, free_sz);
+					}
 				}
 			}
 
