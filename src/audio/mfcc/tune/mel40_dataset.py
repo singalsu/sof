@@ -8,15 +8,22 @@ input WAV, produced by the SOF testbench):
 
     <feat_root>/<label>/<basename>.raw
 
-Each hop record is 184 bytes and matches the on-device wire format:
+Each hop starts with the on-device wire format:
 
     struct mfcc_data_header  (24 bytes)  magic, frame_number, reserved,
                                          energy, noise_energy, vad_flag
     int32_t values[40]                   Q9.23 mel-log bins
 
-The loader strips the per-hop header, converts Q9.23 -> float32, and slices
-each recording into fixed-size 49-hop windows to match the tflmcly sliding
-window (49 hops * 40 channels = 1960-value input tensor).
+The loader locates hops by scanning for ``MFCC_MAGIC`` (0x6d666363) so it
+works for both the packed on-wire compress layout (184 bytes/hop, back to
+back) and the legacy PCM-sink layout the testbench emits when the MFCC
+config has ``compress_output=false`` (24-byte header + 160 mel bytes +
+zero-padding out to ``sink_frame_bytes * frame_shift`` per hop; e.g. 2560
+bytes for a stereo S32 16 kHz sink at 20 ms hop). At each magic offset it
+reads the 24-byte header and the following 40 int32 Q9.23 mel bins,
+converts to float32, and slices each recording into fixed-size 49-hop
+windows to match the tflmcly sliding window (49 hops * 40 channels =
+1960-value input tensor).
 
 Standalone CLI mode prints dataset shape and per-label counts for a quick
 sanity check::
@@ -36,16 +43,35 @@ HOP_HEADER_BYTES = 24
 HOP_BINS = 40
 HOP_BYTES = HOP_HEADER_BYTES + HOP_BINS * 4
 WINDOW_HOPS = 49
+MFCC_MAGIC = 0x6D666363  # 'ccfm' on disk, matches struct mfcc_data_header.magic
 
 
 def load_raw_hops(path: str) -> np.ndarray:
-    """Read a testbench-emitted .raw file, return (N_hops, 40) float32."""
+    """Read a testbench-emitted .raw file, return (N_hops, 40) float32.
+
+    Scans the file for MFCC magic markers and decodes the fixed 184-byte
+    hop payload at each hit, so the same loader works for compress-packed
+    (184 B/hop) and legacy PCM-padded (e.g. 2560 B/hop) layouts.
+    """
     data = np.fromfile(path, dtype=np.uint8)
-    n_hops = data.size // HOP_BYTES
-    if n_hops == 0:
+    if data.size < HOP_BYTES:
         return np.zeros((0, HOP_BINS), dtype=np.float32)
-    hops = data[: n_hops * HOP_BYTES].reshape(n_hops, HOP_BYTES)
-    q = hops[:, HOP_HEADER_BYTES:].view(np.int32).reshape(n_hops, HOP_BINS)
+    n_u32 = data.size // 4
+    u32 = data[: n_u32 * 4].view(np.uint32)
+    magic_positions = np.flatnonzero(u32 == MFCC_MAGIC) * 4
+    if magic_positions.size == 0:
+        return np.zeros((0, HOP_BINS), dtype=np.float32)
+    # Drop any tail magic without a full 184-byte payload behind it.
+    magic_positions = magic_positions[
+        magic_positions + HOP_BYTES <= data.size
+    ]
+    if magic_positions.size == 0:
+        return np.zeros((0, HOP_BINS), dtype=np.float32)
+    offsets = magic_positions[:, None] + (
+        HOP_HEADER_BYTES + np.arange(HOP_BINS * 4)
+    )
+    mel_bytes = data[offsets].reshape(-1, HOP_BINS * 4)
+    q = mel_bytes.view(np.int32).reshape(-1, HOP_BINS)
     return q.astype(np.float32) / float(1 << 23)
 
 

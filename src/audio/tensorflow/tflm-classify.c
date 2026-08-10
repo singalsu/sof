@@ -47,6 +47,11 @@ static void sof_ut_log(const char *msg)
 #include <ipc4/notification.h>
 #include <sof/audio/kpb.h>
 #include <sof/lib/notifier.h>
+#if CONFIG_AMS
+#include <sof/lib/ams.h>
+#include <sof/lib/ams_msg.h>
+#include <ipc4/ams_helpers.h>
+#endif
 
 #include <rtos/timer.h>
 #include <sof/audio/mfcc/mfcc_comp.h>
@@ -94,13 +99,27 @@ EXPORT_SYMBOL(log_const_tflmcly);
 
 static const char * const prediction[] = TFLM_CATEGORY_DATA;
 
+/* Pre-roll history in ms that KPB drains to host on wake-word trigger.
+ * Must be <= KPB_MAX_DRAINING_REQ (2000 ms on non-TGL, 2000 ms on TGL).
+ */
+#define TFLM_KPB_DRAIN_REQ_MS 2000
+
 struct tflm_comp_data {
 	struct comp_data_blob_handler *model_handler;
 	struct tf_classify tfc;
 	struct ipc_msg *msg;
 	struct kpb_event_data event_data;
 	struct kpb_client client_data;
+	uint32_t drain_req_ms;
+#if CONFIG_AMS
+	uint32_t kpd_uuid_id;
+#endif
 } __attribute__((aligned(8)));
+
+#if CONFIG_AMS
+/* Key-phrase detected AMS message UUID (matches KPB consumer). */
+static const ams_uuid_t tflm_ams_kpd_msg_uuid = AMS_KPD_MSG_UUID;
+#endif
 
 static void tflm_notify_kpb(struct processing_module *mod)
 {
@@ -112,12 +131,26 @@ static void tflm_notify_kpb(struct processing_module *mod)
 	cd->client_data.r_ptr = NULL;
 	cd->client_data.sink = NULL;
 	cd->client_data.id = 0;
+	cd->client_data.drain_req = cd->drain_req_ms;
+
+#if CONFIG_AMS
+	struct ams_message_payload ams_payload;
+	int ret;
+
+	ams_helper_prepare_payload(dev, &ams_payload, cd->kpd_uuid_id,
+				   (uint8_t *)&cd->client_data,
+				   sizeof(cd->client_data));
+	ret = ams_send(&ams_payload);
+	if (ret)
+		comp_err(dev, "ams_send failed %d", ret);
+#else
 	cd->event_data.event_id = KPB_EVENT_BEGIN_DRAINING;
 	cd->event_data.client_data = &cd->client_data;
 
 	notifier_event(dev, NOTIFIER_ID_KPB_CLIENT_EVT,
 		       NOTIFIER_TARGET_CORE_ALL_MASK, &cd->event_data,
 		       sizeof(cd->event_data));
+#endif
 }
 
 static int tflm_ipc_notification_init(struct processing_module *mod)
@@ -201,6 +234,10 @@ __cold static int tflm_init(struct processing_module *mod)
 	memset(cd, 0, sizeof(*cd));
 	md->private = cd;
 	cd->tfc.categories = TFLM_CATEGORY_COUNT;
+	cd->drain_req_ms = TFLM_KPB_DRAIN_REQ_MS;
+#if CONFIG_AMS
+	cd->kpd_uuid_id = AMS_INVALID_MSG_TYPE;
+#endif
 	g_tflm_cd = cd;
 	g_tflm_dev = dev;
 	printk("[TFLM INIT] init complete successfully!\n");
@@ -594,13 +631,38 @@ static int tflm_prepare(struct processing_module *mod,
 	       TF_ArenaUsedBytes(), TF_ArenaCapacity());
 	printk("[DBG quant] input_scale_x1e6=%d input_zero_point=%d\n",
 	       (int)(cd->tfc.input_scale * 1000000.0f), cd->tfc.input_zero_point);
+#if CONFIG_AMS
+	if (cd->kpd_uuid_id == AMS_INVALID_MSG_TYPE) {
+		int ams_ret = ams_helper_register_producer(mod->dev,
+							   &cd->kpd_uuid_id,
+							   tflm_ams_kpd_msg_uuid);
+		if (ams_ret) {
+			printk("[TFLM PREPARE] AMS producer register failed %d\n",
+			       ams_ret);
+			return ams_ret;
+		}
+	}
+#endif
 	return 0;
 }
 
 
 static int tflm_reset(struct processing_module *mod)
 {
+	struct tflm_comp_data *cd = module_get_private_data(mod);
+
 	tflm_log_summary_at_shutdown(mod);
+#if CONFIG_AMS
+	if (cd->kpd_uuid_id != AMS_INVALID_MSG_TYPE) {
+		int ret = ams_helper_unregister_producer(mod->dev,
+							 cd->kpd_uuid_id);
+		if (ret)
+			comp_err(mod->dev, "ams unregister failed %d", ret);
+		cd->kpd_uuid_id = AMS_INVALID_MSG_TYPE;
+	}
+#else
+	(void)cd;
+#endif
 	g_tflm_initialized = false;
 	return 0;
 }
