@@ -286,86 +286,243 @@ Upon stream reset or module destruction (`tflm_reset()` / `tflm_free()`), TFLM e
 
 ## Training a Custom Keyword Model with Piper-TTS
 
-The stock model only recognizes `yes`/`no` (plus `silence`/`unknown`). To recognize custom keywords, train a new model with the same `tiny_conv` DS-CNN shape `speech.cc`'s `MicroMutableOpResolver<4>` already supports (Reshape, FullyConnected, DepthwiseConv2D, Softmax) — **and train it directly against real SOF MFCC mel-log features**, not the stock TFLM frontend, to avoid the PCAN-AGC mismatch described above.
+The stock model only recognizes `yes`/`no` (plus `silence`/`unknown`). The
+shipped `hey_linux_quantized_model_data.{cc,h}` was retrained end-to-end
+against real SOF mel40 features using the scripts under
+[../mfcc/tune/](../mfcc/tune/). This section documents that exact recipe
+so the model can be reproduced or a different keyword substituted.
 
-### 1. Generate a synthetic dataset with Piper-TTS
+### Pipeline overview
 
-Getting hundreds of real speakers to say a made-up keyword isn't practical — generate it with TTS instead. Install in an isolated venv (Piper pulls a full `torch`/`librosa` stack that will fight anything else — e.g. an OpenVINO env — over `numpy`/`onnxruntime` versions):
+The training flow is orchestrated by
+[train_wov_pipeline.sh](../mfcc/tune/train_wov_pipeline.sh), which chains
+four steps into one command:
+
+| Step | Script | What it does |
+|------|--------|-------------|
+| 0 | [generate_hey_linux_dataset.sh](../mfcc/tune/generate_hey_linux_dataset.sh) | Synthesize `<keyword>/*.wav` with Piper-TTS + augmentation |
+| 1 | [prepare_silence_unknown.sh](../mfcc/tune/prepare_silence_unknown.sh) | Slice `silence/` + sample `unknown/` from Speech Commands v2 |
+| 2 | [run_mfcc_train.sh](../mfcc/tune/run_mfcc_train.sh) | Emit SOF mel40 features via `sof-testbench4` |
+| 3 | [train_wov_tflm.py](../mfcc/tune/train_wov_tflm.py) | Train `tiny_conv`, int8-quantize, write `.tflite` + C array |
+
+Off-device verification uses
+[verify_wov_tflm.py](../mfcc/tune/verify_wov_tflm.py), which runs the
+quantized `.tflite` on the held-out validation split and prints a
+confusion matrix — catches models with good overall accuracy but poor
+keyword-class recall before flashing.
+
+The labels are locked at `silence(0)`, `unknown(1)`, `<keyword>(2)` so
+the on-device tflmcly KPB trigger rule (`max_idx >= 2`) still applies.
+
+### 0. Prerequisites
+
+Two isolated Python venvs (Piper's `torch`/`librosa` stack and
+TensorFlow do not coexist cleanly):
 
 ```bash
+# Piper venv (dataset generation)
 python3 -m venv ~/venvs/piper
 source ~/venvs/piper/bin/activate
 pip install --upgrade pip
 pip install piper-sample-generator
+
+# TFLM training venv
+python3 -m venv ~/venvs/tflm-train
+source ~/venvs/tflm-train/bin/activate
+pip install --upgrade pip
+pip install "tensorflow>=2.10" numpy
 ```
 
-The tool is a proper Python package (repackaged upstream in 2025) — no `requirements.txt` in the git clone anymore. If you want to hack on the generation loop, `git clone` the repo and `pip install -e .` instead of the PyPI install.
-
-Two voice sources:
-- Individual Piper voices (`.onnx` + `.onnx.json`, one voice = one speaker) — download 10-20 `en_US`/`en_GB` voices for variety from https://huggingface.co/rhasspy/piper-voices.
-- The LibriTTS-R "generator" checkpoint, which mixes speaker embeddings from up to 904 underlying speakers via `--max-speakers`/`--slerp-weights` — more voice diversity from a single model file; avoid the highest-numbered speaker indices (the tool's own docs warn these have few training samples and produce artifacts). Fetch once:
+Fetch the Piper LibriTTS-R generator checkpoint once (one file supplies
+up to 904 speaker embeddings — more voice diversity than a bag of
+individual `.onnx` voices):
 
 ```bash
-mkdir -p models
-wget -O models/en_US-libritts_r-medium.pt \
+git clone https://github.com/rhasspy/piper-sample-generator ~/git/piper-sample-generator
+mkdir -p ~/git/piper-sample-generator/models
+wget -O ~/git/piper-sample-generator/models/en_US-libritts_r-medium.pt \
   https://github.com/rhasspy/piper-sample-generator/releases/download/v2.0.0/en_US-libritts_r-medium.pt
 ```
 
-Generate per keyword, looping over voices and speaking rates so samples aren't all one speaker/prosody:
+The training venv also needs the SOF host tools:
+
+- `sof-testbench4` built at
+  `tools/testbench/build_testbench/install/bin/sof-testbench4`
+  (`scripts/rebuild-testbench.sh`).
+- The mel40 development topology
+  `sof-hda-benchmark-mfccmel4032.tplg` built via
+  `scripts/build-tools.sh -t`.
+- `sox` and `xxd` on `PATH`.
+
+Export `SOF_WORKSPACE` to point at the parent of the `sof/` tree —
+[run_mfcc_train.sh](../mfcc/tune/run_mfcc_train.sh) uses it to locate
+the testbench and topology binaries.
+
+### 1. Generate the keyword dataset
+
+[generate_hey_linux_dataset.sh](../mfcc/tune/generate_hey_linux_dataset.sh)
+synthesizes `"hey linux"` utterances across 3 speaking rates × up to
+700 speaker embeddings, then augments them with room impulse
+responses, volume jitter, and 16 kHz resampling. The shipped
+`hey_linux_quantized_model_data.{cc,h}` used `MAX_SAMPLES=2000`
+(~6000 raw clips, ~6000 augmented after the pass) — the built-in
+default of 400 is only enough to smoke-test the pipeline:
 
 ```bash
-for voice in voices/*.onnx; do
-  for scale in 0.9 1.0 1.1; do
-    python3 -m piper_sample_generator "<keyword>" \
-        --model "$voice" --max-samples 50 \
-        --length-scales "$scale" \
-        --output-dir "raw/<keyword>/"
-  done
-done
+source ~/venvs/piper/bin/activate
+MAX_SAMPLES=2000 \
+PIPER_VENV=~/venvs/piper \
+PIPER_MODEL=~/git/piper-sample-generator/models/en_US-libritts_r-medium.pt \
+PIPER_REPO=~/git/piper-sample-generator \
+    ./generate_hey_linux_dataset.sh ~/wov/wavs
+deactivate
 ```
 
-Augment with the tool's own augmentation pass — randomizes volume, convolves with room impulse responses, and resamples (pass `--sample-rate 16000` so the output matches what SOF MFCC ingests; input/output dirs are positional):
+Output lands at `~/wov/wavs/hey_linux/*.wav`. Override the keyword text
+via `KEYWORD="hey acme"` (the subdir name derives from it). `PIPER_REPO`
+is required because upstream ships the `piper_train` package only in
+the git tree, not in the PyPI wheel.
+
+### 2. End-to-end pipeline: silence/unknown → features → train → quantize
+
+The remaining three steps run in one command. From
+`src/audio/mfcc/tune/`, mirroring the shipped-model recipe
+(`N_SILENCE=1500`, `N_UNKNOWN=4000`, `EPOCHS=40` — larger than the
+built-in defaults of 500 / 1500 / 25):
 
 ```bash
-python3 -m piper_sample_generator.augment --sample-rate 16000 \
-    raw/<keyword>/ data/<keyword>/
+N_SILENCE=1500 N_UNKNOWN=4000 EPOCHS=40 \
+TFLM_VENV=~/venvs/tflm-train \
+    ./train_wov_pipeline.sh ~/wov/wavs ~/wov/feats ~/wov/model
 ```
 
-Optionally mix in background noise (Speech Commands v2's `_background_noise_` clips work well) at a few SNR levels for extra robustness.
+This will:
 
-Target a low thousand positive clips per keyword spread across as many voices/speeds/rooms as practical — diversity matters more than raw count. Start with a few hundred to validate the pipeline end-to-end, check the confusion matrix, then scale up if accuracy/false-accept rate isn't good enough. Supplement with a small set of real human recordings if available, even just for held-out validation.
+1. Fetch Speech Commands v2 (2.4 GB, one-time, cached under
+   `~/.cache/speech_commands_v2`) and populate `~/wov/wavs/silence/`
+   (1500 × 1 s slices of `_background_noise_`) and
+   `~/wov/wavs/unknown/` (4000 clips sampled from the non-target
+   Speech Commands words).
+2. Run `sof-testbench4` on every `<label>/*.wav` with the S32 mel40
+   topology, writing `~/wov/feats/<label>/*.raw` (each hop = 24-byte
+   `struct mfcc_data_header` + 40 × Q9.23 `int32_t`).
+3. Load features via [mel40_dataset.py](../mfcc/tune/mel40_dataset.py),
+   train a `tiny_conv` (Reshape → DepthwiseConv2D → Flatten → Dense →
+   Softmax; ~12 k params) for `EPOCHS` epochs, full-int8 quantize
+   using the *real training-feature distribution* as the
+   representative set (this is what the stock model got wrong — see
+   the PCAN-AGC note above), and emit
+   `~/wov/model/hey_linux_quantized_model.tflite` (~16 KB) plus an
+   `xxd`-style `hey_linux_quantized_model_data.{cc,h}` and a matching
+   `hey_linux_labels.txt`.
 
-Reuse Speech Commands v2's `_background_noise_` clips for the `silence` class, and a sample of its other 30 words (or spare non-keyword Piper output) for `unknown`. All of it just needs to land as plain 16kHz mono 16-bit WAV under `data_dir/<label>/*.wav`, one subfolder per label.
-
-### 2. Generate matching MFCC features for training
-
-Since the target frontend is SOF's own `mel40`/`mel40_compress` MFCC profile (see [MFCC frame format](#mfcc-frame-format) above: 40 mel bins, 20ms hop, 30ms window, Q9.23 fixed point), run the same MFCC extraction used on-device (`src/audio/mfcc/tune/setup_mfcc.m`'s `mel40` profile, or an equivalent host-side mel-log extractor with matching bin count/hop/window) over the generated dataset instead of TFLM's stock frontend, so train-time and inference-time features actually match. Export as plain floating-point mel-log values (pre-quantization) — quantization to int8 happens once, at conversion time, using the real training-data value distribution (see step 4).
-
-### 3. Train
-
-Using the classic `tflite-micro` `train_micro_speech_model.ipynb` / `speech_commands/train.py` pipeline (`tiny_conv` architecture):
+Re-runs skip the expensive stages via env flags:
 
 ```bash
-python3 train.py --data_dir=<custom_mel40_dir> --wanted_words=<kw1,kw2,...> \
-    --silence_percentage=25 --unknown_percentage=25 \
-    --preprocess=micro --window_stride=20 --model_architecture=tiny_conv \
-    --quantize=1
+SKIP_PREP=1 SKIP_FEATURES=1 EPOCHS=40 \
+TFLM_VENV=~/venvs/tflm-train \
+    ./train_wov_pipeline.sh ~/wov/wavs ~/wov/feats ~/wov/model
 ```
 
-Run ~15-20k steps; validate accuracy/confusion matrix on a held-out split before proceeding.
+Further training knobs: `BATCH_SIZE`, `LR`. Change the keyword by
+passing a 4th positional arg — `./train_wov_pipeline.sh ~/wov/wavs
+~/wov/feats ~/wov/model hey_acme` — but keep index 2 as the
+positive-trigger class for the KPB rule.
 
-### 4. Freeze, quantize, convert, and integrate
+### 3. Verify off-device before flashing
 
-Freeze the graph, full-int8 quantize using a representative sample of the *real training feature distribution* (not an assumed 0..1 range — this is exactly what caused the stock model's mismatch), convert to `.tflite`, then regenerate the C array the same way `micro_speech_quantized_model_data.cc` was produced (e.g. `xxd -i` or TFLM's own conversion script), giving e.g. `custom_kw_quantized_model_data.{cc,h}`.
+```bash
+source ~/venvs/tflm-train/bin/activate
+python3 verify_wov_tflm.py \
+    --tflite ~/wov/model/hey_linux_quantized_model.tflite \
+    --feat-root ~/wov/feats \
+    --labels silence,unknown,hey_linux
+```
 
-Swap it in:
-- Replace the `#include "micro_speech_quantized_model_data.h"` in `speech.cc` with the new header.
-- Update `TFLM_CATEGORY_COUNT`/`TFLM_CATEGORY_DATA` in `speech.h` to the new label set (keep `silence`/`unknown` as indices 0/1 to preserve the existing KPB-trigger convention).
-- Sanity-check off-device first (host x86 TFLM build, or a plain TFLite interpreter) against held-out real recordings, to isolate model-quality problems from firmware-integration problems before touching hardware.
+Prints per-class precision/recall and the confusion matrix on the same
+held-out validation split training used (deterministic split via
+`--val-frac` / `--seed`). The `hey_linux` recall matters more than
+overall accuracy — a model with 98 % accuracy but 60 % keyword recall
+will feel broken on device.
+
+### 4. Wire the model into SOF
+
+```bash
+cp ~/wov/model/hey_linux_quantized_model_data.{cc,h} \
+   src/audio/tensorflow/
+```
+
+In [speech.cc](speech.cc):
+
+```c
+#include "hey_linux_quantized_model_data.h"
+// ...
+model = tflite::GetModel(g_hey_linux_quantized_model_data);
+```
+
+In [speech.h](speech.h), match `~/wov/model/hey_linux_labels.txt`:
+
+```c
+#define TFLM_CATEGORY_COUNT  3
+#define TFLM_CATEGORY_DATA   {"silence", "unknown", "hey_linux",}
+```
+
+Add the new `.cc` to [CMakeLists.txt](CMakeLists.txt) (and its LLEXT
+sibling under [llext/CMakeLists.txt](llext/CMakeLists.txt)) in place of
+the retired `micro_speech_quantized_model_data.cc`.
 
 ### 5. Validate on hardware
 
-Rebuild ([Build Instructions](#build-instructions)), deploy, and feed real audio containing the new keywords per [Usage](#usage) above — confirm `mtrace` prediction logs pick the right class with reasonable confidence on true positives, and stay on `silence`/`unknown` for a control set of unrelated speech/background noise.
+Rebuild ([Build Instructions](#build-instructions)) and deploy the new
+firmware plus the reference topology
+[sof-hda-generic-tflm-kpb.tplg](../../../tools/topology/topology2/sof-hda-generic-tflm-kpb.conf).
+It exposes two extra capture PCMs on the HDA-generic tree, both
+`S32_LE / 2ch / 16 kHz`:
+
+| PCM | Stream name | Purpose |
+|-----|-------------|---------|
+| `hw:0,42` | "HDA Mic TFLM Detect" | Arms the KPB → SRC → MFCC → TFLM branch |
+| `hw:0,41` | "HDA Mic WoV Capture" | Receives the 2 s KPB pre-roll drain on trigger |
+
+Order matters: opening `hw:0,41` alone leaves KPB without a `sel_sink`
+and prepare fails. Always start the Detect PCM first — that instantiates
+`micsel` and lets KPB bind both sinks.
+
+**Arm the detector** (Detect PCM run to `/dev/null` — its job is to
+drive the TFLM inference, not to produce a file):
+
+```bash
+arecord -D hw:0,42 -f S32_LE -c 2 -r 16000 -d 30 /dev/null &
+```
+
+**Capture the wake-word drain** in a second shell. KPB drains
+`TFLM_KPB_DRAIN_REQ_MS = 2000 ms` of pre-roll on trigger, then streams
+real-time until the PCM stops, so oversize the ring buffer:
+
+```bash
+arecord -D hw:0,41 -f S32_LE -c 2 -r 16000 \
+        -M -N --buffer-size=65536 \
+        -d 20 wov.wav
+```
+
+Now speak the keyword (`"hey linux"`) once. In `mtrace`,
+`tflmcly.tflm_notify_kpb` should log at the trigger instant and KPB
+should log `kpb_init_draining: requested draining of 2000 [ms]` right
+after. `wov.wav` grows past its 44-byte header — the first ~2 s is the
+pre-roll history buffer, the remainder is real-time capture through the
+end of the arecord duration. On the stream-shutdown summary,
+`Total KPB Triggers` matches the number of accepted detections.
+
+If `wov.wav` stays 44 bytes: check `mtrace` for the `tflm_notify_kpb`
+line. If it's missing, TFLM never crossed the confidence threshold
+(speak closer / retrain with more data). If it's there but no KPB
+`received event` follows, `CONFIG_AMS` on the target does not match
+what [tflm-classify.c](tflm-classify.c) was compiled against — rebuild
+against the deployed `.config`.
+
+For sanity checks and stress runs, also confirm the class picked in
+`mtrace` prediction logs stays on `silence`/`unknown` for a control set
+of unrelated speech and background noise.
 
 ---
 
