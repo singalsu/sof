@@ -7,6 +7,7 @@
 
 #include <ipc4/ams_helpers.h>
 #include <sof/audio/component.h>
+#include <rtos/symbol.h>
 
 #if CONFIG_AMS
 
@@ -24,6 +25,7 @@ int ams_helper_register_producer(const struct comp_dev *dev,
 
 	return ams_register_producer(*ams_uuid_id, mod_id, inst_id);
 }
+EXPORT_SYMBOL(ams_helper_register_producer);
 
 int ams_helper_unregister_producer(const struct comp_dev *dev,
 				   uint32_t ams_uuid_id)
@@ -33,6 +35,7 @@ int ams_helper_unregister_producer(const struct comp_dev *dev,
 
 	return ams_unregister_producer(ams_uuid_id, mod_id, inst_id);
 }
+EXPORT_SYMBOL(ams_helper_unregister_producer);
 
 int ams_helper_register_consumer(struct comp_dev *dev,
 				 uint32_t *ams_uuid_id,
@@ -75,5 +78,6 @@ void ams_helper_prepare_payload(const struct comp_dev *dev,
 	payload->message_length = message_size;
 	payload->message = message;
 }
+EXPORT_SYMBOL(ams_helper_prepare_payload);
 
 #endif /* CONFIG_AMS */

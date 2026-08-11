@@ -21,6 +21,7 @@
 #include <stddef.h>
 #include <stdint.h>
 #include <sof/lib/ams.h>
+#include <rtos/symbol.h>
 #include <zephyr/kernel.h>
 
 LOG_MODULE_REGISTER(ams, CONFIG_SOF_LOG_LEVEL);
@@ -467,6 +468,7 @@ int ams_send(const struct ams_message_payload *const ams_message_payload)
 	return ams_message_send_internal(ams, ams_message_payload, AMS_ANY_ID, AMS_ANY_ID,
 					 AMS_INVALID_SLOT);
 }
+EXPORT_SYMBOL(ams_send);
 
 int ams_message_send_mi(struct async_message_service *ams,
 			const struct ams_message_payload *const ams_message_payload,

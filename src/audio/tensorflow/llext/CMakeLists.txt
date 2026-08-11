@@ -287,6 +287,7 @@ else()
 		${TFLM_PATH}/tensorflow/lite/micro/kernels/fully_connected.cc
 		${TFLM_PATH}/tensorflow/lite/micro/kernels/reshape.cc
 		${TFLM_PATH}/tensorflow/lite/micro/kernels/softmax.cc
+		${TFLM_PATH}/tensorflow/lite/micro/kernels/strided_slice.cc
 	)
 endif()
 

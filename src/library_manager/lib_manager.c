@@ -35,7 +35,10 @@
 #include <zephyr/cache.h>
 #include <zephyr/drivers/mm/system_mm.h>
 #if CONFIG_LLEXT
+#include <zephyr/kernel.h>
 #include <zephyr/llext/llext.h>
+#include <zephyr/sys/printk.h>
+#include <rtos/symbol.h>
 #endif
 #include <zephyr/sys/math_extras.h>
 
@@ -56,6 +59,14 @@ LOG_MODULE_REGISTER(lib_manager, CONFIG_SOF_LOG_LEVEL);
 SOF_DEFINE_REG_UUID(lib_manager);
 
 DECLARE_TR_CTX(lib_manager_tr, SOF_UUID(lib_manager_uuid), LOG_LEVEL_INFO);
+
+#if CONFIG_LLEXT
+/* Zephyr symbols required by loadable modules (e.g. TFLM) that Zephyr itself
+ * does not export.
+ */
+EXPORT_SYMBOL(snprintk);
+EXPORT_SYMBOL(sys_clock_cycle_get_32);
+#endif
 
 struct lib_manager_dma_ext {
 	struct sof_dma *dma;
@@ -474,8 +485,29 @@ void lib_manager_init(void)
 {
 	struct sof *sof = sof_get();
 
-	if (!sof->ext_library)
-		sof->ext_library = &loader_ext_lib;
+	if (sof->ext_library)
+		return;
+
+	sof->ext_library = &loader_ext_lib;
+
+#ifdef CONFIG_LLEXT_HEAP_DYNAMIC
+	/* Provide the runtime heap the llext subsystem uses for ELF metadata
+	 * (section maps, symbol tables). 64 KB fits TFLM comfortably.
+	 */
+	const size_t llext_heap_bytes = 64 * 1024;
+	void *llext_heap_buf = rmalloc(SOF_MEM_FLAG_KERNEL, llext_heap_bytes);
+
+	if (!llext_heap_buf) {
+		tr_err(&lib_manager_tr, "llext heap alloc failed (%zu bytes)",
+		       llext_heap_bytes);
+		return;
+	}
+
+	int ret = llext_heap_init(llext_heap_buf, llext_heap_bytes);
+
+	if (ret && ret != -EEXIST)
+		tr_err(&lib_manager_tr, "llext_heap_init failed: %d", ret);
+#endif
 }
 
 const struct sof_man_fw_desc *lib_manager_get_library_manifest(int module_id)
