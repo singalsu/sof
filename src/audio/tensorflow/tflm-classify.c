@@ -389,18 +389,42 @@ static int tflm_process(struct processing_module *mod,
 			 * TFLM_FEATURE_SIZE int32 Q9.23 mel-log values into
 			 * int8 features for this hop.
 			 */
+			const struct mfcc_data_header *hdr =
+				(const struct mfcc_data_header *)hop_scratch;
 			const int32_t *mel = (const int32_t *)
 				(hop_scratch + sizeof(struct mfcc_data_header));
 			int8_t hop_features[TFLM_FEATURE_SIZE];
 
-			for (int i = 0; i < TFLM_FEATURE_SIZE; i++)
-				hop_features[i] = mfcc_mel_q23_to_int8(mel[i],
+			/* Match training preprocessing exactly: clip Q9.23 mel to
+			 * [-1.0, +4.0] and then rescale to [-1.0, +1.0] centered
+			 * on 0 (np.clip + (X - 1.5) / 2.5 in train_wov_tflm.py).
+			 * TFLite calibration on that range picks
+			 * input_scale=1/128, input_zero_point=0, so the model
+			 * consumes the full int8 dynamic range.
+			 */
+			enum {
+				MEL_CLIP_MIN_Q23 = -(1 << 23),        /* -1.0 */
+				MEL_CLIP_MAX_Q23 =  (4 << 23),        /* +4.0 */
+				MEL_CENTER_Q23   =  (3 << 22),        /* +1.5 */
+			};
+
+			for (int i = 0; i < TFLM_FEATURE_SIZE; i++) {
+				int32_t mel_c = mel[i];
+
+				if (mel_c < MEL_CLIP_MIN_Q23)
+					mel_c = MEL_CLIP_MIN_Q23;
+				else if (mel_c > MEL_CLIP_MAX_Q23)
+					mel_c = MEL_CLIP_MAX_Q23;
+
+				/* (mel - 1.5) * (2 / 5) — worst-case |num| = 5<<23, fits int32. */
+				mel_c = ((mel_c - MEL_CENTER_Q23) * 2) / 5;
+
+				hop_features[i] = mfcc_mel_q23_to_int8(mel_c,
 					cd->tfc.input_mult, cd->tfc.input_shift,
 					cd->tfc.input_zero_point);
+			}
 
 			{
-				const struct mfcc_data_header *hdr =
-					(const struct mfcc_data_header *)hop_scratch;
 				static int dbg_hop_count;
 				int32_t mel_min = mel[0], mel_max = mel[0];
 				int8_t f_min = hop_features[0], f_max = hop_features[0];
@@ -414,11 +438,11 @@ static int tflm_process(struct processing_module *mod,
 					if (hop_features[i] > f_max) f_max = hop_features[i];
 				}
 				snprintk(dbg_buf, sizeof(dbg_buf),
-					 "[DBG hop %d] vad=%d E=%d Ne=%d mel[0..3]=%d,%d,%d,%d mel_min=%d mel_max=%d f_min=%d f_max=%d",
+					 "[DBG hop %d] vad=%d E=%d Ne=%d mel_min=%d mel_max=%d f_min=%d f_max=%d",
 					 dbg_hop_count, (int)hdr->vad_flag,
 					 (int)hdr->energy, (int)hdr->noise_energy,
-					 mel[0], mel[1], mel[2], mel[3],
-					 mel_min, mel_max, f_min, f_max);
+					 mel_min, mel_max,
+					 f_min, f_max);
 				sof_ut_log(dbg_buf);
 			}
 

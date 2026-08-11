@@ -209,6 +209,16 @@ def main() -> int:
         print(f"    clip [{args.feature_clip_min}, {args.feature_clip_max}]: "
               f"range {pre_min:.3f}..{pre_max:.3f} -> {float(X.min()):.3f}..{float(X.max()):.3f}")
 
+        # Linear rescale [clip_min, clip_max] -> [-1, +1] so TFLite
+        # calibration picks input_scale=1/128, input_zero_point=0 and the
+        # full int8 range is used. Runtime tflm-classify.c mirrors this
+        # transform on the Q9.23 mel value before requantization.
+        center = 0.5 * (args.feature_clip_min + args.feature_clip_max)
+        half_span = 0.5 * (args.feature_clip_max - args.feature_clip_min)
+        X = (X - center) / half_span
+        print(f"    rescale to [-1, +1] (center={center:.3f}, half_span={half_span:.3f}): "
+              f"range {float(X.min()):.3f}..{float(X.max()):.3f}")
+
     X_tr, y_tr, X_va, y_va = split_train_val(X, y, args.val_frac, args.seed)
     print(f"    train={X_tr.shape[0]} val={X_va.shape[0]}")
 
