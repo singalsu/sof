@@ -1,9 +1,17 @@
 # Copyright (c) 2025 Intel Corporation.
 # SPDX-License-Identifier: Apache-2.0
 
-# -mllvm --text-section-literals=false is a Clang-only flag; guard it
+# Newer xt-clang LLVMs accept this to keep literals in .rodata; older
+# xt-clang (e.g. RI-2022.10, LLVM 10) rejects the sub-option. Detect it.
+set(TFLM_TEXT_SECTION_LITERALS_FALSE_FLAG "")
 if(CMAKE_C_COMPILER_ID STREQUAL "Clang" OR CMAKE_CXX_COMPILER_ID STREQUAL "Clang")
-  add_compile_options(-mllvm --text-section-literals=false)
+  include(CheckCXXCompilerFlag)
+  check_cxx_compiler_flag("-mllvm --text-section-literals=false"
+    TFLM_HAS_MLLVM_TEXT_SECTION_LITERALS_FALSE)
+  if(TFLM_HAS_MLLVM_TEXT_SECTION_LITERALS_FALSE)
+    set(TFLM_TEXT_SECTION_LITERALS_FALSE_FLAG -mllvm --text-section-literals=false)
+    add_compile_options(${TFLM_TEXT_SECTION_LITERALS_FALSE_FLAG})
+  endif()
 endif()
 
 # are we building the llext module ?
@@ -99,7 +107,7 @@ target_include_directories(nn_hifi_lib PRIVATE
 )
 
 target_compile_options(nn_hifi_lib PRIVATE
-  -mllvm --text-section-literals=false
+  ${TFLM_TEXT_SECTION_LITERALS_FALSE_FLAG}
 )
 
 endif() # TENSORFLOW_HAVE_NNLIB_HIFI4

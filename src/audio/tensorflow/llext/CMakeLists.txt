@@ -485,38 +485,46 @@ target_compile_options(tflm_lib PRIVATE
 	-fno-data-sections
 )
 
-# Use GNU libstdc++ headers (from zephyr-sdk gcc toolchain) which work with
-# both gcc and Clang. The -stdlib=libc++ approach requires an installed libc++
-# runtime that is not available for the xtensa target in this LLVM build.
+# Two Clang C++ standard-library setups are supported:
+#
+# 1. If the compiler ships libc++ (e.g. Cadence RI-2022.10 xt-clang), use
+#    -stdlib=libc++. The Xtensa newlib C++ config header requires this for
+#    C++11+ ("For C++11 or later with newlib, you must use -stdlib=libc++").
+# 2. Otherwise (e.g. Zephyr-SDK xt-clang, which lacks a libc++ runtime for
+#    xtensa) fall back to the GNU libstdc++ headers from the zephyr-sdk gcc
+#    toolchain, plus Clang's builtin header dir.
 if(CMAKE_CXX_COMPILER_ID MATCHES "Clang")
-	# Add GNU libstdc++ headers so Clang can find <algorithm>, <cstdarg>, etc.
-	file(GLOB _gnu_cxx_dirs
-		"/home/lrg/zephyr-sdk-*/gnu/xtensa-intel_ace15_mtpm_zephyr-elf/xtensa-intel_ace15_mtpm_zephyr-elf/include/c++/*/")
-	file(GLOB _gnu_c_dirs
-		"/home/lrg/zephyr-sdk-*/gnu/xtensa-intel_ace15_mtpm_zephyr-elf/xtensa-intel_ace15_mtpm_zephyr-elf/include/")
-	if(_gnu_cxx_dirs)
-		list(GET _gnu_cxx_dirs 0 _gnu_cxx_dir)
-		target_include_directories(tflm_lib SYSTEM PRIVATE
-			${_gnu_cxx_dir}
-			${_gnu_cxx_dir}/xtensa-intel_ace15_mtpm_zephyr-elf
+	include(CheckCXXCompilerFlag)
+	check_cxx_compiler_flag("-stdlib=libc++" TFLM_HAS_STDLIB_LIBCXX)
+	if(TFLM_HAS_STDLIB_LIBCXX)
+		target_compile_options(tflm_lib PRIVATE -stdlib=libc++)
+	else()
+		file(GLOB _gnu_cxx_dirs
+			"${ZEPHYR_SDK_INSTALL_DIR}/gnu/xtensa-${SOC_TOOLCHAIN_NAME}_zephyr-elf/xtensa-${SOC_TOOLCHAIN_NAME}_zephyr-elf/include/c++/*/")
+		set(_gnu_c_dir
+			"${ZEPHYR_SDK_INSTALL_DIR}/gnu/xtensa-${SOC_TOOLCHAIN_NAME}_zephyr-elf/xtensa-${SOC_TOOLCHAIN_NAME}_zephyr-elf/include")
+		if(_gnu_cxx_dirs)
+			list(GET _gnu_cxx_dirs 0 _gnu_cxx_dir)
+			target_include_directories(tflm_lib SYSTEM PRIVATE
+				${_gnu_cxx_dir}
+				${_gnu_cxx_dir}/xtensa-${SOC_TOOLCHAIN_NAME}_zephyr-elf
+			)
+		endif()
+		if(EXISTS "${_gnu_c_dir}")
+			target_include_directories(tflm_lib SYSTEM PRIVATE
+				${_gnu_c_dir}
+			)
+		endif()
+		execute_process(
+			COMMAND ${CMAKE_CXX_COMPILER} -print-resource-dir
+			OUTPUT_VARIABLE _clang_res_dir
+			OUTPUT_STRIP_TRAILING_WHITESPACE
 		)
-	endif()
-	if(_gnu_c_dirs)
-		list(GET _gnu_c_dirs 0 _gnu_c_dir)
-		target_include_directories(tflm_lib SYSTEM PRIVATE
-			${_gnu_c_dir}
-		)
-	endif()
-	# Clang builtin headers (stdarg.h, stdint.h wrappers, etc.)
-	execute_process(
-		COMMAND ${CMAKE_CXX_COMPILER} -print-resource-dir
-		OUTPUT_VARIABLE _clang_res_dir
-		OUTPUT_STRIP_TRAILING_WHITESPACE
-	)
-	if(_clang_res_dir AND EXISTS "${_clang_res_dir}/include")
-		target_include_directories(tflm_lib SYSTEM PRIVATE
-			${_clang_res_dir}/include
-		)
+		if(_clang_res_dir AND EXISTS "${_clang_res_dir}/include")
+			target_include_directories(tflm_lib SYSTEM PRIVATE
+				${_clang_res_dir}/include
+			)
+		endif()
 	endif()
 endif()
 
@@ -534,6 +542,29 @@ else()
 	set(TFLM_STD_LIBS stdc++)
 endif()
 
+# The zephyr-sdk xt-clang is host-native (x86_64 default target) and needs
+# --target and --ld-path to reach the xtensa binutils ld. A native xtensa
+# xt-clang (e.g. Cadence RI-2022.10, clang 10) does not support --ld-path
+# and defaults to the correct xtensa target and linker on its own.
+set(TFLM_ZEPHYR_SDK_CLANG FALSE)
+if(CMAKE_CXX_COMPILER_ID MATCHES "Clang")
+	include(CheckCXXCompilerFlag)
+	check_cxx_compiler_flag("--ld-path=/dev/null" TFLM_CLANG_HAS_LD_PATH)
+	if(TFLM_CLANG_HAS_LD_PATH AND DEFINED ZEPHYR_SDK_INSTALL_DIR)
+		set(TFLM_ZEPHYR_SDK_CLANG TRUE)
+	endif()
+endif()
+
+if(TFLM_ZEPHYR_SDK_CLANG)
+	set(_zsdk_triple "xtensa-${SOC_TOOLCHAIN_NAME}_zephyr-elf")
+	set(_zsdk_root "${ZEPHYR_SDK_INSTALL_DIR}/gnu/${_zsdk_triple}")
+	set(TFLM_LLEXT_LIBS_PATH .
+		${_zsdk_root}/${_zsdk_triple}/lib
+		${_zsdk_root}/lib/gcc/${_zsdk_triple}/14.3.0)
+else()
+	set(TFLM_LLEXT_LIBS_PATH .)
+endif()
+
 sof_llext_build("tflm"
 	SOURCES ../tflm-classify.c ../llext-wrap.c
 
@@ -549,21 +580,20 @@ sof_llext_build("tflm"
 	# TFLM is a C++ userspace application so hence we need to link
 	# userspace C++, C, maths and C runtime for llext module usage.
 	LIBS tflm_lib ${TFLM_EXTRA_LIBS} ${TFLM_STD_LIBS} m c gcc
-	LIBS_PATH .
-		/home/lrg/zephyr-sdk-1.0.1/gnu/xtensa-intel_ace15_mtpm_zephyr-elf/xtensa-intel_ace15_mtpm_zephyr-elf/lib
-		/home/lrg/zephyr-sdk-1.0.1/gnu/xtensa-intel_ace15_mtpm_zephyr-elf/lib/gcc/xtensa-intel_ace15_mtpm_zephyr-elf/14.3.0
+	LIBS_PATH ${TFLM_LLEXT_LIBS_PATH}
 )
 
 # Note: format_hifi3.h needs xtensa/config/defs.h and xtensa/tie/xt_hifi3.h.
 # Stub headers for these are provided in the intel_ace15_mtpm HAL for LLVM builds.
 
 # The llext link helper uses CMAKE_C_COMPILER (clang) as the linker driver.
-# Without --target, clang defaults to the host (x86_64) linker and cannot link
-# xtensa ELF objects. Add the target triple and xtensa linker path explicitly.
-if(CMAKE_CXX_COMPILER_ID MATCHES "Clang")
+# Zephyr-SDK's host clang defaults to the x86_64 linker and cannot link
+# xtensa ELF objects, so redirect it to the xtensa binutils ld. Native
+# xtensa xt-clang toolchains handle this on their own.
+if(TFLM_ZEPHYR_SDK_CLANG)
 	llext_link_options(tflm
-		--target=xtensa-intel_ace15_mtpm_zephyr-elf
-		--ld-path=/home/lrg/zephyr-sdk-1.0.1/gnu/xtensa-intel_ace15_mtpm_zephyr-elf/bin/xtensa-intel_ace15_mtpm_zephyr-elf-ld
+		--target=xtensa-${SOC_TOOLCHAIN_NAME}_zephyr-elf
+		--ld-path=${ZEPHYR_SDK_INSTALL_DIR}/gnu/xtensa-${SOC_TOOLCHAIN_NAME}_zephyr-elf/bin/xtensa-${SOC_TOOLCHAIN_NAME}_zephyr-elf-ld
 	)
 endif()
 
