@@ -56,7 +56,7 @@ Env:
   SKIP_PREP        If set, do not fetch/slice Speech Commands v2 again.
   SKIP_FEATURES    If set, do not re-run testbench feature extraction.
   EPOCHS, BATCH_SIZE, LR   Passed through to sof_tflm_train.py.
-  GAIN_AUG, GAIN_PEAK_DBFS, GAIN_SIGMA_DB
+  GAIN_AUG, GAIN_PEAK_DBFS, GAIN_SIGMA_DB, GAIN_HEADROOM_DB
                    Passed through to the WAV generators
                    (sof_tflm_generate_keyword_dataset.sh and
                    sof_tflm_prepare_silence_unknown.sh). Defaults apply

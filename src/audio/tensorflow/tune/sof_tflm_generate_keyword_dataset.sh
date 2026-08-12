@@ -36,8 +36,11 @@
 #                   distribution the model will train on. 0 = leave piper's
 #                   augmented output untouched. Default 1.
 #   GAIN_PEAK_DBFS  Peak-normalization target in dBFS (default -10).
-#   GAIN_SIGMA_DB   Gaussian jitter sigma in dB around the target; draws are
-#                   capped so peak+offset never exceeds 0 dBFS (default 5).
+#   GAIN_SIGMA_DB   Gaussian jitter sigma in dB around the target (default 5).
+#   GAIN_HEADROOM_DB Headroom in dB below full scale that the augmented peak
+#                   must respect. Positive offsets are capped so
+#                   peak+offset <= -GAIN_HEADROOM_DB, keeping sox out of the
+#                   dither/gain clip warning path (default 3).
 #
 # Required CLI:
 #   --keyword TEXT  Spoken phrase to synthesize (e.g. "hey linux"). Repeat
@@ -115,16 +118,19 @@ fi
 : "${GAIN_AUG:=1}"
 : "${GAIN_PEAK_DBFS:=-10}"
 : "${GAIN_SIGMA_DB:=5}"
+: "${GAIN_HEADROOM_DB:=3}"
 
 # Draw one N(0, sigma) sample in dB via awk Box-Muller, capped so the
-# resulting peak (GAIN_PEAK_DBFS + offset) never exceeds 0 dBFS. The seed
-# mixes $RANDOM with nanosecond time so consecutive calls in the same
+# resulting peak (GAIN_PEAK_DBFS + offset) stays <= -GAIN_HEADROOM_DB. The
+# seed mixes $RANDOM with nanosecond time so consecutive calls in the same
 # second do not collapse to the same value; keeping the seed under ~14
 # digits avoids awk losing entropy when parsing it as a double.
 gauss_offset_db() {
 	local sigma="$1"
 	local peak="$2"
-	awk -v s="$sigma" -v cap="$(awk -v p="$peak" 'BEGIN{print -p}')" \
+	local headroom="$3"
+	awk -v s="$sigma" \
+	    -v cap="$(awk -v p="$peak" -v h="$headroom" 'BEGIN{print -p-h}')" \
 	    -v seed="$RANDOM$(date +%N)" 'BEGIN {
 		srand(seed)
 		u1 = rand(); if (u1 < 1e-12) u1 = 1e-12
@@ -145,7 +151,7 @@ apply_gain_jitter() {
 	tmp=$(mktemp --suffix=.wav)
 	for wav in "$dir"/*.wav; do
 		[ -f "$wav" ] || continue
-		off=$(gauss_offset_db "$GAIN_SIGMA_DB" "$GAIN_PEAK_DBFS")
+		off=$(gauss_offset_db "$GAIN_SIGMA_DB" "$GAIN_PEAK_DBFS" "$GAIN_HEADROOM_DB")
 		sox "$wav" "$tmp" gain -n "$GAIN_PEAK_DBFS" gain "$off"
 		mv "$tmp" "$wav"
 		sum=$(awk -v a="$sum" -v b="$off" 'BEGIN{printf "%.3f", a+b}')
@@ -155,8 +161,9 @@ apply_gain_jitter() {
 	done
 	rm -f "$tmp"
 	if [ "$n" -gt 0 ]; then
-		awk -v n="$n" -v s="$sum" -v mn="$mn" -v mx="$mx" -v p="$GAIN_PEAK_DBFS" 'BEGIN{
-			printf "    gain jitter n=%d  offset mean=%.2f dB  min=%.2f  max=%.2f  target peak=%s dBFS\n", n, s/n, mn, mx, p
+		awk -v n="$n" -v s="$sum" -v mn="$mn" -v mx="$mx" \
+		    -v p="$GAIN_PEAK_DBFS" -v h="$GAIN_HEADROOM_DB" 'BEGIN{
+			printf "    gain jitter n=%d  offset mean=%.2f dB  min=%.2f  max=%.2f  target peak=%s dBFS  ceiling=%s dBFS\n", n, s/n, mn, mx, p, -h
 		}'
 	fi
 }
@@ -258,7 +265,7 @@ for i in "${!KEYWORDS[@]}"; do
 		"$RAW_DIR" "$FINAL_DIR"
 
 	if [[ "$GAIN_AUG" = "1" ]]; then
-		echo ">>> Applying gain jitter to $FINAL_DIR (peak=${GAIN_PEAK_DBFS} dBFS, sigma=${GAIN_SIGMA_DB} dB)"
+		echo ">>> Applying gain jitter to $FINAL_DIR (peak=${GAIN_PEAK_DBFS} dBFS, sigma=${GAIN_SIGMA_DB} dB, headroom=${GAIN_HEADROOM_DB} dB)"
 		apply_gain_jitter "$FINAL_DIR"
 	fi
 
