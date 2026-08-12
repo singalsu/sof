@@ -485,20 +485,20 @@ will feel broken on device.
 
 ```bash
 cp ~/wov/model/sof_tflm_quantized_model_data.{cc,h} \
+   ~/wov/model/sof_tflm_labels.h \
    src/audio/tensorflow/
 ```
 
 [speech.cc](speech.cc) already `#include`s
 `sof_tflm_quantized_model_data.h` and calls
-`tflite::GetModel(g_sof_tflm_quantized_model_data)`, so no source
-changes are needed on retraining.
+`tflite::GetModel(g_sof_tflm_quantized_model_data)`.
+[speech.h](speech.h) `#include`s `sof_tflm_labels.h`, which the training
+script regenerates on every run with the correct `TFLM_CATEGORY_COUNT`
+and `TFLM_CATEGORY_DATA`. No source changes are needed on retraining.
 
-In [speech.h](speech.h), match `~/wov/model/<name>_labels.txt`:
-
-```c
-#define TFLM_CATEGORY_COUNT  3
-#define TFLM_CATEGORY_DATA   {"silence", "unknown", "hey_linux",}
-```
+The archive `~/wov/model/<name>_labels.txt` is kept as a plain-text copy
+of the label order (silence, unknown, keyword_1, …) for retraining
+history.
 
 The `.cc` file is already wired into [CMakeLists.txt](CMakeLists.txt)
 and its LLEXT sibling under [llext/CMakeLists.txt](llext/CMakeLists.txt);

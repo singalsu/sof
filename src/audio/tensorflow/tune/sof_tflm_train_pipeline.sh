@@ -166,17 +166,18 @@ cat <<EOF
 
 >>> Model ready: $OUT_DIR
 
-To wire it into SOF (speech.cc already #includes the fixed header, so no
-source edits are needed):
+To wire it into SOF (speech.h #includes sof_tflm_labels.h so both the
+model and its label set update automatically on rebuild — no source
+edits are needed):
   cp $OUT_DIR/sof_tflm_quantized_model_data.{cc,h} \\
+     $OUT_DIR/sof_tflm_labels.h \\
      $(cd "$SCRIPT_DIR"/.. && pwd)/
 
 Archive artifacts (kept per-name for retraining history):
   $OUT_DIR/${NAME}_quantized_model.tflite
   $OUT_DIR/${NAME}_labels.txt
 
-In src/audio/tensorflow/speech.h, update TFLM_CATEGORY_COUNT and
-TFLM_CATEGORY_DATA to match ${OUT_DIR}/${NAME}_labels.txt
-(labels: ${LABEL_LIST} — every positive keyword lives at index >= 2,
-preserving the KPB max_idx >= 2 rule).
+Label order (silence=0, unknown=1, keyword_i=i+2): ${LABEL_LIST}.
+Every positive keyword lives at index >= 2, preserving the on-device
+KPB max_idx >= 2 trigger rule.
 EOF

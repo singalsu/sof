@@ -7,6 +7,12 @@
 
 #include "tensorflow/lite/core/c/common.h"
 
+/* Class-count and label names emitted alongside the retrained model by
+ * sof_tflm_train.py. Regenerated on every training run so speech.h never
+ * needs a manual edit when the keyword list changes.
+ */
+#include "sof_tflm_labels.h"
+
 /* default model configuration */
 #define TFLM_SAMPLE_RATE 16000
 #define TFLM_FEATURE_SIZE 40
@@ -15,8 +21,6 @@
 #define TFLM_FEATURE_STRIDE_MS 20
 #define TFLM_FEATURE_DURATION_MS 30
 
-#define TFLM_CATEGORY_COUNT  3
-#define TFLM_CATEGORY_DATA   {"silence", "unknown", "hey_linux",}
 struct tf_classify {
 	int8_t *audio_features;
 	size_t audio_data_size;
