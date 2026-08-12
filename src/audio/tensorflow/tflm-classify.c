@@ -590,7 +590,6 @@ static int tflm_process(struct processing_module *mod,
 								prediction[i],
 								g_category_totals[i]);
 					sof_ut_log(result_buf);
-					printk("%s\n", result_buf);
 
 					// Only announce a keyword hit for real keyword classes
 					// (indices >= 2, i.e. not silence/unknown).
