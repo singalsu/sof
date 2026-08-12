@@ -31,6 +31,14 @@ Optional env:
   N_UNKNOWN         Number of unknown-class clips to sample (default 1500).
   UNKNOWN_WORDS     Space-separated word list to sample for unknown
                     (default: every SC v2 word except _background_noise_).
+  GAIN_AUG          1 = rewrite each unknown/*.wav in place with a peak-
+                    normalized target and per-file Gaussian level jitter
+                    (silence/ is left alone so background noise stays
+                    quiet). 0 = leave the clips at their sox slice level.
+                    Default 1.
+  GAIN_PEAK_DBFS    Peak-normalization target in dBFS (default -10).
+  GAIN_SIGMA_DB     Gaussian jitter sigma in dB; draws are capped so
+                    peak+offset never exceeds 0 dBFS (default 5).
 EOF
 	exit 1
 fi
@@ -38,6 +46,45 @@ fi
 : "${SC_CACHE:=$HOME/.cache/speech_commands_v2}"
 : "${N_SILENCE:=500}"
 : "${N_UNKNOWN:=1500}"
+: "${GAIN_AUG:=1}"
+: "${GAIN_PEAK_DBFS:=-10}"
+: "${GAIN_SIGMA_DB:=5}"
+
+gauss_offset_db() {
+	local sigma="$1"
+	local peak="$2"
+	awk -v s="$sigma" -v cap="$(awk -v p="$peak" 'BEGIN{print -p}')" \
+	    -v seed="$RANDOM$(date +%N)" 'BEGIN {
+		srand(seed)
+		u1 = rand(); if (u1 < 1e-12) u1 = 1e-12
+		u2 = rand()
+		v = s * sqrt(-2 * log(u1)) * cos(6.283185307 * u2)
+		if (v > cap) v = cap
+		printf "%.3f", v
+	}'
+}
+
+apply_gain_jitter() {
+	local dir="$1"
+	local sum=0 n=0 mn=999 mx=-999 off tmp
+	tmp=$(mktemp --suffix=.wav)
+	for wav in "$dir"/*.wav; do
+		[ -f "$wav" ] || continue
+		off=$(gauss_offset_db "$GAIN_SIGMA_DB" "$GAIN_PEAK_DBFS")
+		sox "$wav" "$tmp" gain -n "$GAIN_PEAK_DBFS" gain "$off"
+		mv "$tmp" "$wav"
+		sum=$(awk -v a="$sum" -v b="$off" 'BEGIN{printf "%.3f", a+b}')
+		mn=$(awk -v a="$mn" -v b="$off" 'BEGIN{print (b<a)?b:a}')
+		mx=$(awk -v a="$mx" -v b="$off" 'BEGIN{print (b>a)?b:a}')
+		n=$((n + 1))
+	done
+	rm -f "$tmp"
+	if [ "$n" -gt 0 ]; then
+		awk -v n="$n" -v s="$sum" -v mn="$mn" -v mx="$mx" -v p="$GAIN_PEAK_DBFS" 'BEGIN{
+			printf "    gain jitter n=%d  offset mean=%.2f dB  min=%.2f  max=%.2f  target peak=%s dBFS\n", n, s/n, mn, mx, p
+		}'
+	fi
+}
 
 if ! command -v sox >/dev/null; then
 	echo "sox not on PATH — please install (e.g. apt install sox)" >&2
@@ -122,6 +169,11 @@ while read -r src; do
 		"$UNKNOWN_OUT/${parent}_${base}.wav" \
 		2>/dev/null || true
 done
+
+if [[ "$GAIN_AUG" = "1" ]]; then
+	echo ">>> Applying gain jitter to $UNKNOWN_OUT (peak=${GAIN_PEAK_DBFS} dBFS, sigma=${GAIN_SIGMA_DB} dB)"
+	apply_gain_jitter "$UNKNOWN_OUT"
+fi
 
 n_silence=$(find "$SILENCE_OUT" -name '*.wav' | wc -l)
 n_unknown=$(find "$UNKNOWN_OUT" -name '*.wav' | wc -l)

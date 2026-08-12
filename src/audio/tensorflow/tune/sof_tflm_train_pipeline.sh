@@ -57,9 +57,11 @@ Env:
   SKIP_FEATURES    If set, do not re-run testbench feature extraction.
   EPOCHS, BATCH_SIZE, LR   Passed through to sof_tflm_train.py.
   GAIN_AUG, GAIN_PEAK_DBFS, GAIN_SIGMA_DB
-                   Passed through to sof_mfcc_extract_features.sh; defaults
-                   apply gain augmentation (peak -10 dBFS, sigma 5 dB) to
-                   every non-silence class. Set GAIN_AUG=0 to disable.
+                   Passed through to the WAV generators
+                   (sof_tflm_generate_keyword_dataset.sh and
+                   sof_tflm_prepare_silence_unknown.sh). Defaults apply
+                   gain jitter to keyword and unknown WAVs (peak -10
+                   dBFS, sigma 5 dB); GAIN_AUG=0 disables.
 EOF
 	exit 1
 }

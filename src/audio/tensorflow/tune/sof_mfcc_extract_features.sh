@@ -20,13 +20,10 @@
 # 24-byte headers, and reshapes to (N, 40) int32 Q9.23. See decode_mel.m for a
 # reference decoder.
 #
-# Per-example gain augmentation (S32 path only, on by default):
-#   Each speech WAV is peak-normalized to --gain-peak-dbfs (default -10 dBFS)
-#   and then shifted by a Gaussian offset with sigma --gain-sigma-db (default
-#   5 dB), drawn independently per WAV. This gives the model a wider input
-#   level distribution than the (already peak-normalized) piper output would
-#   otherwise cover. The silence/ class is exempt so background noise stays
-#   quiet. Disable with --no-gain-aug (or GAIN_AUG=0) for bit-exact reruns.
+# Level-jitter augmentation happens upstream in the WAV generators
+# (sof_tflm_generate_keyword_dataset.sh, sof_tflm_prepare_silence_unknown.sh)
+# so it's audible on disk. This script just consumes whatever WAVs are
+# already in <wav_root>/<label>/.
 #
 # Requirements:
 #   - $SOF_WORKSPACE points at the parent of the sof tree
@@ -39,14 +36,10 @@ set -e
 usage() {
 	cat >&2 <<EOF
 Usage: $0 <wav_root> <feat_root> [--format S16|S24|S32]
-                    [--no-gain-aug] [--gain-peak-dbfs DB] [--gain-sigma-db DB]
 
-  wav_root            Directory containing <label>/*.wav (recursed one level).
-  feat_root           Output root; <label>/ subdirs are created as needed.
-  --format            Testbench sample container. Default S32 (on-device).
-  --no-gain-aug       Disable per-WAV gain augmentation (S32 path only).
-  --gain-peak-dbfs    Peak-normalization target in dBFS (default -10).
-  --gain-sigma-db     Gaussian jitter sigma in dB around the target (default 5).
+  wav_root    Directory containing <label>/*.wav (recursed one level).
+  feat_root   Output root; <label>/ subdirs are created as needed.
+  --format    Testbench sample container. Default S32 (matches on-device).
 EOF
 	exit 1
 }
@@ -56,27 +49,12 @@ EOF
 WAV_ROOT="$1"
 FEAT_ROOT="$2"
 FORMAT="S32"
-: "${GAIN_AUG:=1}"
-: "${GAIN_PEAK_DBFS:=-10}"
-: "${GAIN_SIGMA_DB:=5}"
 
 shift 2
 while [ $# -gt 0 ]; do
 	case "$1" in
 	--format)
 		FORMAT="$2"
-		shift 2
-		;;
-	--no-gain-aug)
-		GAIN_AUG=0
-		shift
-		;;
-	--gain-peak-dbfs)
-		GAIN_PEAK_DBFS="$2"
-		shift 2
-		;;
-	--gain-sigma-db)
-		GAIN_SIGMA_DB="$2"
 		shift 2
 		;;
 	*)
@@ -105,31 +83,9 @@ command -v sox >/dev/null || { echo "sox not on PATH" >&2; exit 2; }
 TMPDIR_LOCAL=$(mktemp -d -t sof_mfcc_train.XXXXXX)
 trap 'rm -rf "$TMPDIR_LOCAL"' EXIT
 
-# Draw one N(0, sigma) sample in dB via awk Box-Muller, clipped so the
-# combined peak (GAIN_PEAK_DBFS + offset) never exceeds 0 dBFS. The seed
-# mixes $RANDOM with nanosecond time so consecutive calls in the same
-# second do not collapse to the same value; keeping it under ~14 digits
-# avoids awk losing entropy when parsing the seed as a double.
-gauss_offset_db() {
-	local sigma="$1"
-	local peak="$2"
-	awk -v s="$sigma" -v cap="$(awk -v p="$2" 'BEGIN{print -p}')" \
-	    -v seed="$RANDOM$(date +%N)" 'BEGIN {
-		srand(seed)
-		u1 = rand(); if (u1 < 1e-12) u1 = 1e-12
-		u2 = rand()
-		v = s * sqrt(-2 * log(u1)) * cos(6.283185307 * u2)
-		if (v > cap) v = cap
-		printf "%.3f", v
-	}'
-}
-
 # sox parameters: 16 kHz stereo (bench topology expects -c 2 -p 3,4).
 # MFCC config picks channel 0 (see get_mel_spectrogram_config in setup_mfcc.m),
 # so a mono WAV upmixed to stereo is fine.
-#
-# LABEL_GAIN is set per label directory by the outer loop: 1 => append gain
-# effects for this WAV, 0 => write the plain conversion.
 convert_wav() {
 	local src="$1"
 	local dst="$2"
@@ -139,18 +95,8 @@ convert_wav() {
 		-L -r 16000 -c 2 -b 16 "$dst" ;;
 	S24) sox -R --no-dither --encoding signed-integer "$src" \
 		-L -r 16000 -c 2 -b 32 "$dst" vol 0.003906250000 ;;
-	S32)
-		if [ "${LABEL_GAIN:-0}" = "1" ]; then
-			local off
-			off=$(gauss_offset_db "$GAIN_SIGMA_DB" "$GAIN_PEAK_DBFS")
-			sox -R --no-dither --encoding signed-integer "$src" \
-				-L -r 16000 -c 2 -b 32 "$dst" \
-				gain -n "$GAIN_PEAK_DBFS" gain "$off"
-		else
-			sox -R --no-dither --encoding signed-integer "$src" \
-				-L -r 16000 -c 2 -b 32 "$dst"
-		fi
-		;;
+	S32) sox -R --no-dither --encoding signed-integer "$src" \
+		-L -r 16000 -c 2 -b 32 "$dst" ;;
 	esac
 }
 
@@ -172,12 +118,6 @@ process_wav() {
 		-t "$TPLG" -i "$raw_in" -o "$raw_out"
 }
 
-if [ "$GAIN_AUG" = "1" ] && [ "$FORMAT" = "S32" ]; then
-	echo "Gain aug: peak=${GAIN_PEAK_DBFS} dBFS, sigma=${GAIN_SIGMA_DB} dB (silence exempt)"
-else
-	echo "Gain aug: disabled"
-fi
-
 total=0
 for label_dir in "$WAV_ROOT"/*/; do
 	[ -d "$label_dir" ] || continue
@@ -186,13 +126,7 @@ for label_dir in "$WAV_ROOT"/*/; do
 	case "$label" in _*) continue ;; esac
 	out_dir="${FEAT_ROOT}/${label}"
 
-	if [ "$GAIN_AUG" = "1" ] && [ "$FORMAT" = "S32" ] && [ "$label" != "silence" ]; then
-		LABEL_GAIN=1
-	else
-		LABEL_GAIN=0
-	fi
-
-	echo "[label=${label} gain_aug=${LABEL_GAIN}]"
+	echo "[label=${label}]"
 	count=0
 	for wav in "$label_dir"*.wav; do
 		[ -f "$wav" ] || continue

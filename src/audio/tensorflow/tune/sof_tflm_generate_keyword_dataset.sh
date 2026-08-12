@@ -30,6 +30,14 @@
 #   MAX_SAMPLES     Positive clips per speaking-rate loop (default 400).
 #   MAX_SPEAKERS    Cap on speaker-embedding index (default 700; upstream
 #                   warns higher indices produce artifacts).
+#   GAIN_AUG        1 = rewrite each augmented WAV in place with a peak-
+#                   normalized target and a per-file Gaussian level jitter,
+#                   so the on-disk WAVs directly reflect the level
+#                   distribution the model will train on. 0 = leave piper's
+#                   augmented output untouched. Default 1.
+#   GAIN_PEAK_DBFS  Peak-normalization target in dBFS (default -10).
+#   GAIN_SIGMA_DB   Gaussian jitter sigma in dB around the target; draws are
+#                   capped so peak+offset never exceeds 0 dBFS (default 5).
 #
 # Required CLI:
 #   --keyword TEXT  Spoken phrase to synthesize (e.g. "hey linux"). Repeat
@@ -104,6 +112,54 @@ fi
 : "${MAX_SAMPLES:=400}"
 : "${MAX_SPEAKERS:=700}"
 : "${PIPER_MODEL:=$HOME/git/piper-sample-generator/models/en_US-libritts_r-medium.pt}"
+: "${GAIN_AUG:=1}"
+: "${GAIN_PEAK_DBFS:=-10}"
+: "${GAIN_SIGMA_DB:=5}"
+
+# Draw one N(0, sigma) sample in dB via awk Box-Muller, capped so the
+# resulting peak (GAIN_PEAK_DBFS + offset) never exceeds 0 dBFS. The seed
+# mixes $RANDOM with nanosecond time so consecutive calls in the same
+# second do not collapse to the same value; keeping the seed under ~14
+# digits avoids awk losing entropy when parsing it as a double.
+gauss_offset_db() {
+	local sigma="$1"
+	local peak="$2"
+	awk -v s="$sigma" -v cap="$(awk -v p="$peak" 'BEGIN{print -p}')" \
+	    -v seed="$RANDOM$(date +%N)" 'BEGIN {
+		srand(seed)
+		u1 = rand(); if (u1 < 1e-12) u1 = 1e-12
+		u2 = rand()
+		v = s * sqrt(-2 * log(u1)) * cos(6.283185307 * u2)
+		if (v > cap) v = cap
+		printf "%.3f", v
+	}'
+}
+
+# Rewrite every *.wav in $1 with a peak-normalized level plus per-file
+# Gaussian gain jitter. The updated WAVs replace the originals in place so
+# the on-disk dataset directly reflects the level distribution used at
+# train time. Prints a small summary of the applied offsets.
+apply_gain_jitter() {
+	local dir="$1"
+	local sum=0 n=0 mn=999 mx=-999 off tmp
+	tmp=$(mktemp --suffix=.wav)
+	for wav in "$dir"/*.wav; do
+		[ -f "$wav" ] || continue
+		off=$(gauss_offset_db "$GAIN_SIGMA_DB" "$GAIN_PEAK_DBFS")
+		sox "$wav" "$tmp" gain -n "$GAIN_PEAK_DBFS" gain "$off"
+		mv "$tmp" "$wav"
+		sum=$(awk -v a="$sum" -v b="$off" 'BEGIN{printf "%.3f", a+b}')
+		mn=$(awk -v a="$mn" -v b="$off" 'BEGIN{print (b<a)?b:a}')
+		mx=$(awk -v a="$mx" -v b="$off" 'BEGIN{print (b>a)?b:a}')
+		n=$((n + 1))
+	done
+	rm -f "$tmp"
+	if [ "$n" -gt 0 ]; then
+		awk -v n="$n" -v s="$sum" -v mn="$mn" -v mx="$mx" -v p="$GAIN_PEAK_DBFS" 'BEGIN{
+			printf "    gain jitter n=%d  offset mean=%.2f dB  min=%.2f  max=%.2f  target peak=%s dBFS\n", n, s/n, mn, mx, p
+		}'
+	fi
+}
 
 if [[ -n "$PIPER_VENV" ]]; then
 	# shellcheck disable=SC1091
@@ -200,6 +256,11 @@ for i in "${!KEYWORDS[@]}"; do
 	python3 -m piper_sample_generator.augment \
 		--sample-rate 16000 \
 		"$RAW_DIR" "$FINAL_DIR"
+
+	if [[ "$GAIN_AUG" = "1" ]]; then
+		echo ">>> Applying gain jitter to $FINAL_DIR (peak=${GAIN_PEAK_DBFS} dBFS, sigma=${GAIN_SIGMA_DB} dB)"
+		apply_gain_jitter "$FINAL_DIR"
+	fi
 
 	n_raw=$(find "$RAW_DIR" -name '*.wav' | wc -l)
 	n_final=$(find "$FINAL_DIR" -name '*.wav' | wc -l)
