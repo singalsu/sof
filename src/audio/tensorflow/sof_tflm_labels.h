@@ -4,7 +4,7 @@
 #ifndef SOF_TFLM_LABELS_H_
 #define SOF_TFLM_LABELS_H_
 
-#define TFLM_CATEGORY_COUNT  3
-#define TFLM_CATEGORY_DATA   { "silence", "unknown", "hey_linux", }
+#define TFLM_CATEGORY_COUNT  5
+#define TFLM_CATEGORY_DATA   { "silence", "unknown", "banana", "mango", "orange", }
 
 #endif  // SOF_TFLM_LABELS_H_
