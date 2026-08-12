@@ -14,8 +14,7 @@
 #include "tensorflow/lite/micro/testing/micro_test.h"
 #include "speech.h"
 
-// hard code the model today
-#include "hey_linux_quantized_model_data.h"
+#include "sof_tflm_quantized_model_data.h"
 
 // The following values are derived from values used during model training.
 // If you change the way you preprocess the input, update all these constants.
@@ -24,7 +23,7 @@ static constexpr int kFeatureSize = TFLM_FEATURE_SIZE;
 static constexpr int kFeatureCount = TFLM_FEATURE_COUNT;
 static constexpr int kFeatureElementCount = TFLM_FEATURE_ELEM_COUNT;
 
-// Sized for the retrained hey_linux tiny_conv DS-CNN.  Tune down to
+// Sized for the retrained tiny_conv DS-CNN wake-word model.  Tune down to
 // interpreter->arena_used_bytes() (printed by tflm-classify.c on success)
 // once the model is finalized.
 static constexpr size_t kArenaSize = 131072;
@@ -178,7 +177,7 @@ int TF_SetModel(struct tf_classify *tfc, unsigned char *model_tflite)
 
 	// Map the model into a usable data structure. This doesn't involve any
 	// copying or parsing, it's a very lightweight operation.
-	model = tflite::GetModel(g_hey_linux_quantized_model_data);
+	model = tflite::GetModel(g_sof_tflm_quantized_model_data);
 	if (model->version() != TFLITE_SCHEMA_VERSION) {
 		tfc->error = "failed to load model";
 		return -EINVAL;

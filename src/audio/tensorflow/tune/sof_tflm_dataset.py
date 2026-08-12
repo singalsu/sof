@@ -3,8 +3,8 @@
 """
 SOF mel40 feature loader for TFLM wake-on-voice training.
 
-Consumes the raw hop records that ``run_mfcc_train.sh`` emits (one file per
-input WAV, produced by the SOF testbench):
+Consumes the raw hop records that ``sof_mfcc_extract_features.sh`` emits (one
+file per input WAV, produced by the SOF testbench):
 
     <feat_root>/<label>/<basename>.raw
 
@@ -28,7 +28,7 @@ windows to match the tflmcly sliding window (49 hops * 40 channels =
 Standalone CLI mode prints dataset shape and per-label counts for a quick
 sanity check::
 
-    python3 mel40_dataset.py <feat_root> silence unknown hey_linux
+    python3 sof_tflm_dataset.py <feat_root> silence unknown <keyword>
 """
 
 from __future__ import annotations
@@ -134,7 +134,7 @@ def load_dataset(
 def _cli() -> int:
     if len(sys.argv) < 3:
         print(
-            "usage: mel40_dataset.py <feat_root> <label1> [label2 ...]",
+            "usage: sof_tflm_dataset.py <feat_root> <label1> [label2 ...]",
             file=sys.stderr,
         )
         return 1

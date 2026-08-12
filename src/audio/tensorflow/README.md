@@ -287,32 +287,34 @@ Upon stream reset or module destruction (`tflm_reset()` / `tflm_free()`), TFLM e
 ## Training a Custom Keyword Model with Piper-TTS
 
 The stock model only recognizes `yes`/`no` (plus `silence`/`unknown`). The
-shipped `hey_linux_quantized_model_data.{cc,h}` was retrained end-to-end
-against real SOF mel40 features using the scripts under
-[../mfcc/tune/](../mfcc/tune/). This section documents that exact recipe
-so the model can be reproduced or a different keyword substituted.
+shipped `sof_tflm_quantized_model_data.{cc,h}` was retrained end-to-end
+against real SOF mel40 features (currently against the `hey_linux`
+keyword) using the scripts under [./tune/](./tune/). This section
+documents that exact recipe so the model can be reproduced, a different
+keyword substituted, or several keywords combined into one model.
 
 ### Pipeline overview
 
 The training flow is orchestrated by
-[train_wov_pipeline.sh](../mfcc/tune/train_wov_pipeline.sh), which chains
-four steps into one command:
+[sof_tflm_train_pipeline.sh](./tune/sof_tflm_train_pipeline.sh), which
+chains four steps into one command:
 
 | Step | Script | What it does |
 |------|--------|-------------|
-| 0 | [generate_hey_linux_dataset.sh](../mfcc/tune/generate_hey_linux_dataset.sh) | Synthesize `<keyword>/*.wav` with Piper-TTS + augmentation |
-| 1 | [prepare_silence_unknown.sh](../mfcc/tune/prepare_silence_unknown.sh) | Slice `silence/` + sample `unknown/` from Speech Commands v2 |
-| 2 | [run_mfcc_train.sh](../mfcc/tune/run_mfcc_train.sh) | Emit SOF mel40 features via `sof-testbench4` |
-| 3 | [train_wov_tflm.py](../mfcc/tune/train_wov_tflm.py) | Train `tiny_conv`, int8-quantize, write `.tflite` + C array |
+| 0 | [sof_tflm_generate_keyword_dataset.sh](./tune/sof_tflm_generate_keyword_dataset.sh) | Synthesize `<label>/*.wav` for one keyword with Piper-TTS + augmentation (rerun once per keyword) |
+| 1 | [sof_tflm_prepare_silence_unknown.sh](./tune/sof_tflm_prepare_silence_unknown.sh) | Slice `silence/` + sample `unknown/` from Speech Commands v2 |
+| 2 | [sof_mfcc_extract_features.sh](./tune/sof_mfcc_extract_features.sh) | Emit SOF mel40 features via `sof-testbench4` |
+| 3 | [sof_tflm_train.py](./tune/sof_tflm_train.py) | Train `tiny_conv`, int8-quantize, write `.tflite` + C array |
 
 Off-device verification uses
-[verify_wov_tflm.py](../mfcc/tune/verify_wov_tflm.py), which runs the
-quantized `.tflite` on the held-out validation split and prints a
-confusion matrix — catches models with good overall accuracy but poor
-keyword-class recall before flashing.
+[sof_tflm_verify.py](./tune/sof_tflm_verify.py), which runs the quantized
+`.tflite` on the held-out validation split and prints a confusion
+matrix — catches models with good overall accuracy but poor keyword
+recall before flashing.
 
-The labels are locked at `silence(0)`, `unknown(1)`, `<keyword>(2)` so
-the on-device tflmcly KPB trigger rule (`max_idx >= 2`) still applies.
+The labels are locked at `silence(0)`, `unknown(1)`, `<keyword_1>(2)`,
+`<keyword_2>(3)`, ... so the on-device tflmcly KPB trigger rule
+(`max_idx >= 2`) fires for any positive keyword class.
 
 ### 0. Prerequisites
 
@@ -355,45 +357,61 @@ The training venv also needs the SOF host tools:
 - `sox` and `xxd` on `PATH`.
 
 Export `SOF_WORKSPACE` to point at the parent of the `sof/` tree —
-[run_mfcc_train.sh](../mfcc/tune/run_mfcc_train.sh) uses it to locate
-the testbench and topology binaries.
+[sof_mfcc_extract_features.sh](./tune/sof_mfcc_extract_features.sh) uses
+it to locate the testbench and topology binaries.
 
 ### 1. Generate the keyword dataset
 
-[generate_hey_linux_dataset.sh](../mfcc/tune/generate_hey_linux_dataset.sh)
-synthesizes `"hey linux"` utterances across 3 speaking rates × up to
-700 speaker embeddings, then augments them with room impulse
-responses, volume jitter, and 16 kHz resampling. The shipped
-`hey_linux_quantized_model_data.{cc,h}` used `MAX_SAMPLES=2000`
-(~6000 raw clips, ~6000 augmented after the pass) — the built-in
-default of 400 is only enough to smoke-test the pipeline:
+[sof_tflm_generate_keyword_dataset.sh](./tune/sof_tflm_generate_keyword_dataset.sh)
+synthesizes one keyword phrase across 3 speaking rates × up to 700
+speaker embeddings, then augments the clips with room impulse
+responses, volume jitter, and 16 kHz resampling. Rerun once per
+keyword you want in the model. `MAX_SAMPLES=1000` (~3000 raw clips,
+~3000 augmented after the pass) is the recommended setting — large
+enough to train a robust model without the multi-hour training time
+that `MAX_SAMPLES=2000` incurs. The built-in default of 400 is only
+enough to smoke-test the pipeline:
 
 ```bash
 source ~/venvs/piper/bin/activate
-MAX_SAMPLES=2000 \
+MAX_SAMPLES=1000 \
 PIPER_VENV=~/venvs/piper \
 PIPER_MODEL=~/git/piper-sample-generator/models/en_US-libritts_r-medium.pt \
 PIPER_REPO=~/git/piper-sample-generator \
-    ./generate_hey_linux_dataset.sh ~/wov/wavs
+    ./sof_tflm_generate_keyword_dataset.sh --keyword "hey linux" ~/wov/wavs
 deactivate
 ```
 
-Output lands at `~/wov/wavs/hey_linux/*.wav`. Override the keyword text
-via `KEYWORD="hey acme"` (the subdir name derives from it). `PIPER_REPO`
-is required because upstream ships the `piper_train` package only in
-the git tree, not in the PyPI wheel.
+Output lands at `~/wov/wavs/hey_linux/*.wav`. The subdir name is
+derived from `--keyword` by lower-casing and replacing spaces with
+underscores; override with `--label mykw` if desired. For a
+multi-keyword model, pass `--keyword` multiple times in a single call
+(and optionally one `--label` per keyword, paired positionally):
+
+```bash
+MAX_SAMPLES=1000 PIPER_VENV=~/venvs/piper \
+PIPER_MODEL=~/git/piper-sample-generator/models/en_US-libritts_r-medium.pt \
+PIPER_REPO=~/git/piper-sample-generator \
+    ./sof_tflm_generate_keyword_dataset.sh \
+        --keyword banana --keyword mango --keyword orange \
+        ~/wov/wavs
+```
+
+`PIPER_REPO` is required because upstream ships the `piper_train`
+package only in the git tree, not in the PyPI wheel.
 
 ### 2. End-to-end pipeline: silence/unknown → features → train → quantize
 
 The remaining three steps run in one command. From
-`src/audio/mfcc/tune/`, mirroring the shipped-model recipe
+`src/audio/tensorflow/tune/`, mirroring the shipped-model recipe
 (`N_SILENCE=1500`, `N_UNKNOWN=4000`, `EPOCHS=40` — larger than the
 built-in defaults of 500 / 1500 / 25):
 
 ```bash
 N_SILENCE=1500 N_UNKNOWN=4000 EPOCHS=40 \
 TFLM_VENV=~/venvs/tflm-train \
-    ./train_wov_pipeline.sh ~/wov/wavs ~/wov/feats ~/wov/model
+    ./sof_tflm_train_pipeline.sh --keyword hey_linux \
+        ~/wov/wavs ~/wov/feats ~/wov/model
 ```
 
 This will:
@@ -406,37 +424,55 @@ This will:
 2. Run `sof-testbench4` on every `<label>/*.wav` with the S32 mel40
    topology, writing `~/wov/feats/<label>/*.raw` (each hop = 24-byte
    `struct mfcc_data_header` + 40 × Q9.23 `int32_t`).
-3. Load features via [mel40_dataset.py](../mfcc/tune/mel40_dataset.py),
+3. Load features via [sof_tflm_dataset.py](./tune/sof_tflm_dataset.py),
    train a `tiny_conv` (Reshape → DepthwiseConv2D → Flatten → Dense →
    Softmax; ~12 k params) for `EPOCHS` epochs, full-int8 quantize
    using the *real training-feature distribution* as the
    representative set (this is what the stock model got wrong — see
-   the PCAN-AGC note above), and emit
-   `~/wov/model/hey_linux_quantized_model.tflite` (~16 KB) plus an
-   `xxd`-style `hey_linux_quantized_model_data.{cc,h}` and a matching
-   `hey_linux_labels.txt`.
+   the PCAN-AGC note above), and emit the fixed
+   `~/wov/model/sof_tflm_quantized_model_data.{cc,h}` pair (with the
+   C symbol `g_sof_tflm_quantized_model_data` that `speech.cc`
+   #includes) plus archive artifacts
+   `~/wov/model/<name>_quantized_model.tflite` (~16 KB) and
+   `~/wov/model/<name>_labels.txt`.
 
 Re-runs skip the expensive stages via env flags:
 
 ```bash
 SKIP_PREP=1 SKIP_FEATURES=1 EPOCHS=40 \
 TFLM_VENV=~/venvs/tflm-train \
-    ./train_wov_pipeline.sh ~/wov/wavs ~/wov/feats ~/wov/model
+    ./sof_tflm_train_pipeline.sh --keyword hey_linux \
+        ~/wov/wavs ~/wov/feats ~/wov/model
 ```
 
-Further training knobs: `BATCH_SIZE`, `LR`. Change the keyword by
-passing a 4th positional arg — `./train_wov_pipeline.sh ~/wov/wavs
-~/wov/feats ~/wov/model hey_acme` — but keep index 2 as the
-positive-trigger class for the KPB rule.
+Further training knobs: `BATCH_SIZE`, `LR`. To train a multi-keyword
+model, pass `--keyword` for each positive class (label order defines
+model output indices starting at 2, so all positive classes still
+trigger the KPB `max_idx >= 2` rule):
+
+```bash
+./sof_tflm_train_pipeline.sh \
+    --keyword banana --keyword mango --keyword orange \
+    --name fruits \
+    ~/wov/wavs ~/wov/feats ~/wov/model
+```
+
+`--name` sets the archive basename for the standalone `.tflite` and
+`_labels.txt` artifacts (defaults to the single keyword when only one
+is given, otherwise the keyword labels joined with `_`). The C symbol
+and header names emitted for `speech.cc` are fixed at
+`g_sof_tflm_quantized_model_data` /
+`sof_tflm_quantized_model_data.{cc,h}` regardless of `--name`, so
+retraining is a drop-in replacement.
 
 ### 3. Verify off-device before flashing
 
 ```bash
 source ~/venvs/tflm-train/bin/activate
-python3 verify_wov_tflm.py \
-    --tflite ~/wov/model/hey_linux_quantized_model.tflite \
+python3 sof_tflm_verify.py \
+    --tflite ~/wov/model/<name>_quantized_model.tflite \
     --feat-root ~/wov/feats \
-    --labels silence,unknown,hey_linux
+    --labels silence,unknown,<keyword>
 ```
 
 Prints per-class precision/recall and the confusion matrix on the same
@@ -448,28 +484,25 @@ will feel broken on device.
 ### 4. Wire the model into SOF
 
 ```bash
-cp ~/wov/model/hey_linux_quantized_model_data.{cc,h} \
+cp ~/wov/model/sof_tflm_quantized_model_data.{cc,h} \
    src/audio/tensorflow/
 ```
 
-In [speech.cc](speech.cc):
+[speech.cc](speech.cc) already `#include`s
+`sof_tflm_quantized_model_data.h` and calls
+`tflite::GetModel(g_sof_tflm_quantized_model_data)`, so no source
+changes are needed on retraining.
 
-```c
-#include "hey_linux_quantized_model_data.h"
-// ...
-model = tflite::GetModel(g_hey_linux_quantized_model_data);
-```
-
-In [speech.h](speech.h), match `~/wov/model/hey_linux_labels.txt`:
+In [speech.h](speech.h), match `~/wov/model/<name>_labels.txt`:
 
 ```c
 #define TFLM_CATEGORY_COUNT  3
 #define TFLM_CATEGORY_DATA   {"silence", "unknown", "hey_linux",}
 ```
 
-Add the new `.cc` to [CMakeLists.txt](CMakeLists.txt) (and its LLEXT
-sibling under [llext/CMakeLists.txt](llext/CMakeLists.txt)) in place of
-the retired `micro_speech_quantized_model_data.cc`.
+The `.cc` file is already wired into [CMakeLists.txt](CMakeLists.txt)
+and its LLEXT sibling under [llext/CMakeLists.txt](llext/CMakeLists.txt);
+replacing the file in-place is enough.
 
 ### 5. Validate on hardware
 

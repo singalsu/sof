@@ -1,7 +1,7 @@
 # SPDX-License-Identifier: BSD-3-Clause
 # Copyright(c) 2026 Intel Corporation. All rights reserved.
 """
-Off-device verifier for the int8 tflite emitted by ``train_wov_tflm.py``.
+Off-device verifier for the int8 tflite emitted by ``sof_tflm_train.py``.
 
 Loads the quantized model, reproduces the same stratified train/val split
 that training used (same ``--val-frac`` / ``--seed`` defaults), and prints
@@ -11,10 +11,10 @@ the positive keyword class before we burn a hardware build.
 
 Example::
 
-    python3 verify_wov_tflm.py \\
-        --tflite ~/wov/model/hey_linux_quantized_model.tflite \\
+    python3 sof_tflm_verify.py \\
+        --tflite ~/wov/model/<name>_quantized_model.tflite \\
         --feat-root ~/wov/feats \\
-        --labels silence,unknown,hey_linux
+        --labels silence,unknown,<keyword>
 """
 
 from __future__ import annotations
@@ -24,8 +24,8 @@ import sys
 
 import numpy as np
 
-from mel40_dataset import load_dataset
-from train_wov_tflm import split_train_val
+from sof_tflm_dataset import load_dataset
+from sof_tflm_train import split_train_val
 
 try:
     import tflite_runtime.interpreter as tflite  # type: ignore
@@ -111,7 +111,7 @@ def print_report(labels: list[str], y_true: np.ndarray, y_pred: np.ndarray) -> N
 
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__)
-    ap.add_argument("--tflite", required=True, help="int8 .tflite from train_wov_tflm.py")
+    ap.add_argument("--tflite", required=True, help="int8 .tflite from sof_tflm_train.py")
     ap.add_argument("--feat-root", required=True, help="dir with <label>/*.raw features")
     ap.add_argument(
         "--labels",
