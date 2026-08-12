@@ -56,6 +56,10 @@ Env:
   SKIP_PREP        If set, do not fetch/slice Speech Commands v2 again.
   SKIP_FEATURES    If set, do not re-run testbench feature extraction.
   EPOCHS, BATCH_SIZE, LR   Passed through to sof_tflm_train.py.
+  GAIN_AUG, GAIN_PEAK_DBFS, GAIN_SIGMA_DB
+                   Passed through to sof_mfcc_extract_features.sh; defaults
+                   apply gain augmentation (peak -10 dBFS, sigma 5 dB) to
+                   every non-silence class. Set GAIN_AUG=0 to disable.
 EOF
 	exit 1
 }
