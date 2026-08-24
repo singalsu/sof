@@ -55,6 +55,12 @@ NHLT_BIN=nhlt-sof-lnl-nocodec-fpga-4ch.bin,PASSTHROUGH=true,DMIC_IO_CLK=19200000
 
 "cavs-sdw\;sof-lnl-fpga-rt711-l0\;PLATFORM=lnl,NUM_HDMIS=0,PASSTHROUGH=true"
 
+# HDA generic + KPB-based Wake-on-Voice (microWakeWord) capture branch.
+# Adds a WoV drain PCM and an MFCC/MWW detect PCM tapped off the
+# Analog capture endpoint (module-copier.4.2). Applies to all IPC4
+# HDA platforms; no NHLT differentiation.
+"sof-hda-generic\;sof-hda-generic-mww-kpb\;HDA_CONFIG=mix,HDA_MIC_MWW_KPB_CAPTURE=true"
+
 # HDA topology with passthrough analog codec pipelines
 "sof-hda-generic\;sof-hda-passthrough\;HDA_CONFIG=passthrough"
 # HDA topology with passthrough analog codec pipelines using CHAIN_DMA
