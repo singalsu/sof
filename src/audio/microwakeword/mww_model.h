@@ -49,6 +49,9 @@ extern "C"
 	/* 3rd - perform the inference */
 	int MWW_ProcessClassify(struct mww_classify *mwc);
 
+	size_t MWW_ArenaUsedBytes(void);
+	size_t MWW_ArenaCapacity(void);
+
 #ifdef __cplusplus
 }
 #endif

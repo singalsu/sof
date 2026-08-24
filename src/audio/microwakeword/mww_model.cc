@@ -17,8 +17,9 @@
 
 extern "C" int printk(const char *fmt, ...);
 
-// hard code the model today
+#if !CONFIG_COMP_MWW_MODEL_FROM_CONTROL
 #include "mww_model_data.h"
+#endif
 
 static constexpr int kFeatureSize = MWW_FEATURE_SIZE;
 static constexpr int kFeatureElementCount = MWW_FEATURE_ELEM_COUNT;
@@ -203,17 +204,23 @@ static int Init_Interpreter(struct mww_classify *mwc)
 
 int MWW_SetModel(struct mww_classify *mwc, unsigned char *model_tflite)
 {
-	// ignore passed in model today until we can load via binary kcontrol
+#if !CONFIG_COMP_MWW_MODEL_FROM_CONTROL
+	if (!model_tflite)
+		model_tflite = const_cast<unsigned char *>(g_mww_model_data);
+#endif
+
+	if (!model_tflite) {
+		mwc->error = "no model provided";
+		return -EINVAL;
+	}
 
 	// Map the model into a usable data structure. This doesn't involve any
 	// copying or parsing, it's a very lightweight operation.
-	model = tflite::GetModel(g_mww_model_data);
-	printk("[MWW DBG] g_mww_model_data=%p &model=%p model=%p\n", (void *)g_mww_model_data, (void *)&model, (void *)model);
+	model = tflite::GetModel(model_tflite);
 	if (model->version() != TFLITE_SCHEMA_VERSION) {
 		mwc->error = "failed to load model";
 		return -EINVAL;
 	}
-	printk("[MWW DBG] MWW_SetModel OK version=%u\n", (unsigned)model->version());
 
 	return 0;
 }
@@ -240,4 +247,14 @@ int MWW_ProcessClassify(struct mww_classify *mwc)
 	mwc->probability = (raw - output_zero_point) * output_scale;
 
 	return 0;
+}
+
+size_t MWW_ArenaUsedBytes(void)
+{
+	return interpreter ? interpreter->arena_used_bytes() : 0;
+}
+
+size_t MWW_ArenaCapacity(void)
+{
+	return kArenaSize;
 }
