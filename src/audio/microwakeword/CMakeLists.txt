@@ -1,9 +1,17 @@
 # Copyright (c) 2026 Intel Corporation.
 # SPDX-License-Identifier: Apache-2.0
 
-# -mllvm --text-section-literals=false is a Clang-only flag; guard it
+# Newer xt-clang LLVMs accept this to keep literals in .rodata; standard
+# Clang or older xt-clang rejects the sub-option. Detect it.
+set(MWW_TEXT_SECTION_LITERALS_FALSE_FLAG "")
 if(CMAKE_C_COMPILER_ID STREQUAL "Clang" OR CMAKE_CXX_COMPILER_ID STREQUAL "Clang")
-  add_compile_options(-mllvm --text-section-literals=false)
+  include(CheckCXXCompilerFlag)
+  check_cxx_compiler_flag("-mllvm --text-section-literals=false"
+    MWW_HAS_MLLVM_TEXT_SECTION_LITERALS_FALSE)
+  if(MWW_HAS_MLLVM_TEXT_SECTION_LITERALS_FALSE)
+    set(MWW_TEXT_SECTION_LITERALS_FALSE_FLAG -mllvm --text-section-literals=false)
+    add_compile_options(${MWW_TEXT_SECTION_LITERALS_FALSE_FLAG})
+  endif()
 endif()
 
 # are we building the llext module ?
@@ -80,9 +88,11 @@ target_include_directories(mww_nn_hifi_lib PRIVATE
 	${MWW_HAL_SOC_PATH}
 )
 
-target_compile_options(mww_nn_hifi_lib PRIVATE
-  -mllvm --text-section-literals=false
-)
+if(MWW_HAS_MLLVM_TEXT_SECTION_LITERALS_FALSE)
+  target_compile_options(mww_nn_hifi_lib PRIVATE
+    ${MWW_TEXT_SECTION_LITERALS_FALSE_FLAG}
+  )
+endif()
 
 target_compile_definitions(mww_nn_hifi_lib PRIVATE
 	-DHIFI4=1
