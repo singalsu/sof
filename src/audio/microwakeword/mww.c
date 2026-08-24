@@ -39,6 +39,23 @@
 #include <sof/audio/mfcc/mfcc_comp.h>
 #include "mww_model.h"
 
+#if !CONFIG_COMP_MWW_MODULE
+#include <stdarg.h>
+#include <stdio.h>
+
+/* TFLM error strings land here for static builds. */
+void DebugLog(const char *format, va_list args)
+{
+	vprintk(format, args);
+}
+
+int DebugVsnprintf(char *buffer, size_t buf_size, const char *format,
+		   va_list vlist)
+{
+	return vsnprintf(buffer, buf_size, format, vlist);
+}
+#endif
+
 #if CONFIG_AMS
 #include <sof/lib/ams.h>
 #include <sof/lib/ams_msg.h>

@@ -139,6 +139,7 @@ add_library(mww_tflm_lib STATIC
 	${TFLM_PATH}/tensorflow/lite/kernels/internal/reference/comparisons.cc
 	${TFLM_PATH}/tensorflow/lite/kernels/internal/reference/portable_tensor_utils.cc
 	${TFLM_PATH}/tensorflow/lite/kernels/kernel_util.cc
+	${TFLM_PATH}/tensorflow/lite/micro/kernels/kernel_util.cc
 	${TFLM_PATH}/tensorflow/lite/micro/kernels/call_once.cc
 	${TFLM_PATH}/tensorflow/lite/micro/kernels/var_handle.cc
 	${TFLM_PATH}/tensorflow/lite/micro/kernels/read_variable.cc
@@ -178,7 +179,8 @@ add_library(mww_tflm_lib STATIC
 	${TFLM_PATH}/tensorflow/lite/micro/micro_log.cc
 	${TFLM_PATH}/tensorflow/lite/micro/micro_profiler.cc
 	${TFLM_PATH}/tensorflow/lite/micro/micro_time.cc
-	${TFLM_PATH}/tensorflow/lite/micro/debug_log.cc
+	# debug_log.cc is replaced by our printk-backed DebugLog() in mww.c.
+	#${TFLM_PATH}/tensorflow/lite/micro/debug_log.cc
 	${TFLM_PATH}/tensorflow/lite/micro/test_helpers.cc
 	${TFLM_PATH}/tensorflow/lite/micro/micro_op_resolver.cc
 	${TFLM_PATH}/tensorflow/lite/micro/recording_micro_allocator.cc
