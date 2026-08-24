@@ -273,7 +273,7 @@ target_compile_options(mww_tflm_lib PRIVATE
 	-Wno-shadow
 )
 
-if(CMAKE_CXX_COMPILER_ID STREQUAL "Clang")
+if(CMAKE_CXX_COMPILER_ID MATCHES "Clang|Xtensa" OR CMAKE_C_COMPILER MATCHES "xt-clang")
 	target_compile_options(mww_tflm_lib PRIVATE
 		-stdlib=libc++
 		"SHELL:-include xtensahifiintrin.h"

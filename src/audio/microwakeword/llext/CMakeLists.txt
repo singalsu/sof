@@ -86,7 +86,8 @@ add_library(mww_tflm_lib STATIC
 	${TFLM_PATH}/tensorflow/lite/micro/micro_log.cc
 	${TFLM_PATH}/tensorflow/lite/micro/micro_profiler.cc
 	${TFLM_PATH}/tensorflow/lite/micro/micro_time.cc
-	${TFLM_PATH}/tensorflow/lite/micro/debug_log.cc
+	# debug_log.cc is replaced by our printk-backed DebugLog() in mww.c.
+	#${TFLM_PATH}/tensorflow/lite/micro/debug_log.cc
 	${TFLM_PATH}/tensorflow/lite/micro/micro_op_resolver.cc
 	${TFLM_PATH}/tensorflow/lite/micro/memory_helpers.cc
 	${TFLM_PATH}/tensorflow/lite/micro/micro_allocation_info.cc
@@ -133,7 +134,7 @@ target_compile_options(mww_tflm_lib PRIVATE
 	-DNDEBUG
 )
 
-if(CMAKE_CXX_COMPILER_ID STREQUAL "Clang")
+if(CMAKE_CXX_COMPILER_ID MATCHES "Clang|Xtensa" OR CMAKE_C_COMPILER MATCHES "xt-clang")
 	target_compile_options(mww_tflm_lib PRIVATE
 		-stdlib=libc++
 		-fno-vectorize
@@ -170,9 +171,6 @@ sof_llext_build("mww"
 		${sof_top_dir}/posix/include
 	LIBS
 		mww_tflm_lib
-		m
-		c
-		gcc
 	LIBS_PATH
 		${MWW_LIBS_PATHS}
 )

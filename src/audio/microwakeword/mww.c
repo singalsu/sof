@@ -39,11 +39,13 @@
 #include <sof/audio/mfcc/mfcc_comp.h>
 #include "mww_model.h"
 
-#if !CONFIG_COMP_MWW_MODULE
 #include <stdarg.h>
 #include <stdio.h>
+#include <zephyr/sys/printk.h>
 
-/* TFLM error strings land here for static builds. */
+/* TFLM error strings land here. Route to printk/mtrace so AllocateTensors()
+ * and Invoke() failures print their real reason instead of vanishing.
+ */
 void DebugLog(const char *format, va_list args)
 {
 	vprintk(format, args);
@@ -52,9 +54,8 @@ void DebugLog(const char *format, va_list args)
 int DebugVsnprintf(char *buffer, size_t buf_size, const char *format,
 		   va_list vlist)
 {
-	return vsnprintf(buffer, buf_size, format, vlist);
+	return vsnprintk(buffer, buf_size, format, vlist);
 }
-#endif
 
 #if CONFIG_AMS
 #include <sof/lib/ams.h>
