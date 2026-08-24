@@ -16,8 +16,11 @@ set(GEMMLOWP_PATH ${sof_top_dir}/../gemmlowp)
 set(RUY_PATH ${sof_top_dir}/../ruy)
 set(NN_HIFI_PATH ${sof_top_dir}/../nnlib-hifi4/xa_nnlib)
 
-set(MWW_TOOLCHAIN_ROOT
-	${ZEPHYR_SDK_INSTALL_DIR}/gnu/xtensa-${SOC_TOOLCHAIN_NAME}_zephyr-elf/xtensa-${SOC_TOOLCHAIN_NAME}_zephyr-elf)
+set(MWW_TOOLCHAIN_ROOT "")
+if(DEFINED ZEPHYR_SDK_INSTALL_DIR AND NOT "${ZEPHYR_SDK_INSTALL_DIR}" STREQUAL "")
+	set(MWW_TOOLCHAIN_ROOT
+		${ZEPHYR_SDK_INSTALL_DIR}/gnu/xtensa-${SOC_TOOLCHAIN_NAME}_zephyr-elf/xtensa-${SOC_TOOLCHAIN_NAME}_zephyr-elf)
+endif()
 set(MWW_HAL_SOC_PATH ${sof_top_dir}/../modules/hal/xtensa/zephyr/soc/${SOC_TOOLCHAIN_NAME})
 
 # As in tensorflow/llext/CMakeLists.txt, the HiFi4 nnlib optimized kernels
@@ -135,13 +138,24 @@ if(CMAKE_CXX_COMPILER_ID STREQUAL "Clang")
 		-stdlib=libc++
 		-fno-vectorize
 		-fno-slp-vectorize
-		-mcpu=${SOC_TOOLCHAIN_NAME}
 	)
-	target_include_directories(mww_tflm_lib SYSTEM PRIVATE
-		${MWW_TOOLCHAIN_ROOT}/include/c++/14.3.0
-		${MWW_TOOLCHAIN_ROOT}/include/c++/14.3.0/xtensa-${SOC_TOOLCHAIN_NAME}_zephyr-elf
-		${MWW_TOOLCHAIN_ROOT}/include
-	)
+	if(NOT CMAKE_C_COMPILER MATCHES "xt-clang")
+		target_compile_options(mww_tflm_lib PRIVATE
+			-mcpu=${SOC_TOOLCHAIN_NAME}
+		)
+		if(NOT "${MWW_TOOLCHAIN_ROOT}" STREQUAL "")
+			target_include_directories(mww_tflm_lib SYSTEM PRIVATE
+				${MWW_TOOLCHAIN_ROOT}/include/c++/14.3.0
+				${MWW_TOOLCHAIN_ROOT}/include/c++/14.3.0/xtensa-${SOC_TOOLCHAIN_NAME}_zephyr-elf
+				${MWW_TOOLCHAIN_ROOT}/include
+			)
+		endif()
+	endif()
+endif()
+
+set(MWW_LIBS_PATHS .)
+if(NOT "${MWW_TOOLCHAIN_ROOT}" STREQUAL "")
+	list(APPEND MWW_LIBS_PATHS ${MWW_TOOLCHAIN_ROOT}/lib)
 endif()
 
 sof_llext_build("mww"
@@ -160,11 +174,10 @@ sof_llext_build("mww"
 		c
 		gcc
 	LIBS_PATH
-		.
-		${MWW_TOOLCHAIN_ROOT}/lib
+		${MWW_LIBS_PATHS}
 )
 
-if(CMAKE_CXX_COMPILER_ID STREQUAL "Clang")
+if(CMAKE_CXX_COMPILER_ID STREQUAL "Clang" AND NOT CMAKE_C_COMPILER MATCHES "xt-clang" AND NOT "${MWW_TOOLCHAIN_ROOT}" STREQUAL "")
 	llext_link_options(mww
 		--target=xtensa-${SOC_TOOLCHAIN_NAME}_zephyr-elf
 		--ld-path=${MWW_TOOLCHAIN_ROOT}-ld
