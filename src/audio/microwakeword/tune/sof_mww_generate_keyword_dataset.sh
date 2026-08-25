@@ -194,22 +194,31 @@ EOF
 	exit 1
 fi
 
-if [[ -z "$PIPER_REPO" ]]; then
-	model_dir="$(cd "$(dirname "$PIPER_MODEL")" && pwd)"
-	parent="$(cd "$model_dir/.." 2>/dev/null && pwd || true)"
-	if [[ -d "$parent/piper_sample_generator" ]]; then
-		PIPER_REPO="$parent"
+if [[ -z "$PIPER_REPO" && "$PIPER_MODEL" == */models/*.pt ]]; then
+	candidate=$(cd "$(dirname "$PIPER_MODEL")/.." && pwd)
+	if [[ -d "$candidate/piper_train" ]]; then
+		PIPER_REPO="$candidate"
+	fi
+fi
+if [[ -n "$PIPER_REPO" ]]; then
+	if ! python3 -c "import piper_train" 2>/dev/null; then
+		export PYTHONPATH="$PIPER_REPO${PYTHONPATH:+:$PYTHONPATH}"
+		echo ">>> Added $PIPER_REPO to PYTHONPATH for piper_train"
 	fi
 fi
 
-if [[ -n "$PIPER_REPO" ]]; then
-	export PYTHONPATH="$PIPER_REPO${PYTHONPATH:+:$PYTHONPATH}"
+if ! python3 -c "import piper_sample_generator" 2>/dev/null; then
+	echo "piper_sample_generator not importable — activate the Piper venv first" >&2
+	echo "(or pass --venv /path/to/venv or set PIPER_VENV=/path/to/venv)" >&2
+	exit 1
 fi
 
-if ! python3 -c "import piper_sample_generator" 2>/dev/null; then
+if ! python3 -c "import piper_train" 2>/dev/null; then
 	cat >&2 <<EOF
-piper_sample_generator not importable in current python environment.
-Activate the piper venv or set PIPER_VENV=/path/to/venv.
+piper_train not importable. Upstream ships it in the git repo but does not
+pip-install it. Either:
+  - set PIPER_REPO=/path/to/piper-sample-generator (git clone root), or
+  - run this script with the repo root on PYTHONPATH.
 EOF
 	exit 1
 fi
@@ -218,27 +227,48 @@ RESULTS=()
 for i in "${!KEYWORDS[@]}"; do
 	KEYWORD="${KEYWORDS[$i]}"
 	LABEL="${LABELS[$i]}"
-	OUT_DIR="$OUT_ROOT/$LABEL"
-	mkdir -p "$OUT_DIR"
+	RAW_DIR="$OUT_ROOT/_raw/$LABEL"
+	FINAL_DIR="$OUT_ROOT/$LABEL"
+	mkdir -p "$RAW_DIR" "$FINAL_DIR"
 
-	echo ">>> [$((i + 1))/${#KEYWORDS[@]}] Synthesizing '$KEYWORD' -> $OUT_DIR"
-	python3 -m piper_sample_generator \
-		--generator "$PIPER_MODEL" \
-		--text "$KEYWORD" \
-		--output-dir "$OUT_DIR" \
-		--max-samples "$MAX_SAMPLES" \
-		--max-speakers "$MAX_SPEAKERS" \
-		--slerp-weights "$SLERP_WEIGHTS" \
-		--sample-rate 16000
+	echo ">>> [$((i + 1))/${#KEYWORDS[@]}] Generating '$KEYWORD' into $RAW_DIR"
+	echo "    model=$PIPER_MODEL"
+	echo "    max_samples=$MAX_SAMPLES per rate loop, max_speakers=$MAX_SPEAKERS"
+
+	# Loop over speaking rates for prosody variety.
+	for scale in 0.9 1.0 1.1; do
+		echo ">>> length_scale=$scale"
+		python3 -m piper_sample_generator "$KEYWORD" \
+			--model "$PIPER_MODEL" \
+			--max-samples "$MAX_SAMPLES" \
+			--max-speakers "$MAX_SPEAKERS" \
+			--slerp-weights $SLERP_WEIGHTS \
+			--length-scales "$scale" \
+			--output-dir "$RAW_DIR"
+		tag="s$(echo "$scale" | tr -d .)"
+		for f in "$RAW_DIR"/*.wav; do
+			base=$(basename "$f" .wav)
+			case "$base" in
+				s*_*) continue ;;
+			esac
+			mv "$f" "$RAW_DIR/${tag}_${base}.wav"
+		done
+	done
+
+	echo ">>> Augmenting into $FINAL_DIR (16 kHz, IR convolution, volume jitter)"
+	python3 -m piper_sample_generator.augment \
+		--sample-rate 16000 \
+		"$RAW_DIR" "$FINAL_DIR"
 
 	if [[ "$GAIN_AUG" = "1" ]]; then
-		echo ">>> Applying gain jitter to $OUT_DIR (peak=${GAIN_PEAK_DBFS} dBFS, sigma=${GAIN_SIGMA_DB} dB, headroom=${GAIN_HEADROOM_DB} dB)"
-		apply_gain_jitter "$OUT_DIR"
+		echo ">>> Applying gain jitter to $FINAL_DIR (peak=${GAIN_PEAK_DBFS} dBFS, sigma=${GAIN_SIGMA_DB} dB, headroom=${GAIN_HEADROOM_DB} dB)"
+		apply_gain_jitter "$FINAL_DIR"
 	fi
 
-	count=$(find "$OUT_DIR" -name '*.wav' | wc -l)
-	echo ">>> [$LABEL] Generated $count WAVs in $OUT_DIR"
-	RESULTS+=("$LABEL: $count WAVs")
+	n_raw=$(find "$RAW_DIR" -name '*.wav' | wc -l)
+	n_final=$(find "$FINAL_DIR" -name '*.wav' | wc -l)
+	echo ">>> [$LABEL] $n_raw raw / $n_final augmented WAVs in $FINAL_DIR"
+	RESULTS+=("$LABEL: $n_raw raw / $n_final augmented")
 done
 
 echo ">>> Done:"
