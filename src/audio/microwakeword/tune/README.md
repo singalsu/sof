@@ -30,6 +30,17 @@ This directory contains offline scripts to train, quantize, verify, and export s
 ## Quickstart
 
 ### 1. Generate Synthetic Keyword Data
+
+#### Option A: Multi-speaker dataset with `piper-sample-generator` (PyTorch `.pt` model)
+```bash
+./sof_mww_generate_keyword_dataset.sh \
+    --keyword "hey jarvis" \
+    --label hey_jarvis \
+    --model ~/git/piper-sample-generator/models/en_US-libritts_r-medium.pt \
+    ~/wov/wavs
+```
+
+#### Option B: Single-speaker dataset with `piper-tts` (ONNX `.onnx` model)
 ```bash
 ./sof_mww_generate_keyword_dataset_piper_tts.sh \
     --keyword "hey jarvis" \

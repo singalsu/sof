@@ -42,13 +42,15 @@ OUT_ROOT=""
 usage() {
 	cat >&2 <<EOF
 Usage: $0 --keyword "<text>" [--keyword "<text>" ...] \\
-          [--label <dir> ...] <out_root>
+          [--label <dir> ...] [--model <path.pt>] <out_root>
 
   --keyword TEXT   Spoken phrase to synthesize (repeatable; at least one).
   --label DIR      Output subdir name under <out_root>. Repeat once per
                    --keyword to override the default naming. If omitted,
                    each label is derived from its keyword by lower-casing
                    and replacing spaces with underscores.
+  --model PATH     Path to PyTorch .pt checkpoint (default: \$PIPER_MODEL).
+  --venv  PATH     Path to piper virtual environment (default: \$PIPER_VENV).
   out_root         Dataset root; <label>/*.wav is produced under it for each
                    keyword, ready to feed to
                    sof_mfcc_extract_features.sh <out_root> <feat_root>.
@@ -66,6 +68,12 @@ while [[ $# -gt 0 ]]; do
 		-l|--label)
 			[[ $# -ge 2 ]] || usage
 			LABELS+=("$2"); shift 2 ;;
+		-m|--model)
+			[[ $# -ge 2 ]] || usage
+			PIPER_MODEL="$2"; shift 2 ;;
+		--venv)
+			[[ $# -ge 2 ]] || usage
+			PIPER_VENV="$2"; shift 2 ;;
 		-h|--help)
 			usage ;;
 		--)
