@@ -435,7 +435,9 @@ def main() -> int:
     parser.add_argument("--batch-size", type=int, default=64, help="Batch size (default 64)")
     parser.add_argument("--lr", type=float, default=1e-3, help="Learning rate (default 1e-3)")
     parser.add_argument("--val-frac", type=float, default=0.2, help="Validation fraction (default 0.2)")
-    parser.add_argument("--class-weight-neg", type=float, default=5.0, help="Loss multiplier for negative samples (default 5.0)")
+    parser.add_argument("--class-weight-neg", type=float, default=1.0, help="Loss multiplier for negative samples (default 1.0)")
+    parser.add_argument("--gain-aug-db-min", type=float, default=-8.0, help="Min gain jitter in dB (default -8.0)")
+    parser.add_argument("--gain-aug-db-max", type=float, default=3.0, help="Max gain jitter in dB (default 3.0)")
     parser.add_argument("--seed", type=int, default=0, help="Random seed (default 0)")
 
     args = parser.parse_args()
@@ -445,6 +447,8 @@ def main() -> int:
     X_raw, y = mww_dataset.load_dataset(
         args.feat_root,
         labels=labels,
+        gain_aug_db_min=args.gain_aug_db_min,
+        gain_aug_db_max=args.gain_aug_db_max,
         seed=args.seed,
     )
 

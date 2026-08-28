@@ -53,7 +53,7 @@ def run_streaming_verification(
     model_path: str,
     feat_root: str,
     keywords: list[str],
-    threshold: float = 0.85,
+    threshold: float = 0.65,
     consecutive: int = 2,
     slice_hops: int = 3,
 ) -> dict:
@@ -181,7 +181,7 @@ def main() -> int:
     parser.add_argument("--tflite", required=True, help="Path to int8 .tflite model")
     parser.add_argument("--feat-root", required=True, help="Directory containing <label>/*.raw features")
     parser.add_argument("--keyword", required=True, action="append", help="Target keyword label(s)")
-    parser.add_argument("--threshold", type=float, default=0.85, help="Detection threshold (default 0.85)")
+    parser.add_argument("--threshold", type=float, default=0.65, help="Detection threshold (default 0.65)")
     parser.add_argument("--consecutive", type=int, default=2, help="Consecutive detections required (default 2)")
 
     args = parser.parse_args()

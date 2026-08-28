@@ -46,8 +46,10 @@ Env:
   EPOCHS           Training epochs (default 30).
   BATCH_SIZE       Training batch size (default 64).
   LR               Learning rate (default 0.001).
-  CLASS_WEIGHT_NEG Loss penalty for negative class (default 5.0).
-  THRESHOLD        Verification detection threshold (default 0.85).
+  CLASS_WEIGHT_NEG Loss penalty for negative class (default 1.0).
+  THRESHOLD        Verification detection threshold (default 0.65).
+  GAIN_AUG_MIN     Min gain jitter in dB during training (default -8.0).
+  GAIN_AUG_MAX     Max gain jitter in dB during training (default 3.0).
   GAIN_AUG         Passed to negative class preparation (default 0).
 EOF
 	exit 1
@@ -150,7 +152,9 @@ python3 "$SCRIPT_DIR/sof_mww_train.py" \
 	${EPOCHS:+--epochs "$EPOCHS"} \
 	${BATCH_SIZE:+--batch-size "$BATCH_SIZE"} \
 	${LR:+--lr "$LR"} \
-	${CLASS_WEIGHT_NEG:+--class-weight-neg "$CLASS_WEIGHT_NEG"}
+	${CLASS_WEIGHT_NEG:+--class-weight-neg "$CLASS_WEIGHT_NEG"} \
+	${GAIN_AUG_MIN:+--gain-aug-db-min "$GAIN_AUG_MIN"} \
+	${GAIN_AUG_MAX:+--gain-aug-db-max "$GAIN_AUG_MAX"}
 
 # Step 4: Verification
 echo "=== Step 4/4: Running streaming verification ==="
@@ -158,7 +162,7 @@ python3 "$SCRIPT_DIR/sof_mww_verify.py" \
 	--tflite "$OUT_DIR/${NAME}_quantized_model.tflite" \
 	--feat-root "$FEAT_ROOT" \
 	"${KW_ARGS[@]}" \
-	${THRESHOLD:+--threshold "$THRESHOLD"}
+	--threshold "${THRESHOLD:-0.65}"
 
 echo "================================================================="
 echo "MWW model training complete. Artifacts saved in $OUT_DIR:"

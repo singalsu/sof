@@ -121,3 +121,17 @@ source ~/venvs/mww-train/bin/activate
 ```
 
 Both phrase directories are pooled as the positive target class ($y = 1$). The streaming verification report provides individual detection recall for each phrase, and the single exported `mww_model_data.cc` triggers when either phrase is spoken.
+
+---
+
+### Visualizing Streaming Diagnostics from mtrace
+
+You can visualize real-time hop metrics, energy/noise floor, int8 feature quantization, and detection probability curves captured from device `mtrace` logs:
+
+```bash
+# Capture mtrace output from device:
+sof-mtrace-reader > /tmp/mtrace.txt
+
+# Plot streaming diagnostics:
+./sof_mww_plot_mtrace.py /tmp/mtrace.txt -o /tmp/mww_diag.png
+```
