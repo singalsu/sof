@@ -78,7 +78,7 @@ int DebugVsnprintf(char *buffer, size_t buf_size, const char *format,
 #define MWW_MFCC_HOP_MS 10
 
 /* Wake-word probability threshold above which KPB draining is triggered. */
-#define MWW_DETECT_THRESHOLD 0.85f
+#define MWW_DETECT_THRESHOLD 0.65f
 
 /* Consecutive inferences above threshold required to confirm detection (~60 ms). */
 #define MWW_CONSECUTIVE_DETECTS_REQUIRED 2
@@ -162,6 +162,8 @@ static int mww_notify_kpb(struct processing_module *mod)
 	cd->client_data.sink = NULL;
 	cd->client_data.id = 0; /**< TODO: acquire proper id from kpb */
 	cd->client_data.drain_req = cd->drain_req_ms;
+
+	dcache_writeback_region(&cd->client_data, sizeof(cd->client_data));
 
 	ams_helper_prepare_payload(dev, &ams_payload, cd->kpd_uuid_id,
 				   (uint8_t *)&cd->client_data,
@@ -450,7 +452,13 @@ static int mww_process(struct processing_module *mod,
 			cd->mwc.audio_features = cd->feature_buf;
 			cd->mwc.audio_data_size = MWW_FEATURE_ELEM_COUNT;
 
+#if CONFIG_COMP_MWW_DEBUG_TRACE
+			uint32_t c0 = k_cycle_get_32();
+#endif
 			ret = MWW_ProcessClassify(&cd->mwc);
+#if CONFIG_COMP_MWW_DEBUG_TRACE
+			uint32_t c1 = k_cycle_get_32();
+#endif
 			if (ret < 0) {
 				comp_err(dev, "MWW_ProcessClassify failed: %d (%s)",
 					 ret, cd->mwc.error);
@@ -458,8 +466,10 @@ static int mww_process(struct processing_module *mod,
 			}
 
 #if CONFIG_COMP_MWW_DEBUG_TRACE
-			comp_info(dev, "MWW probability=%d raw=%u",
-				  (int)(cd->mwc.probability * 100.0f), cd->mwc.raw_output);
+			comp_info(dev, "MWW probability=%d raw=%u (th=%p prio=%d cycles=%u)",
+				  (int)(cd->mwc.probability * 100.0f), cd->mwc.raw_output,
+				  k_current_get(), k_thread_priority_get(k_current_get()),
+				  c1 - c0);
 #endif
 
 			if (cd->mwc.probability >= MWW_DETECT_THRESHOLD) {
@@ -472,6 +482,7 @@ static int mww_process(struct processing_module *mod,
 						  cd->consecutive_detects, cd->detections);
 					cd->kpb_trigger_events++;
 					mww_notify_kpb(mod);
+					cd->consecutive_detects = 0;
 				}
 			} else {
 				cd->consecutive_detects = 0;
