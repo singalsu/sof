@@ -216,19 +216,29 @@ struct comp_dev *module_adapter_new_ext(const struct comp_driver *drv,
 #endif
 	comp_cl_dbg(drv, "start");
 
+	struct comp_ipc_config local_config;
+
 	if (!config) {
 		comp_cl_err(drv, "NULL config! drv = %p", drv);
 		return NULL;
 	}
+
+	local_config = *config;
+
 #if CONFIG_IPC_MAJOR_4
 	if (config->ipc_extended_init) {
 		ret = module_ext_init_decode(drv, &ext_data, &spec);
 		if (ret != 0)
 			return NULL;
+
+#if CONFIG_ZEPHYR_DP_SCHEDULER
+		if (ext_data.dp_data)
+			local_config.proc_domain = COMP_PROCESSING_DOMAIN_DP;
+#endif
 	}
 #endif
 
-	struct processing_module *mod = module_adapter_mem_alloc(drv, config);
+	struct processing_module *mod = module_adapter_mem_alloc(drv, &local_config);
 
 	if (!mod)
 		return NULL;
@@ -243,7 +253,7 @@ struct comp_dev *module_adapter_new_ext(const struct comp_driver *drv,
 
 #if CONFIG_ZEPHYR_DP_SCHEDULER
 	/* create a task for DP processing */
-	if (config->proc_domain == COMP_PROCESSING_DOMAIN_DP) {
+	if (dev->ipc_config.proc_domain == COMP_PROCESSING_DOMAIN_DP) {
 		/* All data allocated, create a thread */
 		ret = pipeline_comp_dp_task_init(dev);
 		if (ret) {
@@ -1343,7 +1353,6 @@ int module_adapter_copy(struct comp_dev *dev)
 			return module_adapter_copy_ring_buffers(dev);
 		else
 			return module_adapter_sink_source_copy(dev);
-
 	}
 
 	comp_err(dev, "unknown processing_data_type");
