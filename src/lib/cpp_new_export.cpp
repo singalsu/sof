@@ -19,12 +19,12 @@
 
 namespace {
 
-void *sof_operator_new(size_t size)
+[[maybe_unused]] void *sof_operator_new(size_t size)
 {
 	return malloc(size);
 }
 
-void sof_operator_delete(void *ptr, size_t size)
+[[maybe_unused]] void sof_operator_delete(void *ptr, size_t size)
 {
 	(void)size;
 	free(ptr);
@@ -42,7 +42,7 @@ void sof_operator_delete(void *ptr, size_t size)
  * the link or exported for LLEXT modules to resolve against. Provide our
  * own and export it under the same name.
  */
-void sof_cxa_pure_virtual(void)
+[[maybe_unused]] void sof_cxa_pure_virtual(void)
 {
 	while (1) {
 	}
