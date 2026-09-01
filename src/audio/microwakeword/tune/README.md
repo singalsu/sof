@@ -6,7 +6,8 @@ This directory contains offline scripts to train, quantize, verify, and export s
 
 ## Toolchain Overview
 
-1. **Synthetic Data Synthesis:**
+1. **Keyword Dataset Generation & Ingestion:**
+   - [sof_mww_generate_keyword_dataset_from_dir.sh](sof_mww_generate_keyword_dataset_from_dir.sh): Ingests recorded real speech WAV samples from a directory, preserves clean reference clips, and complements them with Room Impulse Response (RIR) reverberation, additive background noise (at varying SNRs), tempo/pitch perturbations, and Gaussian gain jitter.
    - [sof_mww_generate_keyword_dataset_piper_tts.sh](sof_mww_generate_keyword_dataset_piper_tts.sh): Synthesizes positive keyword WAVs with single-speaker Piper TTS voices, pitch/tempo perturbation (via `sox`), Gaussian gain jitter, and Room Impulse Response (RIR) reverberation.
    - [sof_mww_generate_keyword_dataset.sh](sof_mww_generate_keyword_dataset.sh): Multi-speaker generation with `piper-sample-generator` (LibriTTS-R).
    - [sof_mww_prepare_silence_unknown.sh](sof_mww_prepare_silence_unknown.sh): Prepares negative dataset classes (`silence` and `unknown`) by slicing background noise and non-target words from Google Speech Commands v2.
@@ -82,6 +83,24 @@ These can be overridden via environment variables if desired (e.g., `MAX_SAMPLES
     --label hey_jarvis \
     --voice ~/.local/share/piper-voices/en_US-lessac-medium.onnx \
     ~/wov/wavs
+```
+
+#### Option C: Real speech dataset from a directory of recorded WAV samples
+To use recorded human speech recordings instead of synthetic TTS:
+```bash
+./sof_mww_generate_keyword_dataset_from_dir.sh \
+    --src-dir /path/to/recorded/audio \
+    --label hi_intel \
+    ~/wov/wavs
+```
+This converts the input audio to 16 kHz 16-bit mono, keeps the clean unperturbed samples, and automatically complements them with RIR convolution, background noise mixing (10–30 dB SNR), pitch/tempo shifts, and Gaussian level jitter to reach a full training set size (`MAX_SAMPLES=1000` by default).
+
+You can also pass `--keyword-dir <label>:<path>` directly to `sof_mww_train_pipeline.sh`:
+```bash
+./sof_mww_train_pipeline.sh \
+    --keyword-dir hi_intel:/path/to/recorded/audio \
+    --name hi_intel \
+    ~/wov/wavs ~/wov/feats ~/wov/model
 ```
 
 ### 2. Run End-to-End Retraining Pipeline

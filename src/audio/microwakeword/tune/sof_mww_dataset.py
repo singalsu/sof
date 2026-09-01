@@ -169,7 +169,7 @@ def load_dataset(
     jitter_pos_count: int = 4,
     jitter_neg_count: int = 3,
     hop_step_long: int = 5,
-    gain_aug_db_min: float = -12.0,
+    gain_aug_db_min: float = -20.0,
     gain_aug_db_max: float = 6.0,
     seed: int = 0,
 ) -> tuple[np.ndarray, np.ndarray]:

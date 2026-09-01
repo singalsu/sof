@@ -23,17 +23,21 @@ set -e
 
 usage() {
 	cat >&2 <<EOF
-Usage: $0 --keyword <label> [--keyword <label> ...] [--name <base>] \
-          [--format S16|S24|S32] [--tplg <path>] \
+Usage: $0 [--keyword <label> ...] [--keyword-dir [<label>:]<src_dir> ...] \
+          [--name <base>] [--format S16|S24|S32] [--tplg <path>] \
           <wav_root> <feat_root> <out_dir>
 
-  --keyword LBL   Positive keyword class directory name (repeatable). Must
-                  match a subdirectory under <wav_root>.
-  --name BASE     Base name for the output model files (default: derived from
-                  keyword labels).
-  --format FMT    Testbench sample container format (S16, S24, S32). Default S32.
-  --tplg PATH     Explicit path to benchmark topology file (default:
-                  sof-hda-benchmark-mfccmel40_10ms<SF>.tplg).
+  --keyword LBL        Positive keyword class directory name (repeatable).
+                       Matches a subdirectory under <wav_root>.
+  --keyword-dir [LBL:]DIR Path to directory containing recorded real speech WAVs.
+                       The keyword class will be automatically prepared and
+                       augmented (RIR, noise, tempo/pitch, gain jitter) into
+                       <wav_root>/<label>.
+  --name BASE          Base name for the output model files (default: derived from
+                       keyword labels).
+  --format FMT         Testbench sample container format (S16, S24, S32). Default S32.
+  --tplg PATH          Explicit path to benchmark topology file (default:
+                       sof-hda-benchmark-mfccmel40_10ms<SF>.tplg).
 
   wav_root        Dataset root directory; must contain <keyword>/*.wav.
                   silence/ and unknown/ will be populated here.
@@ -48,7 +52,7 @@ Env:
   LR               Learning rate (default 0.001).
   CLASS_WEIGHT_NEG Loss penalty for negative class (default 1.0).
   THRESHOLD        Verification detection threshold (default 0.65).
-  GAIN_AUG_MIN     Min gain jitter in dB during training (default -12.0).
+  GAIN_AUG_MIN     Min gain jitter in dB during training (default -20.0).
   GAIN_AUG_MAX     Max gain jitter in dB during training (default 6.0).
   GAIN_AUG         Passed to negative class preparation (default 0).
 EOF
@@ -56,6 +60,7 @@ EOF
 }
 
 KEYWORDS=()
+KEYWORD_DIRS=()
 NAME=""
 FORMAT=""
 CUSTOM_TPLG=""
@@ -66,6 +71,9 @@ while [[ $# -gt 0 ]]; do
 		-k|--keyword)
 			[[ $# -ge 2 ]] || usage
 			KEYWORDS+=("$2"); shift 2 ;;
+		-s|--src-dir|--keyword-dir)
+			[[ $# -ge 2 ]] || usage
+			KEYWORD_DIRS+=("$2"); shift 2 ;;
 		-n|--name)
 			[[ $# -ge 2 ]] || usage
 			NAME="$2"; shift 2 ;;
@@ -87,6 +95,29 @@ while [[ $# -gt 0 ]]; do
 	esac
 done
 
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+
+# If keyword dirs are provided, resolve labels and populate them into KEYWORDS
+if [[ ${#KEYWORD_DIRS[@]} -gt 0 ]]; then
+	for kdir_arg in "${KEYWORD_DIRS[@]}"; do
+		if [[ "$kdir_arg" == *:* ]]; then
+			lbl="${kdir_arg%%:*}"
+		else
+			lbl="$(basename "$kdir_arg")"
+			if [[ "$lbl" == "audio" || "$lbl" == "wav" || "$lbl" == "wavs" ]]; then
+				lbl="$(basename "$(dirname "$(realpath "$kdir_arg")")")"
+			fi
+			lbl="$(echo "$lbl" | tr ' A-Z-' '_a-z_')"
+		fi
+		# Add to KEYWORDS if not already present
+		found=0
+		for k in "${KEYWORDS[@]}"; do
+			[[ "$k" == "$lbl" ]] && found=1 && break
+		done
+		[[ $found -eq 0 ]] && KEYWORDS+=("$lbl")
+	done
+fi
+
 if [[ ${#KEYWORDS[@]} -eq 0 || ${#POSITIONAL[@]} -ne 3 ]]; then
 	usage
 fi
@@ -94,6 +125,16 @@ fi
 WAV_ROOT="${POSITIONAL[0]}"
 FEAT_ROOT="${POSITIONAL[1]}"
 OUT_DIR="${POSITIONAL[2]}"
+
+# If real speech directories are passed, generate/augment keyword datasets first
+if [[ ${#KEYWORD_DIRS[@]} -gt 0 ]]; then
+	echo "=== Preparing keyword dataset(s) from real speech directory ==="
+	DIR_ARGS=()
+	for kdir_arg in "${KEYWORD_DIRS[@]}"; do
+		DIR_ARGS+=(--keyword-dir "$kdir_arg")
+	done
+	"$SCRIPT_DIR/sof_mww_generate_keyword_dataset_from_dir.sh" "${DIR_ARGS[@]}" "$WAV_ROOT"
+fi
 
 if [[ -z "$NAME" ]]; then
 	if [[ ${#KEYWORDS[@]} -eq 1 ]]; then
