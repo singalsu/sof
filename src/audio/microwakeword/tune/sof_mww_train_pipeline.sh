@@ -48,8 +48,8 @@ Env:
   LR               Learning rate (default 0.001).
   CLASS_WEIGHT_NEG Loss penalty for negative class (default 1.0).
   THRESHOLD        Verification detection threshold (default 0.65).
-  GAIN_AUG_MIN     Min gain jitter in dB during training (default -8.0).
-  GAIN_AUG_MAX     Max gain jitter in dB during training (default 3.0).
+  GAIN_AUG_MIN     Min gain jitter in dB during training (default -12.0).
+  GAIN_AUG_MAX     Max gain jitter in dB during training (default 6.0).
   GAIN_AUG         Passed to negative class preparation (default 0).
 EOF
 	exit 1

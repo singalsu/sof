@@ -154,8 +154,8 @@ def load_pcan_dataset(
     window_hops: int = WINDOW_HOPS,
     hop_step_keyword: int = 5,
     hop_step_negative: int = 20,
-    gain_aug_db_min: float = -8.0,
-    gain_aug_db_max: float = 3.0,
+    gain_aug_db_min: float = -12.0,
+    gain_aug_db_max: float = 6.0,
     seed: int = 0,
 ) -> tuple[np.ndarray, np.ndarray, dict[str, list[str]]]:
     """Extract PCAN features for all WAVs and slice into dataset windows.

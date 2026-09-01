@@ -436,8 +436,8 @@ def main() -> int:
     parser.add_argument("--lr", type=float, default=1e-3, help="Learning rate (default 1e-3)")
     parser.add_argument("--val-frac", type=float, default=0.2, help="Validation fraction (default 0.2)")
     parser.add_argument("--class-weight-neg", type=float, default=1.0, help="Loss multiplier for negative samples (default 1.0)")
-    parser.add_argument("--gain-aug-db-min", type=float, default=-8.0, help="Min gain jitter in dB (default -8.0)")
-    parser.add_argument("--gain-aug-db-max", type=float, default=3.0, help="Max gain jitter in dB (default 3.0)")
+    parser.add_argument("--gain-aug-db-min", type=float, default=-12.0, help="Min gain jitter in dB (default -12.0)")
+    parser.add_argument("--gain-aug-db-max", type=float, default=6.0, help="Max gain jitter in dB (default 6.0)")
     parser.add_argument("--seed", type=int, default=0, help="Random seed (default 0)")
 
     args = parser.parse_args()
