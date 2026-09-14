@@ -13,7 +13,9 @@
 #include <sof/math/auditory.h>
 #include <sof/math/dct.h>
 #include <sof/math/fft.h>
+#if CONFIG_COMP_MFCC_PCAN
 #include <sof/math/pcan.h>
+#endif
 #include <sof/audio/mfcc/mfcc_vad.h>
 #include <sof/ipc/msg.h>
 #include <stddef.h>
@@ -100,7 +102,9 @@ struct mfcc_state {
 	struct mfcc_fft fft; /**< FFT related */
 	struct dct_plan_16 dct; /**< DCT related */
 	struct psy_mel_filterbank melfb; /**< Mel filter bank */
+#if CONFIG_COMP_MFCC_PCAN
 	struct pcan_state pcan; /**< PCAN state */
+#endif
 	struct mfcc_cepstral_lifter lifter; /**< Cepstral lifter coefficients */
 	struct mat_matrix_16b *mel_spectra; /**< Pointer to scratch */
 	struct mat_matrix_16b *cepstral_coef; /**< Pointer to scratch */

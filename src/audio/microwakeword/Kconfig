@@ -28,4 +28,17 @@ config COMP_MWW_MODEL_FROM_CONTROL
 	  or topology configuration data blob via binary kcontrol (bytes control)
 	  instead of using the static mww_model_data embedded in the firmware image.
 
+config COMP_MWW_PCAN
+	bool "Expect PCAN-normalized MFCC input"
+	default n
+	depends on COMP_MFCC_PCAN
+	help
+	  Select when the upstream MFCC component runs with PCAN
+	  (Per-Channel AGC Normalization) enabled. In that mode the Mel
+	  filterbank energies arriving at MWW are already normalized to the
+	  int8 dynamic range, so the in-component peak-tracking AGC and the
+	  Q9.23->Q1.7 requantization step are compiled out and each Mel value
+	  is clamped and cast directly to int8. Leave disabled for the
+	  classic non-PCAN MFCC pipeline that relies on MWW's built-in AGC.
+
 endif # COMP_MWW

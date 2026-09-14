@@ -366,6 +366,28 @@ static int mww_process(struct processing_module *mod,
 				  ((1U << MWW_FEATURE_SLICE_COUNT) - 1);
 
 		/* AGC: attack on this hop's peak (always track energy) */
+#if CONFIG_COMP_MWW_PCAN
+		/* PCAN mode: MFCC has already normalized the Mel energies to the
+		 * [-1.0, +1.0] Q9.23 range. Skip in-component AGC and requantize
+		 * each Mel value directly to Q1.7 int8.
+		 */
+		for (i = 0; i < MWW_FEATURE_SIZE; i++) {
+			int32_t mel_c = mel[i];
+
+			if (mel_c > MEL_CLIP_MAX_Q23)
+				mel_c = MEL_CLIP_MAX_Q23;
+			else if (mel_c < MEL_CLIP_MIN_Q23)
+				mel_c = MEL_CLIP_MIN_Q23;
+
+			mel_c = Q_MULTSR_32X32((int64_t)mel_c, MEL_SCALE_Q30, 23, 30, 7);
+			if (mel_c > MEL_CLIP_MAX_Q7)
+				mel_c = MEL_CLIP_MAX_Q7;
+			else if (mel_c < MEL_CLIP_MIN_Q7)
+				mel_c = MEL_CLIP_MIN_Q7;
+
+			slice[i] = (int8_t)mel_c;
+		}
+#else
 		int32_t hop_peak_q23 = mel[0];
 
 		for (i = 1; i < MWW_FEATURE_SIZE; i++) {
@@ -412,6 +434,7 @@ static int mww_process(struct processing_module *mod,
 			if (cd->agc_gain_q23 > MWW_AGC_GAIN_TARGET_Q23)
 				cd->agc_gain_q23 = MWW_AGC_GAIN_TARGET_Q23;
 		}
+#endif /* CONFIG_COMP_MWW_PCAN */
 
 #if CONFIG_COMP_MWW_DEBUG_TRACE
 		{

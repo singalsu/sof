@@ -10,7 +10,9 @@
 #include <sof/math/auditory.h>
 #include <sof/math/icomplex16.h>
 #include <sof/math/icomplex32.h>
+#if CONFIG_COMP_MFCC_PCAN
 #include <sof/math/pcan.h>
+#endif
 #include <sof/math/trig.h>
 #include <sof/math/window.h>
 #include <sof/trace/trace.h>
@@ -461,6 +463,7 @@ int mfcc_setup(struct processing_module *mod, int max_frames, int sample_rate, i
 	}
 
 	if (config->enable_pcan) {
+#if CONFIG_COMP_MFCC_PCAN
 		struct pcan_config pcfg;
 		uint32_t *pcan_noise;
 		int16_t *pcan_lut;
@@ -505,6 +508,12 @@ int mfcc_setup(struct processing_module *mod, int max_frames, int sample_rate, i
 		state->pcan.noise_estimate = NULL;
 		state->pcan.gain_lut = NULL;
 	}
+#else
+		comp_err(dev, "enable_pcan set but CONFIG_COMP_MFCC_PCAN is not selected");
+		ret = -EINVAL;
+		goto free_vad;
+	}
+#endif
 
 	comp_dbg(dev, "done");
 	return 0;
@@ -583,8 +592,10 @@ void mfcc_free_buffers(struct processing_module *mod)
 	mfcc_free_and_null(mod, (void **)&cd->state.dct.matrix);
 	mfcc_free_and_null(mod, (void **)&cd->state.lifter.matrix);
 	mfcc_free_and_null(mod, (void **)&cd->state.out_stage);
+#if CONFIG_COMP_MFCC_PCAN
 	mfcc_free_and_null(mod, (void **)&cd->state.pcan.noise_estimate);
 	mfcc_free_and_null(mod, (void **)&cd->state.pcan.gain_lut);
+#endif
 	mfcc_free_and_null(mod, (void **)&cd->vad.noise_floor);
 	mfcc_free_and_null(mod, (void **)&cd->vad.weights);
 }
