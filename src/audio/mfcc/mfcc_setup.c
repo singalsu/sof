@@ -386,6 +386,9 @@ int mfcc_setup(struct processing_module *mod, int max_frames, int sample_rate, i
 	/* Use FFT buffer as scratch for later computed data */
 	state->power_spectra = (int32_t *)&fft->fft_buf[0];
 	state->mel_log_32 = &state->power_spectra[fft->half_fft_size];
+#if CONFIG_COMP_MFCC_PCAN
+	state->mel_linear = (uint32_t *)&state->mel_log_32[config->num_mel_bins];
+#endif
 
 	/* Check that mel_log_32 fits in the remaining fft_buf scratch space */
 	mel_log_32_space = (int)(fft->fft_buffer_size / sizeof(int32_t)) - fft->half_fft_size;

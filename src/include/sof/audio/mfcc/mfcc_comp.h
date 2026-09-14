@@ -104,6 +104,7 @@ struct mfcc_state {
 	struct psy_mel_filterbank melfb; /**< Mel filter bank */
 #if CONFIG_COMP_MFCC_PCAN
 	struct pcan_state pcan; /**< PCAN state */
+	uint32_t *mel_linear; /**< Linear Mel band magnitudes for PCAN */
 #endif
 	struct mfcc_cepstral_lifter lifter; /**< Cepstral lifter coefficients */
 	struct mat_matrix_16b *mel_spectra; /**< Pointer to scratch */

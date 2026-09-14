@@ -355,72 +355,66 @@ int mfcc_stft_process(struct processing_module *mod, struct mfcc_comp_data *cd)
 		 * to add the missing "gain".
 		 */
 		mel_scale_shift = input_shift - fft->fft_plan->len;
-		psy_apply_mel_filterbank_32(&state->melfb, fft->fft_out, state->power_spectra,
-					    state->mel_log_32, mel_scale_shift);
-
-		/* Run VAD on unnormalized log Mel spectrum before PCAN/lifter */
-		if (config->enable_vad) {
-			mfcc_vad_update(&cd->vad, state->mel_log_32);
-
-			state->header.energy = cd->vad.energy;
-			state->header.noise_energy = cd->vad.noise_energy;
-			state->header.vad_flag = cd->vad.is_speech ? 1 : 0;
-		}
 
 #if CONFIG_COMP_MFCC_PCAN
 		if (state->pcan.enable_pcan) {
-			pcan_update_noise_estimate(&state->pcan, (const uint32_t *)state->mel_log_32);
-			pcan_apply(&state->pcan, (uint32_t *)state->mel_log_32);
+			psy_apply_mel_filterbank_with_linear_32(&state->melfb, fft->fft_out,
+							       state->power_spectra, state->mel_log_32,
+							       state->mel_linear, mel_scale_shift);
+			pcan_update_noise_estimate(&state->pcan, state->mel_linear);
+			pcan_apply(&state->pcan, state->mel_linear);
+			pcan_log_scale(&state->pcan, state->mel_linear);
+		} else {
+			psy_apply_mel_filterbank_32(&state->melfb, fft->fft_out, state->power_spectra,
+						    state->mel_log_32, mel_scale_shift);
 		}
+#else
+		psy_apply_mel_filterbank_32(&state->melfb, fft->fft_out, state->power_spectra,
+					    state->mel_log_32, mel_scale_shift);
 #endif
 
 		if (state->mel_only) {
 			/* In Mel-only mode output Mel log spectra directly */
 			cc_count += state->dct.num_in;
 
-#if CONFIG_COMP_MFCC_PCAN
-			if (!state->pcan.enable_pcan)
-#endif
-			{
-				/* Find peak mel value and track state->mmax in Q9.23 */
-				if (config->dynamic_mmax) {
-					peak = state->mel_log_32[0];
-					for (j = 1; j < state->dct.num_in; j++) {
-						if (state->mel_log_32[j] > peak)
-							peak = state->mel_log_32[j];
-					}
-
-					/* Jump to peak immediately if higher, decay otherwise */
-					if (peak > state->mmax) {
-						state->mmax = peak;
-					} else {
-						/* Q9.23 * Q1.15, result Q9.23. The coefficient is small
-						 * so no need for saturation.
-						 */
-						s = (int64_t)peak - state->mmax;
-						state->mmax +=
-							Q_MULTSR_32X32(s, config->mmax_coef, 23, 15, 23);
-					}
+			/* Find peak mel value and track state->mmax in Q9.23 */
+			if (config->dynamic_mmax) {
+				peak = state->mel_log_32[0];
+				for (j = 1; j < state->dct.num_in; j++) {
+					if (state->mel_log_32[j] > peak)
+						peak = state->mel_log_32[j];
 				}
 
-				/* Clamp Mel values lower than mmax - top_db, add offset, and scale.
-				 * Config top_db and mel_offset are Q9.7, shift to Q9.23.
-				 */
-				clamp_value = state->mmax - ((int32_t)config->top_db << 16);
-				for (j = 0; j < state->dct.num_in; j++) {
-					mel_value = state->mel_log_32[j];
-					if (mel_value < clamp_value)
-						mel_value = clamp_value;
-
-					/* Q9.23 * Q4.12, result Q9.23 */
-					s = (int64_t)mel_value + ((int32_t)config->mel_offset << 16);
-					state->mel_log_32[j] =
-						sat_int32(Q_MULTSR_32X32(s, config->mel_scale, 23, 12, 23));
+				/* Jump to peak immediately if higher, decay otherwise */
+				if (peak > state->mmax) {
+					state->mmax = peak;
+				} else {
+					/* Q9.23 * Q1.15, result Q9.23. The coefficient is small
+					 * so no need for saturation.
+					 */
+					s = (int64_t)peak - state->mmax;
+					state->mmax +=
+						Q_MULTSR_32X32(s, config->mmax_coef, 23, 15, 23);
 				}
-
-				/* Enable this to check mmax decay */
-				comp_dbg(dev, "state->mmax = %d", state->mmax);
 			}
+
+			/* Clamp Mel values lower than mmax - top_db, add offset, and scale.
+			 * Config top_db and mel_offset are Q9.7, shift to Q9.23.
+			 */
+			clamp_value = state->mmax - ((int32_t)config->top_db << 16);
+			for (j = 0; j < state->dct.num_in; j++) {
+				mel_value = state->mel_log_32[j];
+				if (mel_value < clamp_value)
+					mel_value = clamp_value;
+
+				/* Q9.23 * Q4.12, result Q9.23 */
+				s = (int64_t)mel_value + ((int32_t)config->mel_offset << 16);
+				state->mel_log_32[j] =
+					sat_int32(Q_MULTSR_32X32(s, config->mel_scale, 23, 12, 23));
+			}
+
+			/* Enable this to check mmax decay */
+			comp_dbg(dev, "state->mmax = %d", state->mmax);
 		} else {
 			/* Convert Q9.23 to Q9.7 for 16-bit DCT */
 			for (j = 0; j < state->dct.num_in; j++)
@@ -442,6 +436,16 @@ int mfcc_stft_process(struct processing_module *mod, struct mfcc_comp_data *cd)
 
 		/* Use hop counter for frame numbering (independent of VAD enable) */
 		state->header.frame_number = state->hop_count;
+
+		/* Run VAD on the scaled mel log spectrum (available in both modes) */
+		if (config->enable_vad) {
+			mfcc_vad_update(&cd->vad, state->mel_log_32);
+
+			/* Populate data header for this output frame */
+			state->header.energy = cd->vad.energy;
+			state->header.noise_energy = cd->vad.noise_energy;
+			state->header.vad_flag = cd->vad.is_speech ? 1 : 0;
+		}
 
 		/* Increment hop counter at end of hop processing */
 		state->hop_count++;
@@ -516,8 +520,8 @@ static void mfcc_prepare_output(struct mfcc_state *state, int num_ceps)
 		int8_t *out8 = (int8_t *)state->out_stage;
 
 		for (k = 0; k < num_ceps; k++) {
-			/* Map PCAN output (~0..670) to int8 [-128..127] matching microWakeWord */
-			int32_t val = (int32_t)state->mel_log_32[k];
+			/* Map PCAN log-scaled output (~0..666) to int8 [-128..127] */
+			int32_t val = (int32_t)state->mel_linear[k];
 
 			val = ((val * 256) + 333) / 666 - 128;
 			if (val > 127)
