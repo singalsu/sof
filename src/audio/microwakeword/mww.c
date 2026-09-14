@@ -434,7 +434,7 @@ static int mww_process(struct processing_module *mod,
 				if (slice[i] > f_max) f_max = slice[i];
 			}
 #if CONFIG_COMP_MWW_PCAN
-			comp_info(dev, "[MWW DBG hop %d] vad=%d E=%d Ne=%d f_min=%d f_max=%d (pcan8)",
+			comp_info(dev, "[MWW DBG hop %d] vad=%d E=%d Ne=%d f_min=%d f_max=%d (pcan)",
 				  dbg_hop_count, (int)hdr->vad_flag,
 				  (int)hdr->energy, (int)hdr->noise_energy,
 				  f_min, f_max);
