@@ -17,6 +17,8 @@ set(base_files
   ${MICROFRONTEND_DIR}/pcan_gain_control.c
   ${MICROFRONTEND_DIR}/noise_reduction.c
   ${MICROFRONTEND_DIR}/noise_reduction_util.c
+  ${MICROFRONTEND_DIR}/log_scale.c
+  ${MICROFRONTEND_DIR}/log_lut.c
 )
 
 is_zephyr(zephyr)

@@ -200,6 +200,9 @@ int pcan_populate_state(const struct pcan_config *config, struct pcan_state *sta
 	state->g_pcan.gain_lut = state->gain_lut;
 	state->g_pcan.snr_shift = state->snr_shift;
 
+	state->g_log_scale.enable_log = 1;
+	state->g_log_scale.scale_shift = 6;
+
 	return 0;
 }
 
@@ -239,4 +242,43 @@ void pcan_update_noise_estimate(struct pcan_state *state, const uint32_t *signal
 				   PCAN_SMOOTHING_COEF_BITS);
 		state->noise_estimate[i] = estimate;
 	}
+}
+
+void pcan_log_scale(struct pcan_state *state, uint32_t *signal)
+{
+	int i;
+	uint16_t *scaled;
+
+	if (!state || !state->enable_pcan)
+		return;
+
+	scaled = LogScaleApply(&state->g_log_scale, signal, state->num_channels, 3);
+	for (i = state->num_channels - 1; i >= 0; --i)
+		signal[i] = scaled[i];
+}
+
+uint32_t pcan_sqrt32(uint32_t num)
+{
+	if (num == 0)
+		return 0;
+
+	uint32_t res = 0;
+	int max_bit_number = 32 - __builtin_clz(num);
+	max_bit_number |= 1;
+	uint32_t bit = 1U << (31 - max_bit_number);
+	int iterations = (31 - max_bit_number) / 2 + 1;
+
+	while (iterations--) {
+		if (num >= res + bit) {
+			num -= res + bit;
+			res = (res >> 1U) + bit;
+		} else {
+			res >>= 1U;
+		}
+		bit >>= 2U;
+	}
+	if (num > res && res != 0xFFFF)
+		++res;
+
+	return res;
 }

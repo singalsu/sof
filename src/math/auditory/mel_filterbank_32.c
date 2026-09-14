@@ -11,8 +11,35 @@
 #include <sof/math/numbers.h>
 #include <stdint.h>
 
-void psy_apply_mel_filterbank_32(struct psy_mel_filterbank *fb, struct icomplex32 *fft_out,
-				 int32_t *power_spectra, int32_t *mel_log, int bitshift)
+static inline uint32_t mel_sqrt32(uint32_t num)
+{
+	if (num == 0)
+		return 0;
+
+	uint32_t res = 0;
+	int max_bit_number = 32 - norm_int32((int32_t)num);
+	max_bit_number |= 1;
+	uint32_t bit = 1U << (31 - max_bit_number);
+	int iterations = (31 - max_bit_number) / 2 + 1;
+
+	while (iterations--) {
+		if (num >= res + bit) {
+			num -= res + bit;
+			res = (res >> 1U) + bit;
+		} else {
+			res >>= 1U;
+		}
+		bit >>= 2U;
+	}
+	if (num > res && res != 0xFFFF)
+		++res;
+
+	return res;
+}
+
+void psy_apply_mel_filterbank_with_linear_32(struct psy_mel_filterbank *fb, struct icomplex32 *fft_out,
+					    int32_t *power_spectra, int32_t *mel_log,
+					    uint32_t *mel_linear, int bitshift)
 {
 	int64_t pmax;
 	int64_t p;
@@ -67,20 +94,32 @@ void psy_apply_mel_filterbank_32(struct psy_mel_filterbank *fb, struct icomplex3
 		 */
 		log_arg = sat_int32(Q_SHIFT_RND(p, 45, 25));
 		log_arg = MAX(log_arg, AUDITORY_EPS_Q31);
-		log = base2_logarithm((uint32_t)log_arg);
-		log -= AUDITORY_LOG2_2P25_Q16;
 
-		/* Compensate Mel triangles scale */
-		log += fb->scale_log2;
+		if (mel_linear)
+			mel_linear[i] = mel_sqrt32((uint32_t)log_arg);
 
-		/* Subtract the applied lshift for power spectra
-		 * log2(x * 2^(-n)) = log2(x) - n. Note that the bitshift need to be subtracted
-		 * as doubled because it was applied in linear domain, from log(x * 2^(-2 * n))
-		 */
-		log -= ((int32_t)lshift + 2 * bitshift) << 16;
+		if (mel_log) {
+			log = base2_logarithm((uint32_t)log_arg);
+			log -= AUDITORY_LOG2_2P25_Q16;
 
-		/* Scale for desired log, output as Q9.23 */
-		log = Q_MULTSR_32X32((int64_t)log, fb->log_mult, 16, 29, 23);
-		mel_log[i] = log; /* Q9.23 */
+			/* Compensate Mel triangles scale */
+			log += fb->scale_log2;
+
+			/* Subtract the applied lshift for power spectra
+			 * log2(x * 2^(-n)) = log2(x) - n. Note that the bitshift need to be subtracted
+			 * as doubled because it was applied in linear domain, from log(x * 2^(-2 * n))
+			 */
+			log -= ((int32_t)lshift + 2 * bitshift) << 16;
+
+			/* Scale for desired log, output as Q9.23 */
+			log = Q_MULTSR_32X32((int64_t)log, fb->log_mult, 16, 29, 23);
+			mel_log[i] = log; /* Q9.23 */
+		}
 	}
+}
+
+void psy_apply_mel_filterbank_32(struct psy_mel_filterbank *fb, struct icomplex32 *fft_out,
+				 int32_t *power_spectra, int32_t *mel_log, int bitshift)
+{
+	psy_apply_mel_filterbank_with_linear_32(fb, fft_out, power_spectra, mel_log, NULL, bitshift);
 }

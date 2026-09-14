@@ -25,6 +25,7 @@
 #include "tensorflow/lite/experimental/microfrontend/lib/pcan_gain_control_util.h"
 #include "tensorflow/lite/experimental/microfrontend/lib/noise_reduction.h"
 #include "tensorflow/lite/experimental/microfrontend/lib/noise_reduction_util.h"
+#include "tensorflow/lite/experimental/microfrontend/lib/log_scale.h"
 
 #define PCAN_SNR_BITS			kPcanSnrBits		/* 12 */
 #define PCAN_OUTPUT_BITS		kPcanOutputBits		/* 6 */
@@ -57,6 +58,7 @@ struct pcan_config {
 struct pcan_state {
 	struct PcanGainControlState g_pcan;	/**< Google upstream PCAN state */
 	struct NoiseReductionState g_noise;	/**< Google upstream Noise Reduction state */
+	struct LogScaleState g_log_scale;	/**< Google upstream LogScale state */
 	uint32_t *noise_estimate;		/**< Pointer to noise estimate buffer */
 	int16_t *gain_lut;			/**< Pointer to gain LUT */
 	int num_channels;			/**< Number of channels */
@@ -128,5 +130,15 @@ static inline void pcan_apply(struct pcan_state *state, uint32_t *signal)
 	if (state && state->enable_pcan)
 		PcanGainControlApply(&state->g_pcan, signal);
 }
+
+/**
+ * \brief Apply Google's fixed-point logarithm and scale to signal in-place.
+ */
+void pcan_log_scale(struct pcan_state *state, uint32_t *signal);
+
+/**
+ * \brief Fast integer square root with rounding.
+ */
+uint32_t pcan_sqrt32(uint32_t num);
 
 #endif /* __SOF_MATH_PCAN_H__ */
