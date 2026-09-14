@@ -260,6 +260,12 @@ static int mww_prepare(struct processing_module *mod,
 
 	comp_dbg(dev, "entry");
 
+	/* Set DP scheduling period to match MFCC hop cadence (10 ms);
+	 * the sink carries feature frames, not linear PCM, so module_adapter
+	 * cannot derive the period from nominal sink rate and frame_bytes.
+	 */
+	dev->period = MWW_MFCC_HOP_MS * 1000;
+
 	if (cd->initialized)
 		return 0;
 
