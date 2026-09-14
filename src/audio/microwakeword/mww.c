@@ -66,10 +66,15 @@ int DebugVsnprintf(char *buffer, size_t buf_size, const char *format,
 #endif
 
 /* MFCC's non-compress output prepends a struct mfcc_data_header (24 bytes)
- * to each hop, followed by MWW_FEATURE_SIZE int32_t Q9.23 mel-log values.
+ * to each hop, followed by MWW_FEATURE_SIZE mel-log values (int8_t in PCAN
+ * mode, int32_t Q9.23 otherwise).
  * This must match the frame size configured in the mww capture pipeline.
  */
+#if CONFIG_COMP_MWW_PCAN
+#define MWW_HOP_BYTES (sizeof(struct mfcc_data_header) + MWW_FEATURE_SIZE * sizeof(int8_t))
+#else
 #define MWW_HOP_BYTES (sizeof(struct mfcc_data_header) + MWW_FEATURE_SIZE * sizeof(int32_t))
+#endif
 
 /* Pre-roll history in ms that KPB drains to host on wake-word trigger. */
 #define MWW_KPB_DRAIN_REQ_MS 1000
@@ -336,7 +341,6 @@ static int mww_process(struct processing_module *mod,
 
 	while (bytes_to_process >= MWW_HOP_BYTES) {
 		const struct mfcc_data_header *hdr;
-		const int32_t *mel;
 		const uint8_t *hop_src;
 		size_t bytes_to_end;
 		int8_t *slice;
@@ -358,36 +362,19 @@ static int mww_process(struct processing_module *mod,
 		}
 
 		hdr = (const struct mfcc_data_header *)hop_src;
-		mel = (const int32_t *)(hop_src + sizeof(struct mfcc_data_header));
 		slice = &cd->feature_buf[cd->feature_slices_filled * MWW_FEATURE_SIZE];
 
 		/* Update VAD history bitmask across MWW_FEATURE_SLICE_COUNT slices */
 		cd->vad_history = ((cd->vad_history << 1) | (hdr->vad_flag ? 1U : 0U)) &
 				  ((1U << MWW_FEATURE_SLICE_COUNT) - 1);
 
-		/* AGC: attack on this hop's peak (always track energy) */
 #if CONFIG_COMP_MWW_PCAN
-		/* PCAN mode: MFCC has already normalized the Mel energies to the
-		 * [-1.0, +1.0] Q9.23 range. Skip in-component AGC and requantize
-		 * each Mel value directly to Q1.7 int8.
+		/* PCAN mode: MFCC has already normalized and quantized Mel energies
+		 * to int8_t (Q1.7). Copy directly into the feature buffer slice.
 		 */
-		for (i = 0; i < MWW_FEATURE_SIZE; i++) {
-			int32_t mel_c = mel[i];
-
-			if (mel_c > MEL_CLIP_MAX_Q23)
-				mel_c = MEL_CLIP_MAX_Q23;
-			else if (mel_c < MEL_CLIP_MIN_Q23)
-				mel_c = MEL_CLIP_MIN_Q23;
-
-			mel_c = Q_MULTSR_32X32((int64_t)mel_c, MEL_SCALE_Q30, 23, 30, 7);
-			if (mel_c > MEL_CLIP_MAX_Q7)
-				mel_c = MEL_CLIP_MAX_Q7;
-			else if (mel_c < MEL_CLIP_MIN_Q7)
-				mel_c = MEL_CLIP_MIN_Q7;
-
-			slice[i] = (int8_t)mel_c;
-		}
+		memcpy(slice, hop_src + sizeof(struct mfcc_data_header), MWW_FEATURE_SIZE);
 #else
+		const int32_t *mel = (const int32_t *)(hop_src + sizeof(struct mfcc_data_header));
 		int32_t hop_peak_q23 = mel[0];
 
 		for (i = 1; i < MWW_FEATURE_SIZE; i++) {
@@ -439,20 +426,30 @@ static int mww_process(struct processing_module *mod,
 #if CONFIG_COMP_MWW_DEBUG_TRACE
 		{
 			static int dbg_hop_count;
-			int32_t mel_min = mel[0], mel_max = mel[0];
 			int8_t f_min = slice[0], f_max = slice[0];
 
 			dbg_hop_count++;
 			for (i = 1; i < MWW_FEATURE_SIZE; i++) {
-				if (mel[i] < mel_min) mel_min = mel[i];
-				if (mel[i] > mel_max) mel_max = mel[i];
 				if (slice[i] < f_min) f_min = slice[i];
 				if (slice[i] > f_max) f_max = slice[i];
+			}
+#if CONFIG_COMP_MWW_PCAN
+			comp_info(dev, "[MWW DBG hop %d] vad=%d E=%d Ne=%d f_min=%d f_max=%d (pcan8)",
+				  dbg_hop_count, (int)hdr->vad_flag,
+				  (int)hdr->energy, (int)hdr->noise_energy,
+				  f_min, f_max);
+#else
+			int32_t mel_min = mel[0], mel_max = mel[0];
+
+			for (i = 1; i < MWW_FEATURE_SIZE; i++) {
+				if (mel[i] < mel_min) mel_min = mel[i];
+				if (mel[i] > mel_max) mel_max = mel[i];
 			}
 			comp_info(dev, "[MWW DBG hop %d] vad=%d E=%d Ne=%d mel_min=%d mel_max=%d f_min=%d f_max=%d agc_q23=%d",
 				  dbg_hop_count, (int)hdr->vad_flag,
 				  (int)hdr->energy, (int)hdr->noise_energy,
 				  mel_min, mel_max, f_min, f_max, (int)cd->agc_gain_q23);
+#endif
 		}
 #endif
 
