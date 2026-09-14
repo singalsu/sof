@@ -17,8 +17,11 @@ include_directories(${TFLM_PATH})
 cmocka_test(pcan
 	pcan_test.c
 	${PROJECT_SOURCE_DIR}/src/math/pcan/pcan.c
+	${PROJECT_SOURCE_DIR}/src/math/log_e.c
+	${PROJECT_SOURCE_DIR}/src/math/base2log.c
+	${PROJECT_SOURCE_DIR}/src/math/exp_fcn.c
+	${PROJECT_SOURCE_DIR}/src/math/exp_fcn_hifi.c
 	${MICROFRONTEND_DIR}/pcan_gain_control.c
-	${MICROFRONTEND_DIR}/pcan_gain_control_util.c
 	${MICROFRONTEND_DIR}/noise_reduction.c
 	${MICROFRONTEND_DIR}/noise_reduction_util.c
 )

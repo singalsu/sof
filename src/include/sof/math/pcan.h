@@ -65,7 +65,8 @@ struct pcan_state {
 	uint16_t one_minus_smoothing_coef;	/**< (1 << 14) - smoothing_coef */
 	uint16_t smoothing_bits;		/**< Smoothing bits */
 	bool enable_pcan;			/**< PCAN enabled */
-	bool allocated;				/**< Internally allocated buffers */
+	bool allocated_noise;			/**< Internally allocated noise buffer */
+	bool allocated_lut;			/**< Internally allocated gain LUT buffer */
 };
 
 /**

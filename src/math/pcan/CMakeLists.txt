@@ -15,7 +15,6 @@ set(MICROFRONTEND_DIR ${TFLM_PATH}/tensorflow/lite/experimental/microfrontend/li
 set(base_files
   pcan.c
   ${MICROFRONTEND_DIR}/pcan_gain_control.c
-  ${MICROFRONTEND_DIR}/pcan_gain_control_util.c
   ${MICROFRONTEND_DIR}/noise_reduction.c
   ${MICROFRONTEND_DIR}/noise_reduction_util.c
 )

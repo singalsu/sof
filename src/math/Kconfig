@@ -290,6 +290,9 @@ endmenu
 config MATH_PCAN
 	bool "PCAN (Per-Channel AGC Normalization) library"
 	default n
+	select BINARY_LOGARITHM_FIXED
+	select MATH_EXP
+	select NATURAL_LOGARITHM_FIXED
 	help
 	  Select this to build PCAN (Per-Channel Automatic Gain Control Normalization)
 	  library. PCAN performs dynamic per-channel gain control and piecewise polynomial
