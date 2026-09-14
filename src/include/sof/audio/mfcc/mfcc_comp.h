@@ -128,8 +128,8 @@ struct mfcc_state {
 	bool header_pending; /**< True when data header not yet written for current output */
 	struct mfcc_data_header header; /**< Data header for current output frame */
 	size_t sample_buffers_size; /**< bytes */
-	int32_t *out_data_ptr; /**< Read pointer into staging data for multi-period output */
-	int out_remain; /**< Remaining int32_t samples to write to sink from staging */
+	void *out_data_ptr; /**< Read pointer into staging data for multi-period output */
+	int out_remain; /**< Remaining samples to write to sink from staging */
 	int32_t *out_stage; /**< Dedicated staging buffer for pending output, decoupled from STFT scratch */
 	int out_stage_size; /**< Capacity of out_stage in int32_t samples */
 	uint32_t hop_count; /**< FFT hop counter, increments every processed hop */

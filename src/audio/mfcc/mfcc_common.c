@@ -507,6 +507,34 @@ static void mfcc_prepare_output(struct mfcc_state *state, int num_ceps)
 	if (num_ceps <= 0)
 		return;
 
+#if CONFIG_COMP_MFCC_PCAN
+	if (state->pcan.enable_pcan) {
+		int8_t *out8 = (int8_t *)state->out_stage;
+
+		for (k = 0; k < num_ceps; k++) {
+			int32_t mel_c = state->mel_log_32[k];
+
+			if (mel_c > (1 << 23))
+				mel_c = (1 << 23);
+			else if (mel_c < (-1 << 23))
+				mel_c = (-1 << 23);
+
+			mel_c = Q_MULTSR_32X32((int64_t)mel_c, (1 << 30), 23, 30, 7);
+			if (mel_c > 127)
+				mel_c = 127;
+			else if (mel_c < -128)
+				mel_c = -128;
+
+			out8[k] = (int8_t)mel_c;
+		}
+
+		state->out_data_ptr = state->out_stage;
+		state->out_remain = num_ceps;
+		state->header_pending = true;
+		return;
+	}
+#endif
+
 	/* Copy into out_stage so the next STFT hop may freely reuse
 	 * mel_log_32 / cepstral_coef while this frame is still pending.
 	 */
@@ -595,8 +623,14 @@ static int mfcc_output_compress(struct processing_module *mod, struct mfcc_comp_
 		state->dtx_silence_counter = 0;
 	}
 
+#if CONFIG_COMP_MFCC_PCAN
+	size_t sample_size = state->pcan.enable_pcan ? sizeof(int8_t) : sizeof(int32_t);
+#else
+	size_t sample_size = sizeof(int32_t);
+#endif
+
 	out_bytes = (state->header_pending ? sizeof(state->header) : 0) +
-		    state->out_remain * sizeof(int32_t);
+		    state->out_remain * sample_size;
 	if (out_bytes == 0)
 		return 0;
 
@@ -619,7 +653,7 @@ static int mfcc_output_compress(struct processing_module *mod, struct mfcc_comp_
 	if (state->out_remain > 0) {
 		mfcc_sink_write_bytes(&dst, sink_start, sink_buf_size,
 				      (uint8_t *)state->out_data_ptr,
-				      state->out_remain * sizeof(int32_t));
+				      state->out_remain * sample_size);
 	}
 
 	ret = sink_commit_buffer(sinks[0], commit_bytes);
@@ -663,11 +697,10 @@ static int mfcc_output_legacy(struct processing_module *mod, struct mfcc_comp_da
 	void *sink_start;
 	size_t sink_buf_size;
 	uint8_t *dst;
-	int n32;
 	int ret;
 
 	/* The MFCC sink is treated as an opaque byte container: the period
-	 * carries an MFCC blob (header + int32 features), not PCM audio.
+	 * carries an MFCC blob (header + features), not PCM audio.
 	 * Sizing the commit as sink_frame_bytes * frames keeps the period
 	 * size matched to whatever the sink advertises (S16_LE / S24_4LE /
 	 * S32_LE), so no format-specific conversion is needed. Any payload
@@ -712,17 +745,25 @@ static int mfcc_output_legacy(struct processing_module *mod, struct mfcc_comp_da
 		}
 	}
 
-	/* Write pending feature data (always int32) */
+	/* Write pending feature data (int8 in PCAN mode, int32 otherwise) */
 	if (state->out_remain > 0 && avail > 0) {
-		data_bytes = state->out_remain * sizeof(int32_t);
-		to_write = MIN(data_bytes, avail) & ~(size_t)3;
+#if CONFIG_COMP_MFCC_PCAN
+		size_t sample_size = state->pcan.enable_pcan ? sizeof(int8_t) : sizeof(int32_t);
+#else
+		size_t sample_size = sizeof(int32_t);
+#endif
+		data_bytes = state->out_remain * sample_size;
+		to_write = MIN(data_bytes, avail);
+		if (sample_size > 1)
+			to_write &= ~(sample_size - 1);
 		if (to_write > 0) {
 			mfcc_sink_write_bytes(&dst, sink_start, sink_buf_size,
 					      (uint8_t *)state->out_data_ptr,
 					      to_write);
-			n32 = to_write / sizeof(int32_t);
-			state->out_data_ptr += n32;
-			state->out_remain -= n32;
+			int n = to_write / sample_size;
+
+			state->out_data_ptr = (void *)((uint8_t *)state->out_data_ptr + to_write);
+			state->out_remain -= n;
 		}
 	}
 
