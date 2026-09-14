@@ -60,6 +60,7 @@ NHLT_BIN=nhlt-sof-lnl-nocodec-fpga-4ch.bin,PASSTHROUGH=true,DMIC_IO_CLK=19200000
 # Analog capture endpoint (module-copier.4.2). Applies to all IPC4
 # HDA platforms; no NHLT differentiation.
 "sof-hda-generic\;sof-hda-generic-mww-kpb\;HDA_CONFIG=mix,HDA_MIC_MWW_KPB_CAPTURE=true"
+"sof-hda-generic\;sof-hda-generic-mww-pcan-kpb\;HDA_CONFIG=mix,HDA_MIC_MWW_KPB_CAPTURE=true,MWW_PCAN=true"
 
 # HDA topology with passthrough analog codec pipelines
 "sof-hda-generic\;sof-hda-passthrough\;HDA_CONFIG=passthrough"
