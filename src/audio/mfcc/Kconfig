@@ -40,4 +40,10 @@ config COMP_MFCC_PCAN
 	  downstream (e.g. microWakeWord). The topology PCAN configuration
 	  fields are ignored when this option is disabled.
 
+config COMP_MFCC_DEBUG_TRACE
+	bool "Verbose per-process debug traces in MFCC"
+	default n
+	help
+	  Enable MFCC per-process debug prints in the hot path.
+
 endif # COMP_MFCC
