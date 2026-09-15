@@ -505,9 +505,12 @@ static int mww_process(struct processing_module *mod,
 			}
 
 #if CONFIG_COMP_MWW_DEBUG_TRACE
-			comp_info(dev, "MWW probability=%d raw=%u (th=%p prio=%d cycles=%u)",
-				  (int)(cd->mwc.probability * 100.0f), cd->mwc.raw_output,
-				  k_current_get(), k_thread_priority_get(k_current_get()),
+			comp_info(dev, "MWW probability=%d raw=%d in[0..7]=[%d,%d,%d,%d,%d,%d,%d,%d] (cycles=%u)",
+				  (int)(cd->mwc.probability * 100.0f), (int)cd->mwc.raw_output,
+				  (int)cd->feature_buf[0], (int)cd->feature_buf[1],
+				  (int)cd->feature_buf[2], (int)cd->feature_buf[3],
+				  (int)cd->feature_buf[4], (int)cd->feature_buf[5],
+				  (int)cd->feature_buf[6], (int)cd->feature_buf[7],
 				  c1 - c0);
 #endif
 

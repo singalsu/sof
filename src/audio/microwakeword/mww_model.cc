@@ -167,6 +167,10 @@ static int Init_Interpreter(struct mww_classify *mwc)
 	mwc->input_scale = input->params.scale;
 	mwc->input_zero_point = input->params.zero_point;
 
+	MicroPrintf("MWW Model: in_type=%d in_scale=%f in_zp=%d out_type=%d out_scale=%f out_zp=%d",
+		    input->type, (double)input->params.scale, input->params.zero_point,
+		    output->type, (double)output->params.scale, output->params.zero_point);
+
 	return 0;
 }
 
