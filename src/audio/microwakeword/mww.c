@@ -38,6 +38,7 @@
 
 #include <sof/audio/mfcc/mfcc_comp.h>
 #include "mww_model.h"
+#include "mww_test_vector.h"
 
 #include <stdarg.h>
 #include <stdio.h>
@@ -250,6 +251,59 @@ __cold static int mww_init(struct processing_module *mod)
 	return 0;
 }
 
+#if CONFIG_COMP_MWW_DEBUG_TRACE
+static uint32_t last_mww_cycle;
+static uint32_t mww_call_count;
+#endif
+
+static void __maybe_unused mww_run_boot_selftest(struct comp_dev *dev, struct mww_comp_data *cd)
+{
+	int i, ret;
+
+	comp_info(dev, "MWW: running boot self-test (%d inferences)...",
+		  MWW_TEST_NUM_INFERENCES);
+
+	for (i = 0; i < MWW_TEST_NUM_INFERENCES; i++) {
+		cd->mwc.audio_features = (int8_t *)mww_test_inferences[i];
+		cd->mwc.audio_data_size = MWW_FEATURE_ELEM_COUNT;
+#if CONFIG_COMP_MWW_DEBUG_TRACE
+		uint32_t c0 = k_cycle_get_32();
+#endif
+		ret = MWW_ProcessClassify(&cd->mwc);
+#if CONFIG_COMP_MWW_DEBUG_TRACE
+		uint32_t c1 = k_cycle_get_32();
+#endif
+		if (ret < 0) {
+			comp_err(dev, "MWW: boot self-test inf %d failed: %d (%s)",
+				 i + 1, ret, cd->mwc.error);
+			break;
+		}
+
+		comp_info(dev, "MWW self-test inf %2d/%d: raw=%d prob=%d%% in0..3=[%d,%d,%d,%d] (cycles=%u)",
+			  i + 1, MWW_TEST_NUM_INFERENCES,
+			  (int)cd->mwc.raw_output,
+			  (int)(cd->mwc.probability * 100.0f),
+			  (int)mww_test_inferences[i][0], (int)mww_test_inferences[i][1],
+			  (int)mww_test_inferences[i][2], (int)mww_test_inferences[i][3],
+#if CONFIG_COMP_MWW_DEBUG_TRACE
+			  c1 - c0
+#else
+			  0
+#endif
+		);
+	}
+
+	/* Reset streaming state back to clean zeroes for live audio */
+	MWW_Reset();
+	cd->mwc.audio_features = cd->feature_buf;
+	cd->feature_slices_filled = 0;
+	cd->vad_history = 0;
+	cd->consecutive_detects = 0;
+	cd->total_inferences = 0;
+	memset(cd->feature_buf, 0, sizeof(cd->feature_buf));
+	comp_info(dev, "MWW: boot self-test complete, state reset");
+}
+
 static int mww_prepare(struct processing_module *mod,
 		       struct sof_source **sources, int num_of_sources,
 		       struct sof_sink **sinks, int num_of_sinks)
@@ -329,6 +383,14 @@ static int mww_process(struct processing_module *mod,
 	const void *data_ptr, *buf_start;
 	size_t buf_size;
 	int ret = 0;
+#if CONFIG_COMP_MWW_DEBUG_TRACE
+	uint32_t now = k_cycle_get_32();
+	uint32_t delta_cycles = now - last_mww_cycle;
+	int hops_processed = 0;
+
+	last_mww_cycle = now;
+	mww_call_count++;
+#endif
 
 	if (!cd->initialized) {
 		size_t avail = source_get_data_available(sources[0]);
@@ -344,6 +406,17 @@ static int mww_process(struct processing_module *mod,
 	}
 
 	bytes_to_process = source_get_data_available(sources[0]);
+	if (bytes_to_process < MWW_HOP_BYTES) {
+#if CONFIG_COMP_MWW_DEBUG_TRACE
+		comp_info(dev, "[MWW proc %u] delta=%u us (no bytes, avail=%zu)",
+			  mww_call_count, k_cyc_to_us_near32(delta_cycles), bytes_to_process);
+#endif
+		return 0;
+	}
+
+#if CONFIG_COMP_MWW_DEBUG_TRACE
+	size_t initial_bytes = bytes_to_process;
+#endif
 
 	while (bytes_to_process >= MWW_HOP_BYTES) {
 		const struct mfcc_data_header *hdr;
@@ -351,6 +424,10 @@ static int mww_process(struct processing_module *mod,
 		size_t bytes_to_end;
 		int8_t *slice;
 		int i;
+
+#if CONFIG_COMP_MWW_DEBUG_TRACE
+		hops_processed++;
+#endif
 
 		ret = source_get_data(sources[0], MWW_HOP_BYTES,
 				      &data_ptr, &buf_start, &buf_size);
@@ -532,6 +609,13 @@ static int mww_process(struct processing_module *mod,
 		}
 	}
 
+#if CONFIG_COMP_MWW_DEBUG_TRACE
+	comp_info(dev, "[MWW proc %u] delta=%u us avail_bytes=%zu hops=%d slices=%d/%d",
+		  mww_call_count, k_cyc_to_us_near32(delta_cycles),
+		  initial_bytes, hops_processed,
+		  cd->feature_slices_filled, MWW_FEATURE_SLICE_COUNT);
+#endif
+
 	return ret;
 }
 
@@ -548,6 +632,10 @@ static int mww_reset(struct processing_module *mod)
 	cd->agc_gain_q23 = MWW_AGC_GAIN_TARGET_Q23;
 	memset(cd->feature_buf, 0, sizeof(cd->feature_buf));
 	MWW_Reset();
+#if CONFIG_COMP_MWW_DEBUG_TRACE
+	last_mww_cycle = 0;
+	mww_call_count = 0;
+#endif
 	return 0;
 }
 
