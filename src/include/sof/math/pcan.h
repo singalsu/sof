@@ -123,6 +123,15 @@ void pcan_reset(struct pcan_state *state);
 void pcan_update_noise_estimate(struct pcan_state *state, const uint32_t *signal);
 
 /**
+ * \brief Apply noise reduction and update noise estimate using Google's NoiseReductionApply.
+ */
+static inline void pcan_noise_reduction(struct pcan_state *state, uint32_t *signal)
+{
+	if (state && state->enable_pcan)
+		NoiseReductionApply(&state->g_noise, signal);
+}
+
+/**
  * \brief Apply PCAN gain control and compression using Google's PcanGainControlApply.
  */
 static inline void pcan_apply(struct pcan_state *state, uint32_t *signal)

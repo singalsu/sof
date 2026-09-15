@@ -200,6 +200,13 @@ int pcan_populate_state(const struct pcan_config *config, struct pcan_state *sta
 	state->g_pcan.gain_lut = state->gain_lut;
 	state->g_pcan.snr_shift = state->snr_shift;
 
+	state->g_noise.estimate = state->noise_estimate;
+	state->g_noise.num_channels = num_channels;
+	state->g_noise.smoothing_bits = smoothing_bits;
+	state->g_noise.even_smoothing = 410; /* 0.025 * (1 << 14) */
+	state->g_noise.odd_smoothing = 983;  /* 0.06 * (1 << 14) */
+	state->g_noise.min_signal_remaining = 819; /* 0.05 * (1 << 14) */
+
 	state->g_log_scale.enable_log = 1;
 	state->g_log_scale.scale_shift = 6;
 

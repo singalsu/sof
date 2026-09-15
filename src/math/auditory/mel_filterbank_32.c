@@ -95,8 +95,32 @@ void psy_apply_mel_filterbank_with_linear_32(struct psy_mel_filterbank *fb, stru
 		log_arg = sat_int32(Q_SHIFT_RND(p, 45, 25));
 		log_arg = MAX(log_arg, AUDITORY_EPS_Q31);
 
-		if (mel_linear)
-			mel_linear[i] = mel_sqrt32((uint32_t)log_arg);
+		if (mel_linear) {
+			/* Compensate dynamic lshift and FFT bitshift so mel_linear reflects
+			 * true acoustic magnitude calibrated to Google microfrontend range.
+			 */
+			uint32_t s = mel_sqrt32((uint32_t)log_arg);
+			/* Total power shift applied was: lshift + 2 * bitshift */
+			int neg_shift = -((int32_t)lshift + 2 * bitshift);
+			int int_shift = neg_shift >> 1;
+			int frac_shift = neg_shift & 1;
+
+			uint64_t s_comp = s;
+			if (frac_shift)
+				s_comp = (s_comp * 46341U) >> 15; /* 46341 / 32768 ~= sqrt(2) */
+
+			if (int_shift > 0)
+				s_comp <<= int_shift;
+			else if (int_shift < 0)
+				s_comp >>= -int_shift;
+
+			/* Scale to Google microfrontend range: 25826 / 32768 ~= 0.788 */
+			s_comp = (s_comp * 25826U) >> 15;
+			if (s_comp > 65535U)
+				s_comp = 65535U;
+
+			mel_linear[i] = (uint32_t)s_comp;
+		}
 
 		if (mel_log) {
 			log = base2_logarithm((uint32_t)log_arg);

@@ -361,7 +361,7 @@ int mfcc_stft_process(struct processing_module *mod, struct mfcc_comp_data *cd)
 			psy_apply_mel_filterbank_with_linear_32(&state->melfb, fft->fft_out,
 							       state->power_spectra, state->mel_log_32,
 							       state->mel_linear, mel_scale_shift);
-			pcan_update_noise_estimate(&state->pcan, state->mel_linear);
+			pcan_noise_reduction(&state->pcan, state->mel_linear);
 			pcan_apply(&state->pcan, state->mel_linear);
 			pcan_log_scale(&state->pcan, state->mel_linear);
 		} else {
