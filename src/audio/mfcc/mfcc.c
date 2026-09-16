@@ -33,7 +33,9 @@
 #include <stdbool.h>
 #include <stddef.h>
 #include <stdint.h>
+#if CONFIG_COMP_MFCC_DEBUG_TRACE
 #include <zephyr/kernel.h>
+#endif
 
 LOG_MODULE_REGISTER(mfcc, CONFIG_SOF_LOG_LEVEL);
 
