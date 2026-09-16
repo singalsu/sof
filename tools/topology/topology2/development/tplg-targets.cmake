@@ -18,6 +18,10 @@ PREPROCESS_PLUGINS=nhlt,NHLT_BIN=nhlt-sof-tgl-nocodec.bin,\
 SSP1_PCM_CORE_ID=0,SSP2_PCM_CORE_ID=0,\
 SSP0_MIXER_2LEVEL=1,PLATFORM=tgl"
 
+# Lean SSP0 NoCodec topology for TGL microWakeWord (MWW/KPB) bring-up
+"cavs-nocodec-mww-kpb\;sof-tgl-nocodec-mww\;PREPROCESS_PLUGINS=nhlt,\
+NHLT_BIN=nhlt-sof-tgl-nocodec-mww.bin,PLATFORM=tgl"
+
 # multicore disabled due to SOF issue #8942
 "cavs-nocodec\;sof-adl-nocodec\;NUM_DMICS=4,PDM1_MIC_A_ENABLE=1,PDM1_MIC_B_ENABLE=1,\
 SSP1_PCM_CORE_ID=0,SSP2_PCM_CORE_ID=0,\
