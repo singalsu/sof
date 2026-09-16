@@ -103,6 +103,28 @@ function setup_mfcc()
 	setup.tplg_fn = 'mel80_pcan_compress.conf';
 	export_mfcc_setup(gen_cfg, setup);
 
+	% 40 mel bins, 10 ms hop PCAN for microWakeWord (no Slaney norm, Google-matched)
+	setup = get_mel_spectrogram_config();
+	setup.frame_length = 30.0;
+	setup.frame_shift = 10.0;
+	setup.num_mel_bins = 40;
+	setup.low_freq = 125;
+	setup.high_freq = 7500;
+	setup.norm = 'none';
+	setup.mel_offset = 0;
+	setup.mel_scale = 1.0;
+	setup.top_db = 0;
+	setup.dynamic_mmax = false;
+	setup.enable_pcan = true;
+	setup.pcan_strength = 0.95;
+	setup.pcan_offset = 80.0;
+	setup.pcan_gain_bits = 21;
+	setup.pcan_smoothing_coef = 819;
+	setup.compress_output = true;
+	setup.update_controls = false;
+	setup.tplg_fn = 'mel40_10ms_pcan_compress.conf';
+	export_mfcc_setup(gen_cfg, setup);
+
 end
 
 function cfg = get_mfcc_default_config()
