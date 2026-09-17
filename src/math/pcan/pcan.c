@@ -7,7 +7,6 @@
 #include <sof/math/exp_fcn.h>
 #include <sof/math/log.h>
 #include <sof/math/pcan.h>
-#include <sof/math/sqrt.h>
 #include <errno.h>
 #include <stdlib.h>
 #include <string.h>
@@ -263,12 +262,4 @@ void pcan_log_scale(struct pcan_state *state, uint32_t *signal)
 	scaled = LogScaleApply(&state->g_log_scale, signal, state->num_channels, 3);
 	for (i = state->num_channels - 1; i >= 0; --i)
 		signal[i] = scaled[i];
-}
-
-uint32_t pcan_sqrt32(uint32_t num)
-{
-	if (num == 0)
-		return 0;
-
-	return (uint32_t)((sofm_sqrt_int32((int32_t)num) + (1 << 14)) >> 15);
 }

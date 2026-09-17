@@ -145,9 +145,4 @@ static inline void pcan_apply(struct pcan_state *state, uint32_t *signal)
  */
 void pcan_log_scale(struct pcan_state *state, uint32_t *signal);
 
-/**
- * \brief Fast integer square root with rounding.
- */
-uint32_t pcan_sqrt32(uint32_t num);
-
 #endif /* __SOF_MATH_PCAN_H__ */

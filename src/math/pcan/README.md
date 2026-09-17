@@ -102,5 +102,4 @@ west build -b intel_adsp_ace15_mtpm app
 ## 4. Kconfig & CMake Options
 
 - `CONFIG_MATH_PCAN`: Enables building the PCAN math library and links Google's microfrontend C source files.
-- `CONFIG_PCAN_HIFI3` / `CONFIG_PCAN_HIFI4`: Enables Tensilica HiFi DSP assembly/SIMD optimizations.
 - `CONFIG_COMP_MFCC`: Automatically selects `CONFIG_MATH_PCAN` when MFCC feature extraction is enabled.
