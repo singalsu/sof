@@ -38,7 +38,6 @@
 
 #include <sof/audio/mfcc/mfcc_comp.h>
 #include "mww_model.h"
-#include "mww_test_vector.h"
 
 #include <stdarg.h>
 #include <stdio.h>
@@ -255,54 +254,6 @@ __cold static int mww_init(struct processing_module *mod)
 static uint32_t last_mww_cycle;
 static uint32_t mww_call_count;
 #endif
-
-static void __maybe_unused mww_run_boot_selftest(struct comp_dev *dev, struct mww_comp_data *cd)
-{
-	int i, ret;
-
-	comp_info(dev, "MWW: running boot self-test (%d inferences)...",
-		  MWW_TEST_NUM_INFERENCES);
-
-	for (i = 0; i < MWW_TEST_NUM_INFERENCES; i++) {
-		cd->mwc.audio_features = (int8_t *)mww_test_inferences[i];
-		cd->mwc.audio_data_size = MWW_FEATURE_ELEM_COUNT;
-#if CONFIG_COMP_MWW_DEBUG_TRACE
-		uint32_t c0 = k_cycle_get_32();
-#endif
-		ret = MWW_ProcessClassify(&cd->mwc);
-#if CONFIG_COMP_MWW_DEBUG_TRACE
-		uint32_t c1 = k_cycle_get_32();
-#endif
-		if (ret < 0) {
-			comp_err(dev, "MWW: boot self-test inf %d failed: %d (%s)",
-				 i + 1, ret, cd->mwc.error);
-			break;
-		}
-
-		comp_info(dev, "MWW self-test inf %2d/%d: raw=%d prob=%d%% in0..3=[%d,%d,%d,%d] (cycles=%u)",
-			  i + 1, MWW_TEST_NUM_INFERENCES,
-			  (int)cd->mwc.raw_output,
-			  (int)(cd->mwc.probability * 100.0f),
-			  (int)mww_test_inferences[i][0], (int)mww_test_inferences[i][1],
-			  (int)mww_test_inferences[i][2], (int)mww_test_inferences[i][3],
-#if CONFIG_COMP_MWW_DEBUG_TRACE
-			  c1 - c0
-#else
-			  0
-#endif
-		);
-	}
-
-	/* Reset streaming state back to clean zeroes for live audio */
-	MWW_Reset();
-	cd->mwc.audio_features = cd->feature_buf;
-	cd->feature_slices_filled = 0;
-	cd->vad_history = 0;
-	cd->consecutive_detects = 0;
-	cd->total_inferences = 0;
-	memset(cd->feature_buf, 0, sizeof(cd->feature_buf));
-	comp_info(dev, "MWW: boot self-test complete, state reset");
-}
 
 static int mww_prepare(struct processing_module *mod,
 		       struct sof_source **sources, int num_of_sources,
