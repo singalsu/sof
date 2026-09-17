@@ -9,6 +9,7 @@
 #include <sof/math/icomplex32.h>
 #include <sof/math/log.h>
 #include <sof/math/numbers.h>
+#include <sof/math/sqrt.h>
 #include <stdint.h>
 
 static inline uint32_t mel_sqrt32(uint32_t num)
@@ -16,25 +17,10 @@ static inline uint32_t mel_sqrt32(uint32_t num)
 	if (num == 0)
 		return 0;
 
-	uint32_t res = 0;
-	int max_bit_number = 32 - norm_int32((int32_t)num);
-	max_bit_number |= 1;
-	uint32_t bit = 1U << (31 - max_bit_number);
-	int iterations = (31 - max_bit_number) / 2 + 1;
-
-	while (iterations--) {
-		if (num >= res + bit) {
-			num -= res + bit;
-			res = (res >> 1U) + bit;
-		} else {
-			res >>= 1U;
-		}
-		bit >>= 2U;
-	}
-	if (num > res && res != 0xFFFF)
-		++res;
-
-	return res;
+	/* sofm_sqrt_int32 treats input as Q2.30, returning sqrt(n)*2^15.
+	 * Scale down by 2^15 with rounding to obtain integer sqrt(num).
+	 */
+	return (uint32_t)((sofm_sqrt_int32((int32_t)num) + (1 << 14)) >> 15);
 }
 
 void psy_apply_mel_filterbank_with_linear_32(struct psy_mel_filterbank *fb, struct icomplex32 *fft_out,

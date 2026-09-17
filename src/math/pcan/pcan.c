@@ -7,6 +7,7 @@
 #include <sof/math/exp_fcn.h>
 #include <sof/math/log.h>
 #include <sof/math/pcan.h>
+#include <sof/math/sqrt.h>
 #include <errno.h>
 #include <stdlib.h>
 #include <string.h>
@@ -269,23 +270,5 @@ uint32_t pcan_sqrt32(uint32_t num)
 	if (num == 0)
 		return 0;
 
-	uint32_t res = 0;
-	int max_bit_number = 32 - __builtin_clz(num);
-	max_bit_number |= 1;
-	uint32_t bit = 1U << (31 - max_bit_number);
-	int iterations = (31 - max_bit_number) / 2 + 1;
-
-	while (iterations--) {
-		if (num >= res + bit) {
-			num -= res + bit;
-			res = (res >> 1U) + bit;
-		} else {
-			res >>= 1U;
-		}
-		bit >>= 2U;
-	}
-	if (num > res && res != 0xFFFF)
-		++res;
-
-	return res;
+	return (uint32_t)((sofm_sqrt_int32((int32_t)num) + (1 << 14)) >> 15);
 }
