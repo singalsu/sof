@@ -33,12 +33,6 @@
 #define PCAN_WIDE_DYNAMIC_BITS		kWideDynamicFunctionBits /* 32 */
 #define PCAN_LUT_SIZE			kWideDynamicFunctionLUTSize /* 125 */
 
-/* Aliases for Google Microfrontend Types */
-typedef struct PcanGainControlConfig pcan_config_t;
-typedef struct PcanGainControlState pcan_state_t;
-typedef struct NoiseReductionConfig noise_reduction_config_t;
-typedef struct NoiseReductionState noise_reduction_state_t;
-
 /**
  * \brief SOF PCAN configuration structure.
  */
@@ -63,8 +57,6 @@ struct pcan_state {
 	int16_t *gain_lut;			/**< Pointer to gain LUT */
 	int num_channels;			/**< Number of channels */
 	int32_t snr_shift;			/**< SNR bit shift */
-	uint16_t smoothing_coef;		/**< IIR smoothing coef in Q14 */
-	uint16_t one_minus_smoothing_coef;	/**< (1 << 14) - smoothing_coef */
 	uint16_t smoothing_bits;		/**< Smoothing bits */
 	bool enable_pcan;			/**< PCAN enabled */
 	bool allocated_noise;			/**< Internally allocated noise buffer */
@@ -116,11 +108,6 @@ void pcan_free_state(struct pcan_state *state);
  * \brief Reset PCAN temporal state.
  */
 void pcan_reset(struct pcan_state *state);
-
-/**
- * \brief Update per-channel temporal noise estimate.
- */
-void pcan_update_noise_estimate(struct pcan_state *state, const uint32_t *signal);
 
 /**
  * \brief Apply noise reduction and update noise estimate using Google's NoiseReductionApply.

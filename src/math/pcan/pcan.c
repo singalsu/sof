@@ -158,8 +158,6 @@ int pcan_populate_state(const struct pcan_config *config, struct pcan_state *sta
 
 	state->num_channels = num_channels;
 	state->smoothing_bits = smoothing_bits;
-	state->smoothing_coef = (config->smoothing_coef > 0) ? config->smoothing_coef : 819;
-	state->one_minus_smoothing_coef = (1 << PCAN_SMOOTHING_COEF_BITS) - state->smoothing_coef;
 	state->snr_shift = config->gain_bits - input_correction_bits - PCAN_SNR_BITS;
 	if (state->snr_shift < 0)
 		return -EINVAL;
@@ -232,23 +230,6 @@ void pcan_reset(struct pcan_state *state)
 		return;
 
 	memset(state->noise_estimate, 0, state->num_channels * sizeof(uint32_t));
-}
-
-void pcan_update_noise_estimate(struct pcan_state *state, const uint32_t *signal)
-{
-	int i;
-	const uint32_t smoothing = state->smoothing_coef;
-	const uint32_t one_minus_smoothing = state->one_minus_smoothing_coef;
-	const int smoothing_bits = state->smoothing_bits;
-
-	for (i = 0; i < state->num_channels; ++i) {
-		const uint32_t signal_scaled_up = signal[i] << smoothing_bits;
-		const uint32_t estimate =
-			(uint32_t)((((uint64_t)signal_scaled_up * smoothing) +
-				    ((uint64_t)state->noise_estimate[i] * one_minus_smoothing)) >>
-				   PCAN_SMOOTHING_COEF_BITS);
-		state->noise_estimate[i] = estimate;
-	}
 }
 
 void pcan_log_scale(struct pcan_state *state, uint32_t *signal)
