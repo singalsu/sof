@@ -124,6 +124,20 @@ fi
 : "${NOISE_DIR:=}"
 : "${NOISE_STATIONARY_BIAS:=0.7}"
 : "${SC_CACHE:=$HOME/.cache/speech_commands_v2}"
+: "${IR_DIR:=}"
+
+# Locate default Impulse Response directory if not explicitly provided
+if [[ -z "$IR_DIR" ]]; then
+	for cand in \
+		"$HOME/git/piper-sample-generator/piper_sample_generator/impulses" \
+		"$HOME/.local/share/piper-sample-generator/impulses"
+	do
+		if [[ -d "$cand" ]]; then
+			IR_DIR="$cand"
+			break
+		fi
+	done
+fi
 
 if [[ -z "$NOISE_DIR" && -d "$SC_CACHE/_background_noise_" ]]; then
 	NOISE_DIR="$SC_CACHE/_background_noise_"

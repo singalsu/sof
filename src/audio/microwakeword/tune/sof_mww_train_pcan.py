@@ -132,35 +132,36 @@ def extract_pcan_features(
 # 2. Window Slicing and Dataset Loading
 # -----------------------------------------------------------------------------
 
-def slice_into_windows(
-    mel: np.ndarray,
-    window_hops: int = WINDOW_HOPS,
-    hop_step: int = 10,
-) -> np.ndarray:
-    """Slice (N_hops, 40) into (M, window_hops, 40) overlapping windows."""
-    n_hops = mel.shape[0]
-    if n_hops < window_hops:
-        pad = np.zeros((window_hops - n_hops, HOP_BINS), dtype=mel.dtype)
-        return np.concatenate([mel, pad], axis=0)[np.newaxis, ...]
-
-    starts = list(range(0, n_hops - window_hops + 1, hop_step))
-    if not starts or starts[-1] != (n_hops - window_hops):
-        starts.append(n_hops - window_hops)
-    windows = [mel[s : s + window_hops] for s in starts]
-    return np.stack(windows, axis=0)
+def find_speech_bounds(mel: np.ndarray, threshold_ratio: float = 0.15) -> tuple[int, int]:
+    """Find start and end hop indices of active speech in the mel spectrogram."""
+    frame_energy = np.sum(mel, axis=1)
+    min_e, max_e = float(np.min(frame_energy)), float(np.max(frame_energy))
+    if max_e - min_e < 1.0:
+        return 0, mel.shape[0]
+    thresh = min_e + (max_e - min_e) * threshold_ratio
+    active = np.where(frame_energy > thresh)[0]
+    if len(active) == 0:
+        return 0, mel.shape[0]
+    start = max(0, int(active[0]) - 5)
+    end = min(mel.shape[0], int(active[-1]) + 5)
+    return start, end
 
 
 def load_pcan_dataset(
     wav_root: str,
     labels: list[str],
     window_hops: int = WINDOW_HOPS,
-    hop_step_keyword: int = 5,
-    hop_step_negative: int = 20,
-    gain_aug_db_min: float = -30.0,
-    gain_aug_db_max: float = 6.0,
+    gain_aug_db_min: float = -12.0,
+    gain_aug_db_max: float = 4.0,
     seed: int = 0,
 ) -> tuple[np.ndarray, np.ndarray, dict[str, list[str]]]:
-    """Extract PCAN features for all WAVs and slice into dataset windows.
+    """Extract PCAN features for all WAVs and generate balanced training windows.
+
+    Applies streaming wake-word alignment and hard negative mining:
+      - Keyword positives: Aligned at keyword completion (end of speech near window end)
+      - Hard negatives from keywords: Pre-speech leading silence and post-speech trailing silence
+      - Negatives: Sliced across silence and non-target speech
+      - Quiescent baseline: Pure silence baseline windows (y=0)
 
     Returns:
       X: (N, window_hops, 40, 1) float32 tensor
@@ -182,31 +183,97 @@ def load_pcan_dataset(
             continue
 
         is_keyword = (label not in ("silence", "unknown", "noise", "background"))
-        step = hop_step_keyword if is_keyword else hop_step_negative
-        y_val = 1 if is_keyword else 0
+        is_silence = (label in ("silence", "noise", "background"))
 
         for f in wav_files:
             pcm = load_wav_pcm16(f)
             mel = extract_pcan_features(pcm)
-            if mel.shape[0] == 0:
+            if mel.shape[0] < 5:
                 continue
 
-            windows = slice_into_windows(mel, window_hops=window_hops, hop_step=step)
+            T = mel.shape[0]
 
-            # Random gain augmentation
-            if gain_aug_db_min is not None and gain_aug_db_max is not None:
-                gains_db = rng.uniform(gain_aug_db_min, gain_aug_db_max, size=(windows.shape[0], 1, 1))
-                gains_lin = gains_db * 0.1
-                windows = windows + gains_lin
+            if is_keyword:
+                if T <= window_hops:
+                    pad_len = window_hops - T
+                    # Positive windows: speech ends near the right of the window (wake word completed)
+                    offsets = [pad_len, max(0, pad_len - 3), max(0, pad_len - 6)]
+                    for off in offsets:
+                        win = np.zeros((window_hops, HOP_BINS), dtype=np.float32)
+                        win[off : off + T] = mel
+                        all_X.append(win)
+                        all_y.append(1)
 
-            for w in windows:
-                all_X.append(w)
-                all_y.append(y_val)
+                    # Hard negative: utterance placed at far left (trailing silence in window)
+                    win_neg = np.zeros((window_hops, HOP_BINS), dtype=np.float32)
+                    win_neg[0 : T] = mel
+                    all_X.append(win_neg)
+                    all_y.append(0)
+                else:
+                    speech_start, speech_end = find_speech_bounds(mel)
+
+                    # Positive windows: window ending right around speech_end (wake word completed!)
+                    for jitter in [0, -3, 3]:
+                        end_idx = min(T, max(window_hops, speech_end + jitter))
+                        start_idx = end_idx - window_hops
+                        if start_idx >= 0:
+                            all_X.append(mel[start_idx : end_idx].copy())
+                            all_y.append(1)
+                        else:
+                            win = np.zeros((window_hops, HOP_BINS), dtype=np.float32)
+                            win[window_hops - end_idx :] = mel[:end_idx]
+                            all_X.append(win)
+                            all_y.append(1)
+
+                    # Hard negative 1: Pre-speech window (leading silence / initial syllable)
+                    if speech_end > window_hops + 20:
+                        all_X.append(mel[0 : window_hops].copy())
+                        all_y.append(0)
+
+                    # Hard negative 2: Post-speech window (trailing silence)
+                    if T - speech_end > 30 and T >= window_hops:
+                        all_X.append(mel[T - window_hops : T].copy())
+                        all_y.append(0)
+
+            elif is_silence:
+                if T >= window_hops:
+                    for s in range(0, T - window_hops + 1, 10):
+                        all_X.append(mel[s : s + window_hops].copy())
+                        all_y.append(0)
+                else:
+                    win = np.zeros((window_hops, HOP_BINS), dtype=np.float32)
+                    win[window_hops - T :] = mel
+                    all_X.append(win)
+                    all_y.append(0)
+
+            else:
+                # Unknown / non-target speech
+                if T >= window_hops:
+                    for s in range(0, T - window_hops + 1, 15):
+                        all_X.append(mel[s : s + window_hops].copy())
+                        all_y.append(0)
+                else:
+                    win = np.zeros((window_hops, HOP_BINS), dtype=np.float32)
+                    win[window_hops - T :] = mel
+                    all_X.append(win)
+                    all_y.append(0)
+
+    # Add pure baseline silence windows to teach network that quiescent background is y=0
+    for _ in range(1000):
+        all_X.append(np.zeros((window_hops, HOP_BINS), dtype=np.float32))
+        all_y.append(0)
 
     if not all_X:
         return np.zeros((0, window_hops, HOP_BINS, 1), dtype=np.float32), np.zeros((0,), dtype=np.int32), file_map
 
-    X = np.stack(all_X, axis=0)[..., np.newaxis]
+    # Apply gain augmentation across all windows
+    X_arr = np.stack(all_X, axis=0)
+    if gain_aug_db_min is not None and gain_aug_db_max is not None:
+        gains_db = rng.uniform(gain_aug_db_min, gain_aug_db_max, size=(X_arr.shape[0], 1, 1))
+        gains_lin = gains_db * 0.1
+        X_arr = np.clip(X_arr + gains_lin, 0.0, 666.0)
+
+    X = X_arr[..., np.newaxis]
     y = np.array(all_y, dtype=np.int32)
     return X, y, file_map
 
@@ -610,6 +677,7 @@ def evaluate_streaming_confusion_matrix(
     file_map: dict[str, list[str]],
     keywords: list[str],
     threshold: float = 0.5,
+    consecutive_steps: int = 2,
     slice_hops: int = 3,
 ) -> dict:
     """Run streaming inference on all WAV files using PCAN features and compute confusion matrix."""
@@ -644,6 +712,8 @@ def evaluate_streaming_confusion_matrix(
 
             max_prob = 0.0
             n_hops = mel.shape[0]
+            consec = 0
+            fired = False
 
             for s in range(0, n_hops - slice_hops + 1, slice_hops):
                 chunk = mel[s : s + slice_hops][np.newaxis, ...]  # shape: (1, 3, 40)
@@ -662,8 +732,14 @@ def evaluate_streaming_confusion_matrix(
                 if prob > max_prob:
                     max_prob = prob
 
+                if prob >= threshold:
+                    consec += 1
+                    if consec >= consecutive_steps:
+                        fired = True
+                else:
+                    consec = 0
+
             peak_probs.append(max_prob)
-            fired = (max_prob >= threshold)
             if fired:
                 n_detected += 1
 
@@ -708,10 +784,10 @@ def evaluate_streaming_confusion_matrix(
     return cm
 
 
-def print_confusion_matrix_report(cm: dict, threshold: float) -> None:
+def print_confusion_matrix_report(cm: dict, threshold: float, consecutive_steps: int = 2) -> None:
     """Print formatted evaluation report with confusion matrix."""
     print("\n" + "=" * 70)
-    print(f"microWakeWord PCAN Streaming Evaluation Report (Threshold: {threshold:.2f})")
+    print(f"microWakeWord PCAN Streaming Evaluation Report (Threshold: {threshold:.2f}, Consec: {consecutive_steps})")
     print("=" * 70)
     print(f"  {'Class':<18} {'Role':<10} {'Files':>7} {'Detected':>10} {'Rate':>8} {'Mean Peak':>10}")
     print("  " + "-" * 66)
@@ -753,7 +829,8 @@ def main() -> int:
     parser.add_argument("--lr", type=float, default=1e-3, help="Learning rate (default 1e-3)")
     parser.add_argument("--val-frac", type=float, default=0.2, help="Validation fraction (default 0.2)")
     parser.add_argument("--class-weight-neg", type=float, default=5.0, help="Loss multiplier for negative samples (default 5.0)")
-    parser.add_argument("--threshold", type=float, default=0.5, help="Streaming detection threshold (default 0.5)")
+    parser.add_argument("--threshold", type=float, default=0.75, help="Streaming detection threshold (default 0.75)")
+    parser.add_argument("--consecutive-steps", type=int, default=2, help="Consecutive positive inferences required (default 2)")
     parser.add_argument("--seed", type=int, default=0, help="Random seed (default 0)")
 
     args = parser.parse_args()
@@ -825,9 +902,10 @@ def main() -> int:
         file_map=file_map,
         keywords=args.keyword,
         threshold=args.threshold,
+        consecutive_steps=args.consecutive_steps,
         slice_hops=SLICE_HOPS,
     )
-    print_confusion_matrix_report(cm, threshold=args.threshold)
+    print_confusion_matrix_report(cm, threshold=args.threshold, consecutive_steps=args.consecutive_steps)
 
     return 0
 
