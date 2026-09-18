@@ -516,6 +516,12 @@ MFCC_FRAME_BYTES=76,MFCC_BLOB=ceps"
 "cavs-sdw\;sof-mtl-rt713-l0-rt1316-l12-mww-kpb\;PLATFORM=mtl,NUM_SDW_AMP_LINKS=2,\
 HDMI1_ID=4,HDMI2_ID=5,HDMI3_ID=6,SDW_JACK_MWW_KPB_CAPTURE=true"
 
+# Soundwire topologies with microWakeWord (MWW)/KPB Wake-on-Voice on DMIC (PCAN 8-bit mode)
+"cavs-sdw\;sof-ptl-rt713-l3-rt1320-l12-mww-pcan-kpb\;PLATFORM=ptl,SDW_DMIC=1,NUM_SDW_AMP_LINKS=2,\
+SDW_AMP_FEEDBACK=false,SDW_SPK_STREAM=Playback-SmartAmp,SDW_DMIC_STREAM=Capture-SmartMic,\
+SDW_JACK_OUT_STREAM=Playback-SimpleJack,SDW_JACK_IN_STREAM=Capture-SimpleJack,\
+SDW_DMIC_MWW_KPB_CAPTURE=true,MWW_PCAN=true"
+
 "cavs-sdw\;sof-arl-cs42l43-l0-cs35l56-l23-mww-kpb\;PLATFORM=mtl,NUM_SDW_AMP_LINKS=2,SDW_DMIC=1,\
 SDW_AMP_FEEDBACK=false,SDW_SPK_STREAM=Playback-SmartAmp,SDW_DMIC_STREAM=Capture-SmartMic,\
 SDW_JACK_OUT_STREAM=Playback-SimpleJack,SDW_JACK_IN_STREAM=Capture-SimpleJack,\
