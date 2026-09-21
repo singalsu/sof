@@ -182,8 +182,8 @@ def load_pcan_dataset(
             print(f"Warning: no .wav files found in {label_dir}", file=sys.stderr)
             continue
 
-        is_keyword = (label not in ("silence", "unknown", "noise", "background"))
-        is_silence = (label in ("silence", "noise", "background"))
+        is_keyword = (label not in ("ambient", "silence", "unknown", "noise", "background", "babble"))
+        is_ambient = (label in ("ambient", "silence", "noise", "background", "babble"))
 
         for f in wav_files:
             pcm = load_wav_pcm16(f)
@@ -235,7 +235,7 @@ def load_pcan_dataset(
                         all_X.append(mel[T - window_hops : T].copy())
                         all_y.append(0)
 
-            elif is_silence:
+            elif is_ambient:
                 if T >= window_hops:
                     for s in range(0, T - window_hops + 1, 10):
                         all_X.append(mel[s : s + window_hops].copy())
@@ -834,7 +834,14 @@ def main() -> int:
     parser.add_argument("--seed", type=int, default=0, help="Random seed (default 0)")
 
     args = parser.parse_args()
-    labels = ["silence", "unknown"] + args.keyword
+    labels = []
+    # Discover available standard negative categories present in wav_root
+    for neg_dir in ("ambient", "silence", "unknown", "babble", "noise"):
+        if os.path.isdir(os.path.join(args.wav_root, neg_dir)):
+            labels.append(neg_dir)
+    if not labels:
+        labels = ["silence", "unknown"]
+    labels += args.keyword
 
     print(f">>> [PCAN Pipeline] Loading WAVs from {args.wav_root} for classes: {labels}")
     X, y, file_map = load_pcan_dataset(args.wav_root, labels=labels, seed=args.seed)

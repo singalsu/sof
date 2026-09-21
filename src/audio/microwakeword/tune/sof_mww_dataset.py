@@ -231,8 +231,8 @@ def load_dataset(
             print(f"Warning: no .raw feature files found in {label_dir}", file=sys.stderr)
             continue
 
-        is_keyword = (label not in ("silence", "unknown", "noise", "background"))
-        is_silence = (label in ("silence", "noise", "background"))
+        is_keyword = (label not in ("ambient", "silence", "unknown", "noise", "background", "babble"))
+        is_silence = (label in ("ambient", "silence", "noise", "background", "babble"))
 
         for f in raw_files:
             mel, _ = load_raw_hops(f)

@@ -448,7 +448,13 @@ def main() -> int:
     parser.add_argument("--seed", type=int, default=0, help="Random seed (default 0)")
 
     args = parser.parse_args()
-    labels = ["silence", "unknown"] + args.keyword
+    labels = []
+    for neg_dir in ("ambient", "silence", "unknown", "babble", "noise"):
+        if os.path.isdir(os.path.join(args.feat_root, neg_dir)):
+            labels.append(neg_dir)
+    if not labels:
+        labels = ["silence", "unknown"]
+    labels += args.keyword
     print(f">>> Loading dataset from {args.feat_root} for classes: {labels}")
 
     X_raw, y = mww_dataset.load_dataset(
