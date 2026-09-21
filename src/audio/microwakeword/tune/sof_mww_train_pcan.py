@@ -249,7 +249,7 @@ def load_pcan_dataset(
             else:
                 # Unknown / non-target speech
                 if T >= window_hops:
-                    for s in range(0, T - window_hops + 1, 15):
+                    for s in range(0, T - window_hops + 1, 10):
                         all_X.append(mel[s : s + window_hops].copy())
                         all_y.append(0)
                 else:
@@ -257,6 +257,28 @@ def load_pcan_dataset(
                     win[window_hops - T :] = mel
                     all_X.append(win)
                     all_y.append(0)
+
+    # Synthesize continuous multi-word conversational speech from unknown words
+    unk_files = file_map.get("unknown", [])
+    if len(unk_files) >= 10:
+        print(f">>> Synthesizing continuous multi-word conversational speech from {len(unk_files)} unknown words...")
+        for _ in range(1200):
+            k = rng.integers(2, 5)  # 2 to 4 words per sentence
+            picks = rng.choice(unk_files, size=k)
+            pcm_parts = []
+            for p in picks:
+                p_pcm = load_wav_pcm16(p)
+                if len(p_pcm) > 0:
+                    pcm_parts.append(p_pcm)
+                    pause = np.zeros(rng.integers(800, 2400), dtype=np.int16)
+                    pcm_parts.append(pause)
+            if pcm_parts:
+                cat_pcm = np.concatenate(pcm_parts)
+                cat_mel = extract_pcan_features(cat_pcm)
+                if cat_mel.shape[0] >= window_hops:
+                    for s in range(0, cat_mel.shape[0] - window_hops + 1, 15):
+                        all_X.append(cat_mel[s : s + window_hops].copy())
+                        all_y.append(0)
 
     # Add pure baseline silence windows to teach network that quiescent background is y=0
     for _ in range(1000):
@@ -382,10 +404,10 @@ def build_mww_model(window_hops: int = 99, num_mels: int = 40) -> tf.keras.Model
     x = tf.keras.layers.BatchNormalization(name="bn3")(x)
     x = tf.keras.layers.ReLU(name="relu3")(x)
 
-    # Layer 4: MixConv DW(4) + PW(60) + BN + ReLU with causal left padding of 3 steps
-    x = tf.keras.layers.ZeroPadding2D(padding=((3, 0), (0, 0)), name="pad4")(x)
+    # Layer 4: MixConv DW(21) + PW(60) + BN + ReLU with causal left padding of 20 steps
+    x = tf.keras.layers.ZeroPadding2D(padding=((20, 0), (0, 0)), name="pad4")(x)
     x = tf.keras.layers.DepthwiseConv2D(
-        kernel_size=(4, 1),
+        kernel_size=(21, 1),
         strides=(1, 1),
         padding="valid",
         activation=None,
@@ -455,7 +477,7 @@ def build_streaming_inference_model(
                 60, kernel_size=(1, 1), strides=(1, 1), padding="valid", activation="relu", name="pw3"
             )
             self.dw4 = tf.keras.layers.DepthwiseConv2D(
-                kernel_size=(4, 1), strides=(1, 1), padding="valid", activation=None, name="dw4"
+                kernel_size=(21, 1), strides=(1, 1), padding="valid", activation=None, name="dw4"
             )
             self.pw4 = tf.keras.layers.Conv2D(
                 60, kernel_size=(1, 1), strides=(1, 1), padding="valid", activation="relu", name="pw4"
@@ -467,7 +489,7 @@ def build_streaming_inference_model(
             self.state1 = tf.Variable(tf.zeros((1, 4, 1, 30)), trainable=False, name="stream_1")
             self.state2 = tf.Variable(tf.zeros((1, 8, 1, 60)), trainable=False, name="stream_2")
             self.state3 = tf.Variable(tf.zeros((1, 12, 1, 60)), trainable=False, name="stream_3")
-            self.state4 = tf.Variable(tf.zeros((1, 3, 1, 60)), trainable=False, name="stream_4")
+            self.state4 = tf.Variable(tf.zeros((1, 20, 1, 60)), trainable=False, name="stream_4")
             self.state5 = tf.Variable(tf.zeros((1, 4, 1, 60)), trainable=False, name="stream_5")
 
         @tf.function(

@@ -130,10 +130,10 @@ def build_mww_model(window_hops: int = 99, num_mels: int = 40) -> tf.keras.Model
     x = tf.keras.layers.BatchNormalization(name="bn3")(x)
     x = tf.keras.layers.ReLU(name="relu3")(x)
 
-    # Layer 4: MixConv DW(4) + PW(60) + BN + ReLU with causal left padding of 3 steps
-    x = tf.keras.layers.ZeroPadding2D(padding=((3, 0), (0, 0)), name="pad4")(x)
+    # Layer 4: MixConv DW(21) + PW(60) + BN + ReLU with causal left padding of 20 steps
+    x = tf.keras.layers.ZeroPadding2D(padding=((20, 0), (0, 0)), name="pad4")(x)
     x = tf.keras.layers.DepthwiseConv2D(
-        kernel_size=(4, 1),
+        kernel_size=(21, 1),
         strides=(1, 1),
         padding="valid",
         activation=None,
@@ -203,7 +203,7 @@ def build_streaming_inference_model(
                 60, kernel_size=(1, 1), strides=(1, 1), padding="valid", activation="relu", name="pw3"
             )
             self.dw4 = tf.keras.layers.DepthwiseConv2D(
-                kernel_size=(4, 1), strides=(1, 1), padding="valid", activation=None, name="dw4"
+                kernel_size=(21, 1), strides=(1, 1), padding="valid", activation=None, name="dw4"
             )
             self.pw4 = tf.keras.layers.Conv2D(
                 60, kernel_size=(1, 1), strides=(1, 1), padding="valid", activation="relu", name="pw4"
@@ -215,7 +215,7 @@ def build_streaming_inference_model(
             self.state1 = tf.Variable(tf.zeros((1, 4, 1, 30)), trainable=False, name="stream_1")
             self.state2 = tf.Variable(tf.zeros((1, 8, 1, 60)), trainable=False, name="stream_2")
             self.state3 = tf.Variable(tf.zeros((1, 12, 1, 60)), trainable=False, name="stream_3")
-            self.state4 = tf.Variable(tf.zeros((1, 3, 1, 60)), trainable=False, name="stream_4")
+            self.state4 = tf.Variable(tf.zeros((1, 20, 1, 60)), trainable=False, name="stream_4")
             self.state5 = tf.Variable(tf.zeros((1, 4, 1, 60)), trainable=False, name="stream_5")
 
         @tf.function(

@@ -83,7 +83,7 @@ int DebugVsnprintf(char *buffer, size_t buf_size, const char *format,
 #define MWW_MFCC_HOP_MS 10
 
 /* Wake-word probability threshold above which KPB draining is triggered. */
-#define MWW_DETECT_THRESHOLD 0.60f
+#define MWW_DETECT_THRESHOLD 0.75f
 
 /* Consecutive inferences above threshold required to confirm detection (~60 ms). */
 #define MWW_CONSECUTIVE_DETECTS_REQUIRED 2
