@@ -444,6 +444,7 @@ __cold static int mww_init(struct processing_module *mod)
 #if !CONFIG_COMP_MWW_PCAN
 	cd->agc_gain_q23 = MWW_AGC_GAIN_TARGET_Q23;
 #endif
+	mod->max_sinks = 0;
 	cd->window_peak_prob = 0.0f;
 	cd->current_score_idx = 0;
 	cd->last_notified_score_idx = 0;
