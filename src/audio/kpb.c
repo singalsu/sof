@@ -130,7 +130,6 @@ static int kpb_buffer_data(struct comp_dev *dev,
 			   const struct comp_buffer *source, size_t size);
 static size_t kpb_allocate_history_buffer(struct comp_data *kpb,
 					  size_t hb_size_req);
-static void kpb_clear_history_buffer(struct history_buffer *buff);
 static void kpb_free_history_buffer(struct history_buffer *buff);
 static inline bool kpb_is_sample_width_supported(uint32_t sampling_width);
 static void kpb_copy_samples(struct comp_buffer *sink,
@@ -2444,30 +2443,6 @@ static void kpb_buffer_samples(const struct audio_stream *source,
 		comp_cl_err(&comp_kpb, "KPB: An attempt to copy not supported format!");
 		return;
 	}
-}
-
-/**
- * \brief Initialize history buffer by zeroing its memory.
- * \param[in] buff - pointer to current history buffer.
- *
- * \return: none.
- */
-static void kpb_clear_history_buffer(struct history_buffer *buff)
-{
-	struct history_buffer *first_buff = buff;
-	void *start_addr;
-	size_t size;
-
-	comp_cl_info(&comp_kpb, "entry");
-
-	do {
-		start_addr = buff->start_addr;
-		size = (uintptr_t)buff->end_addr - (uintptr_t)start_addr;
-
-		bzero(start_addr, size);
-
-		buff = buff->next;
-	} while (buff != first_buff);
 }
 
 static inline bool kpb_is_sample_width_supported(uint32_t sampling_width)
