@@ -174,25 +174,28 @@ static int ecns_prepare(struct comp_dev *dev)
 	comp_info(dev, "ecns_prepare");
 
 #if CONFIG_IPC_MAJOR_4
+	/* Output buffer formats must match the topology-declared pins:
+	 * pin0 -> KPB mono 16 kHz 16-bit, pin1 -> host 48 kHz 4ch 16-bit.
+	 */
 	struct ipc4_audio_format pin0_fmt = {
 		.sampling_frequency = 16000,
 		.channels_count = 1,
-		.depth = 32,
-		.valid_bit_depth = 32,
-		.s_type = IPC4_TYPE_MSB_INTEGER,
+		.depth = 16,
+		.valid_bit_depth = 16,
+		.s_type = IPC4_TYPE_SIGNED_INTEGER,
 		.interleaving_style = IPC4_CHANNELS_INTERLEAVED,
-		.ch_map = 0x01,
+		.ch_map = 0xFFFFFFF0,
 		.ch_cfg = 0,
 	};
 	struct ipc4_audio_format pin1_fmt = {
-		.sampling_frequency = 16000,
-		.channels_count = 2,
-		.depth = 32,
-		.valid_bit_depth = 32,
-		.s_type = IPC4_TYPE_MSB_INTEGER,
+		.sampling_frequency = 48000,
+		.channels_count = 4,
+		.depth = 16,
+		.valid_bit_depth = 16,
+		.s_type = IPC4_TYPE_SIGNED_INTEGER,
 		.interleaving_style = IPC4_CHANNELS_INTERLEAVED,
-		.ch_map = 0x10,
-		.ch_cfg = 1,
+		.ch_map = 0xFFFF3210,
+		.ch_cfg = 4,
 	};
 
 	comp_dev_for_each_consumer(dev, sink) {
@@ -364,8 +367,16 @@ static int ecns_copy(struct comp_dev *dev)
 		uint32_t free0_bytes = audio_stream_get_free_bytes(&snk0->stream);
 		uint32_t free0_frames = free0_bytes / snk0_frame_bytes;
 
+		/* Diagnostic: confirm pin0 runtime channel count and sample width */
+		if ((cd->copy_count % 256) == 1)
+			comp_info(dev,
+				  "ecns pin0 fmt: src_ch=%u src_sb=%u | snk_ch=%u snk_sb=%u",
+				  src0_ch, src_sample_bytes, snk0_ch, snk_sample_bytes0);
+
+		/* Drain all available input bounded by sink space; a one-period cap
+		 * would let the source ring overflow under DMIC vs DSP clock drift.
+		 */
 		uint32_t frames0 = MIN(avail0_frames, free0_frames);
-		frames0 = MIN(frames0, ECNS_FRAME_SAMPLES_16K);
 
 		if (frames0 > 0) {
 			uint32_t src_bytes = frames0 * src0_frame_bytes;
@@ -471,8 +482,51 @@ static int ecns_copy(struct comp_dev *dev)
 		uint32_t free1_bytes = audio_stream_get_free_bytes(&snk1->stream);
 		uint32_t free1_frames = free1_bytes / snk1_frame_bytes;
 
+		/* Diagnostic: pin1 runtime channel/width + per-channel input peaks
+		 * (identical peaks => upstream copier broadcast, not ECNS).
+		 */
+		if ((cd->copy_count % 256) == 1) {
+			int32_t pc[4] = {0, 0, 0, 0};
+			uint32_t nav = in1_frame_bytes ?
+				audio_stream_get_avail_bytes(&in1->stream) / in1_frame_bytes : 0;
+			uint32_t nn = MIN(nav, 48);
+
+			if (nn && in1_ch) {
+				buffer_stream_invalidate(in1, nn * in1_frame_bytes);
+				if (in1_sample_bytes == sizeof(int32_t)) {
+					int32_t *p = audio_stream_get_rptr(&in1->stream);
+
+					for (uint32_t i = 0; i < nn * in1_ch; i++) {
+						int32_t v = *(int32_t *)audio_stream_wrap(&in1->stream,
+											  p++) >> 16;
+						uint32_t c = i % in1_ch;
+
+						if (c < 4)
+							pc[c] = MAX(pc[c], v < 0 ? -v : v);
+					}
+				} else {
+					int16_t *p = audio_stream_get_rptr(&in1->stream);
+
+					for (uint32_t i = 0; i < nn * in1_ch; i++) {
+						int32_t v = *(int16_t *)audio_stream_wrap(&in1->stream,
+											  p++);
+						uint32_t c = i % in1_ch;
+
+						if (c < 4)
+							pc[c] = MAX(pc[c], v < 0 ? -v : v);
+					}
+				}
+			}
+			comp_info(dev,
+				  "ecns pin1 fmt: in_ch=%u in_sb=%u snk_ch=%u snk_sb=%u | inpk c0=%d c1=%d c2=%d c3=%d",
+				  in1_ch, in1_sample_bytes, snk1_ch, snk_sample_bytes1,
+				  pc[0], pc[1], pc[2], pc[3]);
+		}
+
+		/* Drain all available input bounded by sink space; a one-period cap
+		 * would let the source ring overflow under DMIC vs DSP clock drift.
+		 */
 		uint32_t frames1 = MIN(avail1_frames, free1_frames);
-		frames1 = MIN(frames1, src1 ? ECNS_FRAME_SAMPLES_48K : ECNS_FRAME_SAMPLES_16K);
 
 		if (frames1 > 0) {
 			uint32_t in1_bytes = frames1 * in1_frame_bytes;
