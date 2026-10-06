@@ -112,6 +112,7 @@ struct comp_data {
 	struct kpb_micselector_config mic_sel;
 	struct kpb_fmt_dev_list fmt_device_list;
 	struct fast_mode_task fmt;
+	uint32_t copy_dbg_count; /**< throttle counter for data-flow trace */
 
 #if CONFIG_AMS
 	uint32_t kpd_uuid_id;
@@ -1386,6 +1387,42 @@ static int kpb_copy(struct comp_dev *dev)
 		comp_dbg(dev, "kpb_copy: source_buf=%p sel_sink=%p avail=%u",
 			 source, sink, audio_stream_get_avail_bytes(&source->stream));
 
+/* Data-flow trace feeding the detectors: scan every 32nd copy, log only on
+		 * audio (or rare heartbeat) to avoid trace transport overflow in silence.
+		 */
+		if ((kpb->copy_dbg_count++ % 32) == 0) {
+			uint32_t sbytes = (sample_width >> 3) ? (sample_width >> 3) : 2;
+			uint32_t nch = channels ? channels : 1;
+			uint32_t frame = sbytes * nch;
+			uint32_t navail = audio_stream_get_avail_bytes(&source->stream) / frame;
+			uint32_t npeek = MIN(navail, 128);
+			int32_t peak = 0;
+
+			if (npeek) {
+				buffer_stream_invalidate(source, npeek * frame);
+				if (sbytes == sizeof(int32_t)) {
+					int32_t *p = audio_stream_get_rptr(&source->stream);
+
+					for (uint32_t i = 0; i < npeek * nch; i++) {
+						int32_t v = *(int32_t *)audio_stream_wrap(&source->stream,
+										  p++) >> 16;
+						peak = MAX(peak, v < 0 ? -v : v);
+					}
+				} else {
+					int16_t *p = audio_stream_get_rptr(&source->stream);
+
+					for (uint32_t i = 0; i < npeek * nch; i++) {
+						int32_t v = *(int16_t *)audio_stream_wrap(&source->stream,
+										  p++);
+						peak = MAX(peak, v < 0 ? -v : v);
+					}
+				}
+			}
+			if (peak > 0 || (kpb->copy_dbg_count % 4096) == 0)
+				comp_info(dev, "kpb_copy[%u]: src avail=%u frames allch_pk=%d width=%u ch=%u",
+					  kpb->copy_dbg_count, navail, peak, sample_width, channels);
+		}
+
 		if (!sink) {
 			comp_warn(dev, "no sink.");
 			ret = -EINVAL;
@@ -1403,9 +1440,10 @@ static int kpb_copy(struct comp_dev *dev)
 
 		copy_bytes = audio_stream_get_copy_bytes(&source->stream, &sink->stream);
 		if (!copy_bytes) {
-			comp_warn(dev, "nothing to copy sink->free %u source->avail %u",
-				 audio_stream_get_free_bytes(&sink->stream),
-				 audio_stream_get_avail_bytes(&source->stream));
+			if ((kpb->copy_dbg_count % 1000) == 1)
+				comp_warn(dev, "nothing to copy sink->free %u source->avail %u",
+					  audio_stream_get_free_bytes(&sink->stream),
+					  audio_stream_get_avail_bytes(&source->stream));
 			ret = PPL_STATUS_PATH_STOP;
 			break;
 		}

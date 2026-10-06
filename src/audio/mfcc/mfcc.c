@@ -210,6 +210,31 @@ static int mfcc_process(struct processing_module *mod,
 	/* Copy input audio from source to MFCC internal circular buffer */
 	cd->source_func(sources[0], &state->buf, &state->emph, frames, state->source_channel);
 
+	/* Throttled data-flow trace: peak magnitude (Q1.15) of the mono samples
+	 * just written, to confirm non-silent audio is reaching MFCC.
+	 */
+	{
+		static uint32_t mfcc_in_dbg;
+		int16_t *p = state->buf.w_ptr;
+		int32_t in_peak = 0;
+		int k;
+
+		if ((mfcc_in_dbg++ % 32) == 1) {
+			for (k = 0; k < frames; k++) {
+				int32_t v;
+
+				if (p == state->buf.addr)
+					p = state->buf.end_addr;
+				p--;
+				v = *p;
+				in_peak = MAX(in_peak, v < 0 ? -v : v);
+			}
+			if (in_peak > 0 || (mfcc_in_dbg % 4096) == 1)
+				comp_info(dev, "mfcc_in[%u] frames=%d in_peak_q15=%d",
+					  mfcc_in_dbg, frames, in_peak);
+		}
+	}
+
 	/* Run STFT and Mel/DCT processing */
 	num_ceps = mfcc_stft_process(mod, cd);
 	if (num_ceps < 0) {

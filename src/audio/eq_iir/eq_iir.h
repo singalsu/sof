@@ -42,6 +42,9 @@ struct comp_data {
 	size_t config_size;			/**< configuration size */
 	size_t iir_delay_size;			/**< allocated size */
 	eq_iir_func eq_iir_func;		/**< processing function */
+	uint32_t copy_dbg_count;		/**< throttle counter for data-flow trace */
+	uint32_t dbg_max_frames;		/**< max input frames seen */
+	int32_t dbg_max_pk;			/**< max input peak (all channels) */
 };
 
 #ifdef UNIT_TEST

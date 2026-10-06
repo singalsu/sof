@@ -602,10 +602,11 @@ static int mww_process(struct processing_module *mod,
 				if (slice[i] < f_min) f_min = slice[i];
 				if (slice[i] > f_max) f_max = slice[i];
 			}
-			comp_info(dev, "[MWW DBG hop %d] vad=%d E=%d Ne=%d f_min=%d f_max=%d (pcan)",
-				  dbg_hop_count, (int)hdr->vad_flag,
-				  (int)hdr->energy, (int)hdr->noise_energy,
-				  f_min, f_max);
+			if (f_max > -128 || hdr->vad_flag)
+				comp_info(dev, "[MWW DBG hop %d] vad=%d E=%d Ne=%d f_min=%d f_max=%d (pcan)",
+					  dbg_hop_count, (int)hdr->vad_flag,
+					  (int)hdr->energy, (int)hdr->noise_energy,
+					  f_min, f_max);
 		}
 #endif
 #else
@@ -672,10 +673,11 @@ static int mww_process(struct processing_module *mod,
 				if (slice[i] < f_min) f_min = slice[i];
 				if (slice[i] > f_max) f_max = slice[i];
 			}
-			comp_info(dev, "[MWW DBG hop %d] vad=%d E=%d Ne=%d mel_min=%d mel_max=%d f_min=%d f_max=%d agc_q23=%d",
-				  dbg_hop_count, (int)hdr->vad_flag,
-				  (int)hdr->energy, (int)hdr->noise_energy,
-				  mel_min, mel_max, f_min, f_max, (int)cd->agc_gain_q23);
+			if (f_max > -128 || hdr->vad_flag)
+				comp_info(dev, "[MWW DBG hop %d] vad=%d E=%d Ne=%d mel_min=%d mel_max=%d f_min=%d f_max=%d agc_q23=%d",
+					  dbg_hop_count, (int)hdr->vad_flag,
+					  (int)hdr->energy, (int)hdr->noise_energy,
+					  mel_min, mel_max, f_min, f_max, (int)cd->agc_gain_q23);
 		}
 #endif
 #endif

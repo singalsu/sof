@@ -142,6 +142,42 @@ static int eq_iir_process(struct processing_module *mod,
 		cd->eq_iir_func(mod, &input_buffers[0], &output_buffers[0], frame_count);
 		module_update_buffer_position(&input_buffers[0], &output_buffers[0], frame_count);
 	}
+
+	/* Data-flow trace: scan every 32nd copy, log only on audio (or rare heartbeat)
+	 * so the trace transport does not overflow during silence.
+	 */
+	if ((cd->copy_dbg_count++ % 32) == 0) {
+		uint32_t ch = audio_stream_get_channels(source);
+		uint32_t sb = audio_stream_sample_bytes(source);
+		uint32_t n = MIN(frame_count, 128);
+		int32_t pk = 0;
+
+		if (ch && sb && n) {
+			if (sb == sizeof(int32_t)) {
+				int32_t *p = audio_stream_get_rptr(source);
+
+				for (uint32_t i = 0; i < n * ch; i++) {
+					int32_t v = *(int32_t *)audio_stream_wrap(source, p++) >> 16;
+
+					pk = MAX(pk, v < 0 ? -v : v);
+				}
+			} else {
+				int16_t *p = audio_stream_get_rptr(source);
+
+				for (uint32_t i = 0; i < n * ch; i++) {
+					int32_t v = *(int16_t *)audio_stream_wrap(source, p++);
+
+					pk = MAX(pk, v < 0 ? -v : v);
+				}
+			}
+		}
+		if (pk > 0 || (cd->copy_dbg_count % 4096) == 0)
+			comp_info(mod->dev, "eqiir[%u] frames=%u allch_pk=%d ch=%u width=%u",
+				  cd->copy_dbg_count, frame_count, pk, ch, sb * 8);
+		cd->dbg_max_frames = MAX(cd->dbg_max_frames, frame_count);
+		if (pk > cd->dbg_max_pk)
+			cd->dbg_max_pk = pk;
+	}
 	return 0;
 }
 
@@ -220,6 +256,13 @@ static int eq_iir_reset(struct processing_module *mod)
 {
 	struct comp_data *cd = module_get_private_data(mod);
 	int i;
+
+	comp_info(mod->dev,
+		  "[EQIIR SUMMARY] copies=%u max_frames=%u max_pk=%d",
+		  cd->copy_dbg_count, cd->dbg_max_frames, cd->dbg_max_pk);
+	cd->copy_dbg_count = 0;
+	cd->dbg_max_frames = 0;
+	cd->dbg_max_pk = 0;
 
 	eq_iir_free_delaylines(mod);
 

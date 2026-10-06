@@ -364,6 +364,34 @@ int mfcc_stft_process(struct processing_module *mod, struct mfcc_comp_data *cd)
 			pcan_noise_reduction(&state->pcan, state->mel_linear);
 			pcan_apply(&state->pcan, state->mel_linear);
 			pcan_log_scale(&state->pcan, state->mel_linear);
+
+			/* Throttled data-flow trace: linear Mel energy and noise
+			 * estimate after PCAN to confirm the detector input is
+			 * not pinned to the floor.
+			 */
+			{
+				static uint32_t pcan_dbg;
+				int nb = state->pcan.num_channels;
+
+				if ((pcan_dbg++ % 32) == 1) {
+					uint32_t mel_max = 0;
+					uint64_t mel_sum = 0;
+					uint32_t ne0 = state->pcan.noise_estimate ?
+						       state->pcan.noise_estimate[0] : 0;
+					int b;
+
+					for (b = 0; b < nb; b++) {
+						uint32_t v = state->mel_linear[b];
+
+						mel_sum += v;
+						mel_max = MAX(mel_max, v);
+					}
+					if (mel_max > 0 || (pcan_dbg % 4096) == 1)
+						comp_info(dev,
+							  "pcan[%u] bins=%d mel_max=%u mel_sum=%u noise0=%u",
+							  pcan_dbg, nb, mel_max, (uint32_t)mel_sum, ne0);
+				}
+			}
 		} else {
 			psy_apply_mel_filterbank_32(&state->melfb, fft->fft_out, state->power_spectra,
 						    state->mel_log_32, mel_scale_shift);
