@@ -444,6 +444,22 @@ static int wov_arb_set_large_config(struct comp_dev *dev,
 				cd->active_slot = (uint8_t)(val - 1);
 				cd->last_notify_time = 0;
 				comp_info(dev, "wov_arb: set active_slot=%u via kcontrol", cd->active_slot);
+				/* Resume all, then pause every other detector so only
+				 * the selected slot runs inference (load reduction).
+				 * RESUME first guarantees the selected slot runs even
+				 * if it was paused by a previous force-select.
+				 */
+				struct wov_ctrl_notif r = { .cmd = WOV_ARB_CMD_RESUME };
+				notifier_event(dev, NOTIFIER_ID_WOV_CTRL,
+					       NOTIFIER_TARGET_CORE_ALL_MASK,
+					       &r, sizeof(r));
+				struct wov_ctrl_notif p = {
+					.cmd = WOV_ARB_CMD_PAUSE,
+					.slot_id = cd->active_slot,
+				};
+				notifier_event(dev, NOTIFIER_ID_WOV_CTRL,
+					       NOTIFIER_TARGET_CORE_ALL_MASK,
+					       &p, sizeof(p));
 			}
 		}
 		return 0;
