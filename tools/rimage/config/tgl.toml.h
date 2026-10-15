@@ -144,5 +144,9 @@
 #include <audio/microwakeword/mww.toml>
 #endif
 
+#if defined(CONFIG_COMP_WEBRTC_AEC) || defined(LLEXT_FORCE_ALL_MODULAR)
+#include <audio/webrtc_aec/webrtc_aec.toml>
+#endif
+
 [module]
 count = __COUNTER__
