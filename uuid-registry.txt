@@ -182,6 +182,7 @@ e93326d8-0d14-4bf0-bcb9e063d3d80136 twb_sched
 b77e677e-5ff4-4188-af14fba8bdbf8682 volume
 8a171323-94a3-4e1d-afe9fe5dbaa4c393 volume4
 1028070e-04e8-46ab-8d8110a0116ce738 wait
+e5da7b5b-133a-ba46-b517651d6300bb83 webrtc_aec
 d944281a-afe9-4695-a043d7f62b89538e waves
 13c8bc59-c4fa-4ad1-b93ace97cd30acc7 wdt
 4a5b6c7d-8e9f-4a1b-2c3d4e5f60718293 wov_arbiter
