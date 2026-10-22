@@ -358,7 +358,9 @@ static int ecns_prepare(struct comp_dev *dev)
 
 	/* Output buffer formats must match the topology-declared pins:
 	 * pin0 -> KPB mono 16 kHz, pin1 -> host.
-	 * When src1 (48 kHz producer) is present, use dual-rate 16-bit formats.
+	 * Pin 1 host capture output is always 32-bit (S32_LE); downstream host-copier
+	 * converts format as needed by user-space (s16/s24/s32).
+	 * When src1 (48 kHz producer) is present, use 16-bit mono format for pin0 KPB.
 	 * When src1 is absent (single 16 kHz DMIC input), use 32-bit formats matching the manifest.
 	 */
 	comp_dev_for_each_producer(dev, source) {
@@ -389,9 +391,9 @@ static int ecns_prepare(struct comp_dev *dev)
 	struct ipc4_audio_format pin1_fmt = {
 		.sampling_frequency = src1 ? 48000 : 16000,
 		.channels_count = pin1_ch,
-		.depth = src1 ? 16 : 32,
-		.valid_bit_depth = src1 ? 16 : 32,
-		.s_type = src1 ? IPC4_TYPE_SIGNED_INTEGER : IPC4_TYPE_MSB_INTEGER,
+		.depth = 32,
+		.valid_bit_depth = 32,
+		.s_type = IPC4_TYPE_SIGNED_INTEGER,
 		.interleaving_style = IPC4_CHANNELS_INTERLEAVED,
 		.ch_map = pin1_ch == 4 ? ECNS_CH_MAP_4CH : ECNS_CH_MAP_STEREO,
 		.ch_cfg = pin1_ch == 4 ? IPC4_CHANNEL_CONFIG_3_POINT_1 : IPC4_CHANNEL_CONFIG_STEREO,
@@ -1013,7 +1015,7 @@ static void ecns_consume_sources(struct comp_buffer *src0,
  *   - Pin 1 in: 48 kHz stream from dmic01 (2 or 4 channels, 16/32-bit)
  * Produces:
  *   - Pin 0 out: 16 kHz mono clean stream to KPB (averaged mono per Kconfig, 320 frames per 20ms)
- *   - Pin 1 out: 48 kHz stereo/4ch clean stream to Host PCM 11 (40 Hz HPF +20 dB, 960 frames per 20ms)
+ *   - Pin 1 out: 48 kHz stereo/4ch clean stream to Host PCM 11 (40 Hz HPF +20 dB, S32_LE, 960 frames per 20ms)
  * Sampling rates remain identical between input and output on each pin.
  */
 static int ecns_copy(struct comp_dev *dev)
