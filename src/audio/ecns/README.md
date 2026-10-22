@@ -8,7 +8,7 @@ The `ecns` component is an IPC4 Data Processing (DP) module operating at a 20 ms
 
 The module performs echo cancellation, noise suppression, and channel routing, delivering two distinct output streams via separate output pins:
 1. **Output Pin 0 (Mono Clean Speech / Keyword Stream)**: Operates at 16 kHz. Extracts the Left channel from Input Pin 0 and delivers a single-channel mono clean stream to the Key Phrase Buffer (`kpb.116.1`) and downstream microWakeWord (`mww`) keyword detection slots. Triggers deliver pre-roll and live speech to the host via the WOV Arbiter (`PCM 12`, `hw:0,12`).
-2. **Output Pin 1 (Stereo Clean Speech Stream)**: Operates at 48 kHz. Filters each channel of Input Pin 1 with a built-in 40 Hz second-order high-pass IIR (DF1, +20 dB gain, `CONFIG_ECNS_HOST_HPF`, default `y`; when disabled the data is passed through with only s16/s32 conversion) and delivers the stereo or 4-channel clean stream to host capture (`host-copier.11.capture`, `PCM 11`, `hw:0,11`).
+2. **Output Pin 1 (Stereo Clean Speech Stream)**: Operates at 48 kHz in 32-bit (`S32_LE`) format. Filters each channel of Input Pin 1 with a built-in 40 Hz second-order high-pass IIR (DF1, +20 dB gain, `CONFIG_ECNS_HOST_HPF`, default `y`; when disabled the data is passed through with only s16/s32 conversion) and delivers the stereo or 4-channel clean stream to host capture (`host-copier.11.capture`, `PCM 11`, `hw:0,11`). Downstream host copier converts the format on the fly to `S16_LE`, `S24_LE`, or `S32_LE` as requested by user space.
 
 Both capture endpoints support low-power D0i3 listening and wake (`capture_compatible_d0i3: true`).
 
@@ -51,7 +51,7 @@ flowchart TD
         MIXOUT_115_2["mixout.115.2<br/>(Pin 0 In: 16 kHz · 2ch stereo)"]
         MIXOUT_115_1["mixout.115.1<br/>(Pin 1 In: 48 kHz · 2ch stereo)"]
 
-        ECNS["ecns.115.1 (DP Component · 20ms Period)<br/>━━━━━━━━━━━━━━━━━━━━━━━━━━━━━<br/><b>Pin 0 In:</b> 16 kHz, 2ch (IBS 1280 bytes)<br/><b>Pin 1 In:</b> 48 kHz, 2ch (IBS 3840 bytes)<br/>─────────────────────────────<br/><b>Processing:</b><br/>• Pin 0: Extract Left Ch → 16k Mono Clean<br/>• Pin 1: 40 Hz HPF +20 dB → 48k Stereo Clean<br/>─────────────────────────────<br/><b>Pin 0 Out:</b> 16 kHz, 1ch mono (OBS 640 bytes)<br/><b>Pin 1 Out:</b> 48 kHz, 2ch stereo (OBS 3840 bytes)"]
+        ECNS["ecns.115.1 (DP Component · 20ms Period)<br/>━━━━━━━━━━━━━━━━━━━━━━━━━━━━━<br/><b>Pin 0 In:</b> 16 kHz, 2ch (IBS 1280 bytes)<br/><b>Pin 1 In:</b> 48 kHz, 2ch (IBS 3840 bytes)<br/>─────────────────────────────<br/><b>Processing:</b><br/>• Pin 0: Extract Left Ch → 16k Mono Clean<br/>• Pin 1: 40 Hz HPF +20 dB → 48k Stereo Clean<br/>─────────────────────────────<br/><b>Pin 0 Out:</b> 16 kHz, 1ch mono (OBS 640 bytes)<br/><b>Pin 1 Out:</b> 48 kHz, 2ch stereo (S32_LE, OBS 7680 bytes)"]
 
         MIXOUT_115_2 -->|"Pin 0 In (16k)"| ECNS
         MIXOUT_115_1 -->|"Pin 1 In (48k)"| ECNS
@@ -123,7 +123,7 @@ flowchart TD
 | Input Pin 0 | 16 kHz · 2 channels (Stereo from `dmic16k`) · `S16_LE` · IBS = 1280 bytes (20ms) |
 | Input Pin 1 | 48 kHz · 2 channels (Stereo from `dmic01`) · `S16_LE` · IBS = 3840 bytes (20ms) |
 | Output Pin 0 | 16 kHz · 1 channel (Mono left channel clean) · `S16_LE` · OBS = 640 bytes (20ms) |
-| Output Pin 1 | 48 kHz · 2 channels (Stereo clean, 40 Hz HPF +20 dB) · `S16_LE` · OBS = 3840 bytes (20ms) |
+| Output Pin 1 | 48 kHz · 2 channels (Stereo clean, 40 Hz HPF +20 dB) · `S32_LE` · OBS = 7680 bytes (2ch) / 15360 bytes (4ch) |
 | Sinks Acceptance | Independent sink buffer limit checks (`kpb_frames` vs `host_frames`) |
 | Dynamic Pipeline | Compatible (`dynamic_pipeline 1`) |
 | Power States | S0 active streaming and D0i3 low-power listening supported |
@@ -133,9 +133,16 @@ flowchart TD
 ## Verification & Usage
 
 ### 1. Recording Clean Stereo Audio (Output Pin 1 / PCM 11)
-Capture the continuous 48 kHz clean stereo microphone stream:
+Capture the continuous 48 kHz clean stereo microphone stream in any supported format (host copier converts as needed):
 ```bash
-arecord -D hw:0,11 -c 2 -r 48000 -f S16_LE -d 3 /tmp/ecns_stereo_48k.wav
+# 16-bit capture
+arecord -D hw:0,11 -c 2 -r 48000 -f S16_LE -d 3 /tmp/ecns_stereo_48k_s16.wav
+
+# 24-bit capture (in 32-bit container)
+arecord -D hw:0,11 -c 2 -r 48000 -f S24_LE -d 3 /tmp/ecns_stereo_48k_s24.wav
+
+# Native 32-bit capture
+arecord -D hw:0,11 -c 2 -r 48000 -f S32_LE -d 3 /tmp/ecns_stereo_48k_s32.wav
 ```
 
 ### 2. Recording Keyword Detection & History Buffer Audio (Output Pin 0 / PCM 12)

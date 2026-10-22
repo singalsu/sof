@@ -667,7 +667,7 @@ flowchart TD
         direction TB
         MO115_1["mixout.115.1\n(Pin 1 In: 48 kHz · 2ch stereo)"]
         MO115_2["mixout.115.2\n(Pin 0 In: 16 kHz · 2ch stereo)"]
-        ECNS["ecns.115.1 (Dual-Rate DP Module · 20ms Period)\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\nPin 0 In: 16 kHz, 2ch (IBS 1280B)\nPin 1 In: 48 kHz, 2ch (IBS 3840B)\n─────────────────────────────────────────\nProcessing:\n• Pin 0: Extract Left Ch -> 16k Mono Clean\n• Pin 1: 1-to-1 Stereo Copy -> 48k Stereo Clean\n─────────────────────────────────────────\nPin 0 Out: 16 kHz, 1ch mono (OBS 640B)\nPin 1 Out: 48 kHz, 2ch stereo (OBS 3840B)"]
+        ECNS["ecns.115.1 (Dual-Rate DP Module · 20ms Period)\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\nPin 0 In: 16 kHz, 2ch (IBS 1280B)\nPin 1 In: 48 kHz, 2ch (IBS 3840B)\n─────────────────────────────────────────\nProcessing:\n• Pin 0: Extract Left Ch -> 16k Mono Clean\n• Pin 1: 1-to-1 Stereo Copy -> 48k Stereo Clean\n─────────────────────────────────────────\nPin 0 Out: 16 kHz, 1ch mono (OBS 640B)\nPin 1 Out: 48 kHz, 2ch stereo (S32_LE, OBS 7680B)"]
         MO115_2 -->|"Pin 0 In (16k 2ch)"| ECNS
         MO115_1 -->|"Pin 1 In (48k 2ch)"| ECNS
     end
@@ -677,7 +677,7 @@ flowchart TD
 
     %% Pipeline 117: Host Capture PCM 11 (Direct from ECNS Pin 1)
     subgraph P117["Pipeline 117 — ECNS Clean Host Capture (Core 0, LL 1ms)"]
-        HOST11["host-copier.11.capture\n(PCM 11: 'DMIC ECNS Capture' · hw:0,11)\n2ch · 48 kHz · S16/S32_LE\ncapture_compatible_d0i3: true"]
+        HOST11["host-copier.11.capture\n(PCM 11: 'DMIC ECNS Capture' · hw:0,11)\n2ch · 48 kHz · S16/S24/S32_LE\ncapture_compatible_d0i3: true"]
     end
 
     %% Pipeline 116: KPB History Buffer (Direct from ECNS Pin 0)
@@ -858,7 +858,7 @@ graph TD
     MIX119 --> MO115_2
 
     subgraph P117["Pipeline 117 — ECNS Clean Host Capture  (Core 0, LL 1ms)"]
-        HC11["host-copier.11.capture\n(PCM 11: 'DMIC ECNS Capture')\n2ch · 48 kHz · S16/S32_LE\ncapture_compatible_d0i3 = true"]
+        HC11["host-copier.11.capture\n(PCM 11: 'DMIC ECNS Capture')\n2ch · 48 kHz · S16/S24/S32_LE\ncapture_compatible_d0i3 = true"]
     end
     ECNS115 -- "Pin 1 (Stereo 48k Clean direct)" --> HC11
 
