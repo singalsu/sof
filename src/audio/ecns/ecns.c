@@ -802,80 +802,11 @@ static void ecns_host_s16_to_s32(struct ecns_comp_data *cd,
 }
 
 /**
- * \brief Filter 32-bit input to 16-bit host capture sink
- */
-static void ecns_host_s32_to_s16(struct ecns_comp_data *cd,
-				 struct comp_buffer *in1,
-				 uint32_t in1_ch,
-				 struct comp_buffer *snk1,
-				 uint32_t snk1_ch,
-				 uint32_t frames)
-{
-	int32_t *src_ptr = audio_stream_get_rptr(&in1->stream);
-	int16_t *snk_ptr = audio_stream_get_wptr(&snk1->stream);
-	uint32_t remaining = frames;
-
-	while (remaining > 0) {
-		uint32_t f_src = audio_stream_frames_without_wrap(&in1->stream, src_ptr);
-		uint32_t f_snk = audio_stream_frames_without_wrap(&snk1->stream, snk_ptr);
-		uint32_t n = MIN(remaining, MIN(f_src, f_snk));
-
-		for (uint32_t i = 0; i < n; i++) {
-			for (uint32_t c = 0; c < snk1_ch; c++)
-				snk_ptr[c] = (c < in1_ch) ?
-					sat_int16(Q_SHIFT_RND(ecns_host_filter(cd, c, src_ptr[c]),
-							      31, 15)) : 0;
-			snk_ptr += snk1_ch;
-			src_ptr += in1_ch;
-		}
-
-		remaining -= n;
-		src_ptr = audio_stream_wrap(&in1->stream, src_ptr);
-		snk_ptr = audio_stream_wrap(&snk1->stream, snk_ptr);
-	}
-}
-
-/**
- * \brief Filter 16-bit input to 16-bit host capture sink
- */
-static void ecns_host_s16_to_s16(struct ecns_comp_data *cd,
-				 struct comp_buffer *in1,
-				 uint32_t in1_ch,
-				 struct comp_buffer *snk1,
-				 uint32_t snk1_ch,
-				 uint32_t frames)
-{
-	int16_t *src_ptr = audio_stream_get_rptr(&in1->stream);
-	int16_t *snk_ptr = audio_stream_get_wptr(&snk1->stream);
-	uint32_t remaining = frames;
-
-	while (remaining > 0) {
-		uint32_t f_src = audio_stream_frames_without_wrap(&in1->stream, src_ptr);
-		uint32_t f_snk = audio_stream_frames_without_wrap(&snk1->stream, snk_ptr);
-		uint32_t n = MIN(remaining, MIN(f_src, f_snk));
-
-		for (uint32_t i = 0; i < n; i++) {
-			for (uint32_t c = 0; c < snk1_ch; c++)
-				snk_ptr[c] = (c < in1_ch) ?
-					sat_int16(Q_SHIFT_RND(ecns_host_filter(cd, c,
-									       ((int32_t)src_ptr[c]) << 16),
-							      31, 15)) : 0;
-			snk_ptr += snk1_ch;
-			src_ptr += in1_ch;
-		}
-
-		remaining -= n;
-		src_ptr = audio_stream_wrap(&in1->stream, src_ptr);
-		snk_ptr = audio_stream_wrap(&snk1->stream, snk_ptr);
-	}
-}
-
-/**
  * \brief Process Pin 1: 48 kHz host capture stream
  *
  * Filters the audio from the input producer (48 kHz dmic01 or fallback
  * src0) with the built-in 40 Hz HPF (+20 dB gain) per channel and writes
- * it to the host sink buffer (supporting s16 or s32).
+ * it to the 32-bit host sink buffer.
  *
  * \param[in,out] cd   ECNS component data
  * \param[in]     in1  Input buffer
@@ -918,17 +849,10 @@ static uint32_t ecns_process_host(struct ecns_comp_data *cd,
 
 	buffer_stream_invalidate(in1, in1_bytes);
 
-	if (snk_sample_bytes1 == sizeof(int32_t)) {
-		if (in1_sample_bytes == sizeof(int32_t))
-			ecns_host_s32_to_s32(cd, in1, in1_ch, snk1, snk1_ch, frames1);
-		else
-			ecns_host_s16_to_s32(cd, in1, in1_ch, snk1, snk1_ch, frames1);
-	} else {
-		if (in1_sample_bytes == sizeof(int32_t))
-			ecns_host_s32_to_s16(cd, in1, in1_ch, snk1, snk1_ch, frames1);
-		else
-			ecns_host_s16_to_s16(cd, in1, in1_ch, snk1, snk1_ch, frames1);
-	}
+	if (in1_sample_bytes == sizeof(int32_t))
+		ecns_host_s32_to_s32(cd, in1, in1_ch, snk1, snk1_ch, frames1);
+	else
+		ecns_host_s16_to_s32(cd, in1, in1_ch, snk1, snk1_ch, frames1);
 
 	buffer_stream_writeback(snk1, snk_bytes);
 	comp_update_buffer_produce(snk1, snk_bytes);
