@@ -49,7 +49,7 @@ config COMP_MWW_MODEL_FROM_CONTROL
 
 choice COMP_MWW_MODEL
 	prompt "microWakeWord built-in model"
-	default COMP_MWW_MODEL_PIPELINE_ID
+	default COMP_MWW_MODEL_HI_INTEL
 	help
 	  Select which wake-word model to build into the firmware image.
 	  By default, models are selected per pipeline ID at runtime, which
