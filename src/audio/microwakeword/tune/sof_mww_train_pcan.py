@@ -3,12 +3,14 @@
 """
 All-in-one Python reference training pipeline for microWakeWord (MWW) using PCAN.
 
-Uses TensorFlow's audio_microfrontend (Per-Channel Auto-Gain Normalization / PCAN)
-to extract 40-bin mel features directly from WAV datasets (e.g. ~/wov/wavs/{silence,unknown,<keyword>}),
-trains the streaming MixConv neural network, int8 quantizes to TFLite, and runs a streaming
-evaluation to print a full confusion matrix and detection performance report.
-
-Used to benchmark and compare PCAN frontend performance against SOF MFCC testbench features.
+Extracts 40-bin PCAN mel features from WAV datasets (e.g. ~/wov/wavs/{silence,unknown,<keyword>})
+with the SOF MFCC component run in sof-testbench4 (default, bit-exact with firmware) or with
+TensorFlow's audio_microfrontend (--frontend tf). Every clip is embedded in continuous
+background audio from the ambient classes and the mixture is peak-normalized to a random
+level in [--level-min-dbfs, --level-max-dbfs], so training windows hold real context over
+the full streaming receptive field as on the device. Trains the streaming MixConv neural
+network, int8 quantizes to TFLite, and runs a streaming evaluation to print a confusion
+matrix and detection report.
 
 Example:
     python3 sof_mww_train_pcan.py \
@@ -25,8 +27,11 @@ import datetime
 import glob
 import os
 import re
+import shutil
 import struct
+import subprocess
 import sys
+import tempfile
 import wave
 from pathlib import Path
 
@@ -49,8 +54,29 @@ except ImportError as exc:
     raise SystemExit(1) from exc
 
 HOP_BINS = 40
-WINDOW_HOPS = 100  # 1.0 second at 10 ms hop stride
+# Must cover the streaming receptive field: conv0 (5 hops, stride 3) + DW kernels
+# 5/9/13/21 + last 5 steps = (4 + 8 + 12 + 20 + 4) * 3 + 5 = 149 hops
+WINDOW_HOPS = 160  # 1.6 s at 10 ms hop stride
 SLICE_HOPS = 3     # 30 ms streaming chunk size (MWW_FEATURE_SLICE_COUNT)
+
+AMBIENT_LABELS = ("ambient", "silence", "noise", "background", "babble")
+PRE_CONTEXT_SAMPLES = 32000  # background before each clip, longer than the receptive field
+
+# SOF MFCC maps PCAN output 0..666 to int8 as ((v * 256 + 333) / 666) - 128
+PCAN_INT8_SCALE = 666.0 / 256.0
+HOP_SAMPLES = 160
+FRAME_HOPS = 3     # 30 ms analysis window = 3 hops
+SOF_HOP_BYTES = 64  # 24-byte struct mfcc_data_header + 40 x int8
+SOF_HOP_MAGIC = 0x6D666363
+
+_SOF_WORKSPACE = os.environ.get("SOF_WORKSPACE", os.path.expanduser("~/work/current/sof"))
+DEFAULT_TESTBENCH = os.path.join(
+    _SOF_WORKSPACE, "sof/tools/testbench/build_testbench/install/bin/sof-testbench4"
+)
+DEFAULT_TPLG = os.path.join(
+    _SOF_WORKSPACE,
+    "sof/tools/build_tools/topology/topology2/development/sof-hda-benchmark-mfccmel40_10ms_pcan32.tplg",
+)
 
 
 # -----------------------------------------------------------------------------
@@ -92,7 +118,117 @@ def load_wav_pcm16(path: str) -> np.ndarray:
     return pcm
 
 
-def extract_pcan_features(
+def random_level(pcm: np.ndarray, rng: np.random.Generator | None,
+                 level_db: tuple[float, float] | None) -> np.ndarray:
+    """Peak-normalize a clip to a random level drawn uniformly in dBFS."""
+    if rng is None or level_db is None:
+        return pcm
+    peak = float(np.max(np.abs(pcm.astype(np.int32)))) if pcm.size else 0.0
+    if peak < 1.0:
+        return pcm
+    target = 32767.0 * 10.0 ** (rng.uniform(level_db[0], level_db[1]) / 20.0)
+    return np.clip(np.round(pcm.astype(np.float32) * (target / peak)), -32768, 32767).astype(np.int16)
+
+
+class BackgroundPool:
+    """Continuous background audio built from the ambient/silence/noise clips."""
+
+    def __init__(self, wav_root: str):
+        self.clips: list[np.ndarray] = []
+        for label in AMBIENT_LABELS:
+            for f in sorted(glob.glob(os.path.join(wav_root, label, "*.wav"))):
+                pcm = load_wav_pcm16(f).astype(np.float32)
+                if pcm.size >= HOP_SAMPLES and np.any(pcm):
+                    self.clips.append(pcm)
+        print(f">>> Background pool: {len(self.clips)} clips, "
+              f"{sum(c.size for c in self.clips) / 16000:.0f} s")
+
+    def get(self, n: int, rng: np.random.Generator) -> np.ndarray:
+        """Return n samples of unit-RMS background."""
+        if not self.clips:
+            return rng.standard_normal(n).astype(np.float32)
+        parts = []
+        left = n
+        while left > 0:
+            c = self.clips[int(rng.integers(0, len(self.clips)))]
+            st = int(rng.integers(0, c.size))
+            seg = c[st : st + left]
+            seg = seg / max(np.sqrt(np.mean(seg ** 2)), 1e-3)
+            parts.append(seg)
+            left -= seg.size
+        return np.concatenate(parts)[:n]
+
+
+def embed_in_background(
+    fg: np.ndarray,
+    pool: BackgroundPool,
+    rng: np.random.Generator,
+    level_db: tuple[float, float] | None,
+    snr_db: tuple[float, float] = (5.0, 35.0),
+    post_s: tuple[float, float] = (0.1, 0.8),
+) -> tuple[np.ndarray, int]:
+    """Place a clip into continuous background like a live capture stream.
+
+    The clip starts after PRE_CONTEXT_SAMPLES plus a random 0..29 ms phase
+    offset. Returns the int16 stream and the first hop of the clip.
+    """
+    pre = PRE_CONTEXT_SAMPLES + int(rng.integers(0, HOP_SAMPLES * SLICE_HOPS))
+    post = int(rng.uniform(*post_s) * 16000)
+    fg = fg.astype(np.float32)
+    fg_rms = max(float(np.sqrt(np.mean(fg ** 2))), 1.0)
+    x = pool.get(pre + fg.size + post, rng) * fg_rms * 10.0 ** (-rng.uniform(*snr_db) / 20.0)
+    x[pre : pre + fg.size] += fg
+    x = np.clip(np.round(x), -32768, 32767).astype(np.int16)
+    return random_level(x, rng, level_db), pre // HOP_SAMPLES
+
+
+class SofTestbenchFrontend:
+    """PCAN features computed by the SOF MFCC component in sof-testbench4.
+
+    The clip is repeated back to back for at least WARMUP_SAMPLES and only the
+    last copy's hops are kept, so the PCAN noise estimate is warmed up as in a
+    continuous capture stream.
+    """
+
+    WARMUP_SAMPLES = 32000  # cold-start PCAN state settles in about 1.5 s
+
+    def __init__(self, testbench: str, tplg: str):
+        for p in (testbench, tplg):
+            if not os.path.isfile(p):
+                raise FileNotFoundError(p)
+        self.testbench = testbench
+        self.tplg = tplg
+        self.tmpdir = tempfile.mkdtemp(prefix="sof_mww_fe_")
+        self.in_path = os.path.join(self.tmpdir, "in.raw")
+        self.out_path = os.path.join(self.tmpdir, "out.raw")
+
+    def close(self) -> None:
+        shutil.rmtree(self.tmpdir, ignore_errors=True)
+
+    def __call__(self, pcm_int16: np.ndarray) -> np.ndarray:
+        n = len(pcm_int16) - len(pcm_int16) % HOP_SAMPLES
+        n_hops = n // HOP_SAMPLES - (FRAME_HOPS - 1)
+        if n_hops <= 0:
+            return np.zeros((0, HOP_BINS), dtype=np.float32)
+
+        reps = 1 + -(-self.WARMUP_SAMPLES // n)
+        mono = np.tile(pcm_int16[:n], reps).astype(np.int32) << 16
+        np.repeat(mono, 2).astype("<i4").tofile(self.in_path)
+        cmd = [self.testbench, "-d", "0", "-r", "16000", "-c", "2", "-b", "S32_LE",
+               "-p", "3,4", "-t", self.tplg, "-i", self.in_path, "-o", self.out_path]
+        res = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
+        if res.returncode != 0:
+            raise RuntimeError(f"sof-testbench4 failed:\n{res.stdout.decode(errors='replace')}")
+
+        data = np.fromfile(self.out_path, dtype=np.uint8)
+        data = data[: data.size - data.size % SOF_HOP_BYTES].reshape(-1, SOF_HOP_BYTES)
+        if data.shape[0] < n_hops or np.any(data[:, :4].copy().view("<u4") != SOF_HOP_MAGIC):
+            raise RuntimeError(f"unexpected sof-testbench4 output: {data.shape[0]} hops, need {n_hops}")
+        q = data[-n_hops:, 24:].view(np.int8).astype(np.float32)
+        return (q + 128.0) * PCAN_INT8_SCALE
+
+
+def extract_pcan_features_tf(
     pcm_int16: np.ndarray,
     sample_rate: int = 16000,
     window_size_ms: int = 30,
@@ -127,6 +263,10 @@ def extract_pcan_features(
         out_type=tf.float32,
     )
     return feats.numpy()
+
+
+# Selected in main() with --frontend
+extract_pcan_features = extract_pcan_features_tf
 
 
 # -----------------------------------------------------------------------------
@@ -240,17 +380,24 @@ def load_pcan_dataset(
     wav_root: str,
     labels: list[str],
     window_hops: int = WINDOW_HOPS,
-    gain_aug_db_min: float = -12.0,
-    gain_aug_db_max: float = 4.0,
+    level_db: tuple[float, float] | None = (-45.0, -6.0),
+    pos_level_copies: int = 2,
     seed: int = 0,
+    pool: BackgroundPool | None = None,
 ) -> tuple[np.ndarray, np.ndarray, dict[str, list[str]]]:
     """Extract PCAN features for all WAVs and generate balanced training windows.
 
-    Applies streaming wake-word alignment and hard negative mining:
-      - Keyword positives: Aligned at keyword completion (end of speech near window end)
-      - Hard negatives from keywords: Pre-speech leading silence and post-speech trailing silence
-      - Negatives: Sliced across silence and non-target speech
-      - Quiescent baseline: Pure silence baseline windows (y=0)
+    Every clip is embedded in continuous background audio (see
+    embed_in_background) and the features of the whole stream are computed,
+    so each window_hops window holds real context over the full streaming
+    receptive field, as in the firmware. The mixture is peak-normalized to a
+    random level in level_db; keyword clips are used pos_level_copies times.
+
+    Windows (label):
+      - keyword: ending at speech end, one per 3-hop stride phase (1);
+        partial keyword, onset and trailing context (0)
+      - unknown speech: onsets and ending at word end (0)
+      - ambient: sliding windows (0)
 
     Returns:
       X: (N, window_hops, 40, 1) float32 tensor
@@ -258,9 +405,16 @@ def load_pcan_dataset(
       file_map: Dict mapping label -> list of WAV paths
     """
     rng = np.random.default_rng(seed)
+    if pool is None:
+        pool = BackgroundPool(wav_root)
     all_X: list[np.ndarray] = []
     all_y: list[int] = []
     file_map: dict[str, list[str]] = {}
+
+    def add(mel: np.ndarray, end: int, label: int) -> None:
+        if window_hops <= end <= mel.shape[0]:
+            all_X.append(mel[end - window_hops : end].copy())
+            all_y.append(label)
 
     for label in labels:
         label_dir = os.path.join(wav_root, label)
@@ -271,117 +425,40 @@ def load_pcan_dataset(
             print(f"Warning: no .wav files found in {label_dir}", file=sys.stderr)
             continue
 
-        is_keyword = (label not in ("ambient", "silence", "unknown", "noise", "background", "babble"))
-        is_ambient = (label in ("ambient", "silence", "noise", "background", "babble"))
+        is_keyword = label not in AMBIENT_LABELS + ("unknown",)
+        is_ambient = label in AMBIENT_LABELS
+        n_copies = max(1, pos_level_copies) if is_keyword else 1
+        print(f">>> Extracting features for {label}: {len(wav_files)} WAVs x {n_copies} level(s)")
 
-        for f in wav_files:
-            pcm = load_wav_pcm16(f)
-            mel = extract_pcan_features(pcm)
-            if mel.shape[0] < 5:
+        for f in wav_files * n_copies:
+            fg = load_wav_pcm16(f)
+            if fg.size < HOP_SAMPLES * 5:
                 continue
-
-            T = mel.shape[0]
+            x, fg_start = embed_in_background(fg, pool, rng, level_db)
+            mel = extract_pcan_features(x)
+            fg_end = min(mel.shape[0], fg_start + fg.size // HOP_SAMPLES)
 
             if is_keyword:
-                speech_start, speech_end = find_speech_bounds(mel)
-                if T <= window_hops:
-                    pad_len = window_hops - T
-                    # Positive windows: speech ends near the right of the window (wake word completed)
-                    offsets = [pad_len, max(0, pad_len - 3), max(0, pad_len - 6)]
-                    for off in offsets:
-                        win = np.zeros((window_hops, HOP_BINS), dtype=np.float32)
-                        win[off : off + T] = mel
-                        all_X.append(win)
-                        all_y.append(1)
-
-                    # Hard negative 1: utterance placed at far left (trailing silence in window)
-                    win_neg = np.zeros((window_hops, HOP_BINS), dtype=np.float32)
-                    win_neg[0 : T] = mel
-                    all_X.append(win_neg)
-                    all_y.append(0)
-
-                    # Hard negative 2: initial syllable / onset only (first 1/3 of keyword at end of silence)
-                    mid_pt = max(5, (speech_end - speech_start) // 2)
-                    win_part = np.zeros((window_hops, HOP_BINS), dtype=np.float32)
-                    win_part[window_hops - mid_pt :] = mel[speech_start : speech_start + mid_pt]
-                    all_X.append(win_part)
-                    all_y.append(0)
-                else:
-                    # Positive windows: window ending right around speech_end (wake word completed!)
-                    for jitter in [0, -3, 3]:
-                        end_idx = min(T, max(window_hops, speech_end + jitter))
-                        start_idx = end_idx - window_hops
-                        if start_idx >= 0:
-                            all_X.append(mel[start_idx : end_idx].copy())
-                            all_y.append(1)
-                        else:
-                            win = np.zeros((window_hops, HOP_BINS), dtype=np.float32)
-                            win[window_hops - end_idx :] = mel[:end_idx]
-                            all_X.append(win)
-                            all_y.append(1)
-
-                    # Hard negative 1: Initial syllable / onset at window end (e.g. only "Hi")
-                    mid_pt = max(8, (speech_end - speech_start) // 2)
-                    onset_end = min(T, speech_start + mid_pt)
-                    win_onset = np.zeros((window_hops, HOP_BINS), dtype=np.float32)
-                    dur = min(window_hops, onset_end)
-                    win_onset[window_hops - dur :] = mel[onset_end - dur : onset_end]
-                    all_X.append(win_onset)
-                    all_y.append(0)
-
-                    # Hard negative 2: First 10 hops (100ms) onset of keyword at end of silence
-                    win_first10 = np.zeros((window_hops, HOP_BINS), dtype=np.float32)
-                    k_len = min(10, T - speech_start)
-                    win_first10[window_hops - k_len :] = mel[speech_start : speech_start + k_len]
-                    all_X.append(win_first10)
-                    all_y.append(0)
-
-                    # Hard negative 3: Pre-speech window (leading silence)
-                    if speech_start >= 10:
-                        end_lead = min(T, speech_start + 5)
-                        win_lead = np.zeros((window_hops, HOP_BINS), dtype=np.float32)
-                        dur_lead = min(window_hops, end_lead)
-                        win_lead[window_hops - dur_lead :] = mel[end_lead - dur_lead : end_lead]
-                        all_X.append(win_lead)
-                        all_y.append(0)
-
-                    # Hard negative 4: Post-speech window (trailing silence)
-                    if T - speech_end > 20 and T >= window_hops:
-                        all_X.append(mel[T - window_hops : T].copy())
-                        all_y.append(0)
+                s0, s1 = find_speech_bounds(mel[fg_start:fg_end])
+                speech_start, speech_end = fg_start + s0, fg_start + s1
+                # One window per phase of the 3-hop inference stride
+                for k in range(SLICE_HOPS):
+                    add(mel, speech_end + k - 1 + 3 * int(rng.integers(-1, 2)), 1)
+                mid_pt = max(5, (speech_end - speech_start) // 2)
+                add(mel, speech_start + mid_pt, 0)   # first half of the keyword
+                add(mel, speech_start + 10, 0)       # first 100 ms
+                add(mel, speech_start - 5, 0)        # leading background
+                add(mel, speech_end + 40, 0)         # 400 ms after the keyword
 
             elif is_ambient:
-                if T >= window_hops:
-                    for s in range(0, T - window_hops + 1, 10):
-                        all_X.append(mel[s : s + window_hops].copy())
-                        all_y.append(0)
-                else:
-                    win = np.zeros((window_hops, HOP_BINS), dtype=np.float32)
-                    win[window_hops - T :] = mel
-                    all_X.append(win)
-                    all_y.append(0)
+                for end in range(fg_start + 20, mel.shape[0] + 1, 20):
+                    add(mel, end, 0)
 
             else:
-                # Unknown / non-target speech
-                if T >= window_hops:
-                    for s in range(0, T - window_hops + 1, 10):
-                        all_X.append(mel[s : s + window_hops].copy())
-                        all_y.append(0)
-                else:
-                    win = np.zeros((window_hops, HOP_BINS), dtype=np.float32)
-                    win[window_hops - T :] = mel
-                    all_X.append(win)
-                    all_y.append(0)
-
-                # Hard negative speech onsets: First 5, 10, or 20 hops at window end
-                # (teaches the model that speech starting after silence is not a wake word)
-                if T >= 10:
-                    for k_on in [5, 10, 20]:
-                        if k_on <= T:
-                            win_on = np.zeros((window_hops, HOP_BINS), dtype=np.float32)
-                            win_on[window_hops - k_on :] = mel[:k_on]
-                            all_X.append(win_on)
-                            all_y.append(0)
+                s0, s1 = find_speech_bounds(mel[fg_start:fg_end])
+                for k_on in (5, 10, 20):
+                    add(mel, fg_start + s0 + k_on, 0)
+                add(mel, fg_start + s1 + int(rng.integers(-1, 2)), 0)
 
     # Add synthetic acoustic transients (clicks, taps, pops, keyboard typing) as hard negatives (y=0)
     print(">>> Generating 4,000 synthetic acoustic transients and typing cadences (clicks, taps, typing)...")
@@ -405,33 +482,10 @@ def load_pcan_dataset(
                     pause = np.zeros(rng.integers(800, 2400), dtype=np.int16)
                     pcm_parts.append(pause)
             if pcm_parts:
-                cat_pcm = np.concatenate(pcm_parts)
-                # Mix in background cafeteria babble or ambient noise into 50% of unknown speech sentences
-                amb_files = file_map.get("ambient", [])
-                if amb_files and rng.random() > 0.5:
-                    amb_p = rng.choice(amb_files)
-                    amb_pcm = load_wav_pcm16(amb_p)
-                    if len(amb_pcm) >= len(cat_pcm):
-                        st = rng.integers(0, len(amb_pcm) - len(cat_pcm) + 1)
-                        noise_sub = amb_pcm[st : st + len(cat_pcm)].astype(np.float32)
-                    elif len(amb_pcm) > 0:
-                        reps = (len(cat_pcm) // len(amb_pcm)) + 1
-                        noise_sub = np.tile(amb_pcm, reps)[:len(cat_pcm)].astype(np.float32)
-                    else:
-                        noise_sub = None
-                    if noise_sub is not None:
-                        s_rms = np.sqrt(np.mean(cat_pcm.astype(np.float32)**2))
-                        n_rms = np.sqrt(np.mean(noise_sub**2))
-                        if s_rms > 10 and n_rms > 10:
-                            snr = rng.uniform(8.0, 22.0)
-                            scale = (s_rms * (10.0 ** (-snr / 20.0))) / n_rms
-                            cat_pcm = np.clip(cat_pcm.astype(np.float32) + scale * noise_sub, -32768, 32767).astype(np.int16)
-
-                cat_mel = extract_pcan_features(cat_pcm)
-                if cat_mel.shape[0] >= window_hops:
-                    for s in range(0, cat_mel.shape[0] - window_hops + 1, 15):
-                        all_X.append(cat_mel[s : s + window_hops].copy())
-                        all_y.append(0)
+                x, fg_start = embed_in_background(np.concatenate(pcm_parts), pool, rng, level_db)
+                cat_mel = extract_pcan_features(x)
+                for end in range(fg_start + 10, cat_mel.shape[0] + 1, 15):
+                    add(cat_mel, end, 0)
 
     # Add pure baseline silence windows to teach network that quiescent background is y=0
     for _ in range(1000):
@@ -441,14 +495,7 @@ def load_pcan_dataset(
     if not all_X:
         return np.zeros((0, window_hops, HOP_BINS, 1), dtype=np.float32), np.zeros((0,), dtype=np.int32), file_map
 
-    # Apply gain augmentation across all windows
-    X_arr = np.stack(all_X, axis=0)
-    if gain_aug_db_min is not None and gain_aug_db_max is not None:
-        gains_db = rng.uniform(gain_aug_db_min, gain_aug_db_max, size=(X_arr.shape[0], 1, 1))
-        gains_lin = gains_db * 0.1
-        X_arr = np.clip(X_arr + gains_lin, 0.0, 666.0)
-
-    X = X_arr[..., np.newaxis]
+    X = np.stack(all_X, axis=0)[..., np.newaxis]
     y = np.array(all_y, dtype=np.int32)
     return X, y, file_map
 
@@ -712,6 +759,11 @@ def convert_to_tflite_int8(
 
     def representative_dataset():
         rng = np.random.default_rng(0)
+        # Pin input range to [0, 255 * scale] so input quantization equals the
+        # firmware int8 PCAN mapping: scale 666/256, zero point -128.
+        pin = np.zeros((1, SLICE_HOPS, HOP_BINS), dtype=np.float32)
+        pin[0, 0, 0] = 255.0 * PCAN_INT8_SCALE
+        yield [pin]
         samples_yielded = 0
         while samples_yielded < n_rep:
             idx = rng.integers(0, rep_X.shape[0])
@@ -846,10 +898,21 @@ def evaluate_streaming_confusion_matrix(
     file_map: dict[str, list[str]],
     keywords: list[str],
     threshold: float = 0.5,
-    consecutive_steps: int = 2,
+    avg_len: int = 4,
     slice_hops: int = 3,
+    level_db: tuple[float, float] | None = None,
+    seed: int = 1,
+    pool: BackgroundPool | None = None,
 ) -> dict:
-    """Run streaming inference on all WAV files using PCAN features and compute confusion matrix."""
+    """Run streaming inference on all WAV files and compute the confusion matrix.
+
+    Each clip is streamed after continuous background (embed_in_background),
+    and detections count from the clip start. A detection fires when the mean
+    of the last avg_len probabilities reaches threshold, as in the firmware.
+    """
+    rng = np.random.default_rng(seed)
+    if pool is None:
+        pool = BackgroundPool("")
     interp = tf.lite.Interpreter(model_path=tflite_path)
     interp.allocate_tensors()
 
@@ -871,7 +934,7 @@ def evaluate_streaming_confusion_matrix(
         peak_probs = []
 
         for f in files:
-            pcm = load_wav_pcm16(f)
+            pcm, fg_start = embed_in_background(load_wav_pcm16(f), pool, rng, level_db)
             mel = extract_pcan_features(pcm)
             if mel.shape[0] < slice_hops:
                 continue
@@ -881,7 +944,7 @@ def evaluate_streaming_confusion_matrix(
 
             max_prob = 0.0
             n_hops = mel.shape[0]
-            consec = 0
+            hist = np.zeros(avg_len)
             fired = False
 
             for s in range(0, n_hops - slice_hops + 1, slice_hops):
@@ -898,15 +961,15 @@ def evaluate_streaming_confusion_matrix(
                 else:
                     prob = float(y.flatten()[0])
 
+                hist = np.roll(hist, 1)
+                hist[0] = prob
+                if s < fg_start:
+                    continue
+
                 if prob > max_prob:
                     max_prob = prob
-
-                if prob >= threshold:
-                    consec += 1
-                    if consec >= consecutive_steps:
-                        fired = True
-                else:
-                    consec = 0
+                if hist.mean() >= threshold:
+                    fired = True
 
             peak_probs.append(max_prob)
             if fired:
@@ -953,10 +1016,10 @@ def evaluate_streaming_confusion_matrix(
     return cm
 
 
-def print_confusion_matrix_report(cm: dict, threshold: float, consecutive_steps: int = 2) -> None:
+def print_confusion_matrix_report(cm: dict, threshold: float, avg_len: int = 4) -> None:
     """Print formatted evaluation report with confusion matrix."""
     print("\n" + "=" * 70)
-    print(f"microWakeWord PCAN Streaming Evaluation Report (Threshold: {threshold:.2f}, Consec: {consecutive_steps})")
+    print(f"microWakeWord PCAN Streaming Evaluation Report (avg of {avg_len} >= {threshold:.2f})")
     print("=" * 70)
     print(f"  {'Class':<18} {'Role':<10} {'Files':>7} {'Detected':>10} {'Rate':>8} {'Mean Peak':>10}")
     print("  " + "-" * 66)
@@ -998,11 +1061,47 @@ def main() -> int:
     parser.add_argument("--lr", type=float, default=1e-3, help="Learning rate (default 1e-3)")
     parser.add_argument("--val-frac", type=float, default=0.2, help="Validation fraction (default 0.2)")
     parser.add_argument("--class-weight-neg", type=float, default=2.0, help="Loss multiplier for negative samples (default 2.0)")
-    parser.add_argument("--threshold", type=float, default=0.85, help="Streaming detection threshold (default 0.85)")
-    parser.add_argument("--consecutive-steps", type=int, default=3, help="Consecutive positive inferences required (default 3)")
+    parser.add_argument("--threshold", type=float, default=0.5,
+                        help="Detection threshold for the averaged probability (default 0.5)")
+    parser.add_argument("--avg-len", type=int, default=4,
+                        help="Number of inferences averaged for detection (default 4)")
     parser.add_argument("--seed", type=int, default=0, help="Random seed (default 0)")
+    parser.add_argument("--frontend", choices=("sof", "tf"), default="sof",
+                        help="PCAN feature frontend: sof = SOF MFCC in sof-testbench4 (default), "
+                             "tf = TensorFlow audio_microfrontend")
+    parser.add_argument("--testbench", default=DEFAULT_TESTBENCH, help="sof-testbench4 binary")
+    parser.add_argument("--tplg", default=DEFAULT_TPLG, help="Testbench MFCC PCAN topology")
+    parser.add_argument("--level-min-dbfs", type=float, default=-45.0,
+                        help="Min random clip peak level in dBFS (default -45)")
+    parser.add_argument("--level-max-dbfs", type=float, default=-6.0,
+                        help="Max random clip peak level in dBFS (default -6)")
+    parser.add_argument("--pos-level-copies", type=int, default=2,
+                        help="Number of random-level copies per keyword clip (default 2)")
 
     args = parser.parse_args()
+
+    global extract_pcan_features
+    sof_frontend = None
+    if args.frontend == "sof":
+        try:
+            sof_frontend = SofTestbenchFrontend(args.testbench, args.tplg)
+        except FileNotFoundError as exc:
+            print(f"Error: missing {exc}. Build the testbench (scripts/rebuild-testbench.sh) and the "
+                  "sof-hda-benchmark-mfccmel40_10ms_pcan32 topology, or use --frontend tf.",
+                  file=sys.stderr)
+            return 1
+        extract_pcan_features = sof_frontend
+    print(f">>> PCAN frontend: {args.frontend}")
+    level_db = (args.level_min_dbfs, args.level_max_dbfs)
+
+    try:
+        return run(args, level_db)
+    finally:
+        if sof_frontend is not None:
+            sof_frontend.close()
+
+
+def run(args: argparse.Namespace, level_db: tuple[float, float]) -> int:
     labels = []
     # Discover available standard negative categories present in wav_root
     for neg_dir in ("ambient", "silence", "unknown", "babble", "noise"):
@@ -1013,7 +1112,10 @@ def main() -> int:
     labels += args.keyword
 
     print(f">>> [PCAN Pipeline] Loading WAVs from {args.wav_root} for classes: {labels}")
-    X, y, file_map = load_pcan_dataset(args.wav_root, labels=labels, seed=args.seed)
+    pool = BackgroundPool(args.wav_root)
+    X, y, file_map = load_pcan_dataset(args.wav_root, labels=labels, level_db=level_db,
+                                       pos_level_copies=args.pos_level_copies, seed=args.seed,
+                                       pool=pool)
 
     if X.shape[0] == 0:
         print(f"Error: No audio samples found under {args.wav_root}.", file=sys.stderr)
@@ -1080,10 +1182,12 @@ def main() -> int:
         file_map=file_map,
         keywords=args.keyword,
         threshold=args.threshold,
-        consecutive_steps=args.consecutive_steps,
+        avg_len=args.avg_len,
         slice_hops=SLICE_HOPS,
+        level_db=level_db,
+        pool=pool,
     )
-    print_confusion_matrix_report(cm, threshold=args.threshold, consecutive_steps=args.consecutive_steps)
+    print_confusion_matrix_report(cm, threshold=args.threshold, avg_len=args.avg_len)
 
     babble_wav = os.path.expanduser("~/.cache/demand_cafeteria/PCAFETER/ch01.wav")
     if os.path.exists(babble_wav):
@@ -1105,7 +1209,7 @@ def main() -> int:
             interp.invoke()
 
         b_max_prob = 0.0
-        b_consec = 0
+        b_hist = np.zeros(args.avg_len)
         b_fired = False
         for s in range(0, mel_b.shape[0] - SLICE_HOPS + 1, SLICE_HOPS):
             chk = mel_b[s : s + SLICE_HOPS][np.newaxis, ...]
@@ -1120,12 +1224,10 @@ def main() -> int:
                 p_val = float(y_raw.flatten()[0])
             if p_val > b_max_prob:
                 b_max_prob = p_val
-            if p_val >= args.threshold:
-                b_consec += 1
-                if b_consec >= args.consecutive_steps:
-                    b_fired = True
-            else:
-                b_consec = 0
+            b_hist = np.roll(b_hist, 1)
+            b_hist[0] = p_val
+            if b_hist.mean() >= args.threshold:
+                b_fired = True
         print(f">>> Result on continuous cafeteria babble: Peak Prob = {b_max_prob * 100.0:.1f}%, Triggered = {'YES (FAIL)' if b_fired else 'NO (PASS)'}")
 
     return 0
