@@ -16,6 +16,7 @@ This directory contains offline scripts to train, quantize, verify, and export s
    - [sof_mfcc_extract_features.sh](sof_mfcc_extract_features.sh): Emits 184-byte hop records ($24\text{-byte } \texttt{struct mfcc\_data\_header} + 40 \times \text{int32\_t}$ Q9.23 mel values) by running the SOF host testbench with 10 ms mel-40 topology.
 
 3. **Model Training & Export:**
+   - [sof_mww_train_pcan.py](sof_mww_train_pcan.py): All-in-one PCAN (int8 feature) trainer working directly from WAVs. Features come from the SOF MFCC component run in `sof-testbench4` with `sof-hda-benchmark-mfccmel40_10ms_pcan32.tplg` (`--frontend sof`, default) or from TensorFlow `audio_microfrontend` (`--frontend tf`). Each clip is embedded in 2 s of continuous background from the ambient classes at 5..35 dB SNR with a random 0..29 ms phase, and the mixture is peak-normalized to a random level in `--level-min-dbfs`..`--level-max-dbfs` (default -45..-6 dBFS). Training windows are 160 hops so they cover the streaming model's 149-hop receptive field, and the evaluation streams each clip after background as on the device. The model input quantization is pinned to the firmware int8 PCAN scale (666/256, zero point -128).
    - [sof_mww_dataset.py](sof_mww_dataset.py): Parses testbench `.raw` feature files, applies soft mel-log AGC ($0\text{ dB}$ target, $0.5\text{ dB/s}$ release recovery), and builds training slices.
    - [sof_mww_train.py](sof_mww_train.py): Trains a streaming Keras model, quantizes to `int8` with TFLite Micro resource variables, packages behind SOF IPC4 ABI headers, and emits:
          - `mww_model_data_<name>.h`: Built-in model header selected by Kconfig.
@@ -147,6 +148,73 @@ source ~/venvs/mww-train/bin/activate
 ```
 
 Both phrase directories are pooled as the positive target class ($y = 1$). The streaming verification report provides individual detection recall for each phrase, and the exported `mww_model_data_<name>.h` model triggers when either phrase is spoken.
+
+---
+
+### Training 8-bit PCAN Models with SOF Testbench Features
+
+The firmware MWW models (`banana`, `hi_intel`, `orange`, `strawberry`) take int8 PCAN features from the `mel40_10ms_pcan_compress` MFCC profile. Train them with `sof_mww_train_pcan.py`, which computes the features with the SOF MFCC component in `sof-testbench4` so they are bit-exact with the firmware.
+
+#### 1. Build the Testbench and the PCAN Benchmark Topology
+```bash
+cd $SOF_WORKSPACE/sof
+scripts/build-tools.sh
+scripts/rebuild-testbench.sh
+```
+This provides:
+- `tools/testbench/build_testbench/install/bin/sof-testbench4`
+- `tools/build_tools/topology/topology2/development/sof-hda-benchmark-mfccmel40_10ms_pcan32.tplg`
+
+#### 2. Prepare the Dataset
+The trainer expects one WAV directory per class under the dataset root: the positive class named by `--keyword`, `unknown/` for non-target speech, and `ambient/` for silence, noise and babble. The ambient clips are also used as continuous background for every training clip.
+
+```bash
+cd src/audio/microwakeword/tune
+
+# Positives from synthetic multi-speaker TTS (piper venv active) ...
+MAX_SAMPLES=1000 ./sof_mww_generate_keyword_dataset.sh \
+    --keyword banana --label banana ~/train/mww_banana/wavs
+
+# ... or from recorded speech, one --src-dir per recording set
+MAX_SAMPLES=3500 ./sof_mww_generate_keyword_dataset_from_dir.sh \
+    --src-dir ~/rec/set1 --label hi_intel \
+    --src-dir ~/rec/set2 --label hi_intel \
+    ~/train/mww_hi_intel/wavs
+
+# Negatives from Speech Commands v2, silence slices moved to ambient/
+N_UNKNOWN=5000 N_SILENCE=1500 ./sof_mww_prepare_silence_unknown.sh ~/train/mww_banana/wavs
+mkdir -p ~/train/mww_banana/wavs/ambient
+mv ~/train/mww_banana/wavs/silence/*.wav ~/train/mww_banana/wavs/ambient/
+rmdir ~/train/mww_banana/wavs/silence
+```
+
+Optional additions that improved the models:
+- Multi-speaker cafeteria babble from the DEMAND `PCAFETER_16k` set (CC-BY-4.0) sliced into 5 s clips in `ambient/`. This reduced random false positives.
+- For synthetic keywords, a few hundred clips per single-speaker Piper voice with `sof_mww_generate_keyword_dataset_piper_tts.sh --voice <model.onnx>`. Keep them around 20-30 % of the positives so the model does not learn the voices instead of the word.
+- Competing wake phrases (`hey siri`, `ok google`, `alexa`, ...) synthesized with `sof_mww_generate_keyword_dataset_piper_tts.sh` into `unknown/` as hard negatives.
+
+#### 3. Train
+```bash
+source ~/venvs/mww-train/bin/activate
+python3 sof_mww_train_pcan.py \
+    --wav-root ~/train/mww_banana/wavs \
+    --keyword banana --name banana \
+    --out-dir ~/train/mww_banana/model_pcan \
+    --frontend sof \
+    --level-min-dbfs -45 --level-max-dbfs -6 \
+    --pos-level-copies 2 \
+    --class-weight-neg 2.0 \
+    --threshold 0.5 --avg-len 4 \
+    --epochs 30
+```
+`--testbench` and `--tplg` default to the paths above under `$SOF_WORKSPACE`. Keep `--threshold` and `--avg-len` equal to `MWW_DETECT_THRESHOLD` and `MWW_DETECT_AVG_LEN` in `mww.c`. The firmware triggers when the mean of the last `MWW_DETECT_AVG_LEN` probabilities reaches the threshold, and the streaming evaluation report uses the same rule.
+
+#### 4. Deploy
+```bash
+cp ~/train/mww_banana/model_pcan/mww_model_data_banana.h $SOF_WORKSPACE/sof/src/audio/microwakeword/
+cp ~/train/mww_banana/model_pcan/banana.txt $SOF_WORKSPACE/sof/tools/ctl/ipc4/mww/
+```
+The header is the built-in model selected by Kconfig. The `.txt` blob can be loaded at runtime with `sof-ctl`.
 
 ---
 
