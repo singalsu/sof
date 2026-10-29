@@ -376,6 +376,36 @@ def generate_synthetic_transients(
     return transients
 
 
+def generate_digital_silence_streams(
+    n_streams: int,
+    pool: BackgroundPool,
+    rng: np.random.Generator,
+    level_db: tuple[float, float] | None,
+) -> list[np.ndarray]:
+    """Generate int16 streams with digital silence (all-zero PCM codes).
+
+    Equal shares of: zeros only, background then zeros (muted capture), and
+    zeros then background (stream start or unmute).
+    """
+    def zeros() -> np.ndarray:
+        return np.zeros(int(rng.uniform(2.0, 4.0) * 16000), dtype=np.int16)
+
+    def background() -> np.ndarray:
+        x = pool.get(int(rng.uniform(1.0, 3.0) * 16000), rng) * 1000.0
+        return random_level(np.clip(np.round(x), -32768, 32767).astype(np.int16), rng, level_db)
+
+    streams = []
+    for i in range(n_streams):
+        kind = i % 3
+        if kind == 0:
+            streams.append(zeros())
+        elif kind == 1:
+            streams.append(np.concatenate((background(), zeros())))
+        else:
+            streams.append(np.concatenate((zeros(), background())))
+    return streams
+
+
 def load_pcan_dataset(
     wav_root: str,
     labels: list[str],
@@ -384,7 +414,8 @@ def load_pcan_dataset(
     pos_level_copies: int = 2,
     seed: int = 0,
     pool: BackgroundPool | None = None,
-) -> tuple[np.ndarray, np.ndarray, dict[str, list[str]]]:
+    n_digital_silence: int = 300,
+) -> tuple[np.ndarray, np.ndarray, dict[str, list[str]], list[np.ndarray]]:
     """Extract PCAN features for all WAVs and generate balanced training windows.
 
     Every clip is embedded in continuous background audio (see
@@ -398,11 +429,14 @@ def load_pcan_dataset(
         partial keyword, onset and trailing context (0)
       - unknown speech: onsets and ending at word end (0)
       - ambient: sliding windows (0)
+      - digital silence (zero PCM) streams: sliding windows (0), and
+        cold-start windows from stream start of 15..window_hops hops (0)
 
     Returns:
       X: (N, window_hops, 40, 1) float32 tensor
       y: (N,) binary labels (0 for negative, 1 for positive keyword)
       file_map: Dict mapping label -> list of WAV paths
+      cold: Negative cold-start windows, (L, 40) arrays with L a multiple of 3
     """
     rng = np.random.default_rng(seed)
     if pool is None:
@@ -410,6 +444,7 @@ def load_pcan_dataset(
     all_X: list[np.ndarray] = []
     all_y: list[int] = []
     file_map: dict[str, list[str]] = {}
+    cold: list[np.ndarray] = []
 
     def add(mel: np.ndarray, end: int, label: int) -> None:
         if window_hops <= end <= mel.shape[0]:
@@ -487,17 +522,29 @@ def load_pcan_dataset(
                 for end in range(fg_start + 10, cat_mel.shape[0] + 1, 15):
                     add(cat_mel, end, 0)
 
+    if n_digital_silence > 0:
+        print(f">>> Adding {n_digital_silence} digital silence (zero PCM) streams as hard negatives...")
+        for x in generate_digital_silence_streams(n_digital_silence, pool, rng, level_db):
+            ds_mel = extract_pcan_features(x)
+            for end in range(window_hops, ds_mel.shape[0] + 1, 10):
+                add(ds_mel, end, 0)
+            # Last layer needs 5 steps, i.e. at least 5 inferences of SLICE_HOPS
+            n_inf = min(window_hops, ds_mel.shape[0]) // SLICE_HOPS
+            for k in rng.choice(np.arange(5, n_inf + 1), size=max(0, min(8, n_inf - 4)), replace=False):
+                cold.append(ds_mel[: k * SLICE_HOPS].copy())
+
     # Add pure baseline silence windows to teach network that quiescent background is y=0
     for _ in range(1000):
         all_X.append(np.zeros((window_hops, HOP_BINS), dtype=np.float32))
         all_y.append(0)
 
     if not all_X:
-        return np.zeros((0, window_hops, HOP_BINS, 1), dtype=np.float32), np.zeros((0,), dtype=np.int32), file_map
+        return (np.zeros((0, window_hops, HOP_BINS, 1), dtype=np.float32), np.zeros((0,), dtype=np.int32),
+                file_map, cold)
 
     X = np.stack(all_X, axis=0)[..., np.newaxis]
     y = np.array(all_y, dtype=np.int32)
-    return X, y, file_map
+    return X, y, file_map, cold
 
 
 def split_train_val(
@@ -518,14 +565,61 @@ def split_train_val(
     return X[train_mask], y[train_mask], X[~train_mask], y[~train_mask]
 
 
+def make_train_dataset(
+    X: np.ndarray,
+    y: np.ndarray,
+    cold: list[np.ndarray],
+    batch_size: int,
+    class_weights: dict[int, float],
+    seed: int = 0,
+) -> tuple[tf.data.Dataset, int]:
+    """Shuffled (x, y, weight) batches of the fixed windows and the negative
+    cold-start windows. Each batch holds windows of one length.
+    """
+    rng = np.random.default_rng(seed)
+    w = np.where(y == 1, class_weights[1], class_weights[0]).astype(np.float32)
+    by_len: dict[int, list[np.ndarray]] = {}
+    for c in cold:
+        by_len.setdefault(c.shape[0], []).append(c)
+    cold_groups = [np.stack(g)[..., np.newaxis] for g in by_len.values()]
+
+    batches = [("fixed", i) for i in range(0, X.shape[0], batch_size)]
+    batches += [("cold", g, i) for g, grp in enumerate(cold_groups) for i in range(0, grp.shape[0], batch_size)]
+
+    def gen():
+        while True:
+            perm = rng.permutation(X.shape[0])
+            for b in rng.permutation(len(batches)):
+                if batches[b][0] == "fixed":
+                    idx = perm[batches[b][1] : batches[b][1] + batch_size]
+                    yield X[idx], y[idx].astype(np.float32), w[idx]
+                else:
+                    _, g, i = batches[b]
+                    xb = cold_groups[g][i : i + batch_size]
+                    n = xb.shape[0]
+                    yield xb, np.zeros(n, np.float32), np.full(n, class_weights[0], np.float32)
+
+    ds = tf.data.Dataset.from_generator(gen, output_signature=(
+        tf.TensorSpec(shape=(None, None, HOP_BINS, 1), dtype=tf.float32),
+        tf.TensorSpec(shape=(None,), dtype=tf.float32),
+        tf.TensorSpec(shape=(None,), dtype=tf.float32),
+    ))
+    return ds.prefetch(2), len(batches)
+
+
 # -----------------------------------------------------------------------------
 # 3. Model Architecture & Streaming Model Construction
 # -----------------------------------------------------------------------------
 
-def build_mww_model(window_hops: int = 99, num_mels: int = 40) -> tf.keras.Model:
-    """Build the base MixConv model for offline training on spectrogram windows with exact causal padding."""
-    inputs = tf.keras.Input(shape=(window_hops, num_mels, 1), name="pcan_in")
-    x = tf.keras.layers.Reshape((window_hops, 1, num_mels), name="reshape")(inputs)
+def build_mww_model(num_mels: int = 40) -> tf.keras.Model:
+    """Build the base MixConv model for offline training on spectrogram windows with exact causal padding.
+
+    The time dimension is variable. The causal zero padding equals the zero
+    initial state of the streaming model, so a window that starts at stream
+    start gives the streaming output after a state reset.
+    """
+    inputs = tf.keras.Input(shape=(None, num_mels, 1), name="pcan_in")
+    x = tf.keras.layers.Reshape((-1, 1, num_mels), name="reshape")(inputs)
 
     # Layer 0: Conv2D + BN + ReLU with causal left padding of 2 hops
     x = tf.keras.layers.ZeroPadding2D(padding=((2, 0), (0, 0)), name="pad0")(x)
@@ -627,7 +721,7 @@ def build_mww_model(window_hops: int = 99, num_mels: int = 40) -> tf.keras.Model
 
     # Temporal feature aggregation (last 5 steps: 5 * 60 = 300)
     x = tf.keras.layers.Lambda(lambda t: t[:, -5:, :, :], name="last5")(x)
-    x = tf.keras.layers.Flatten(name="flatten")(x)
+    x = tf.keras.layers.Reshape((5 * 60,), name="flatten")(x)
     x = tf.keras.layers.Dropout(0.3, name="dropout")(x)
     outputs = tf.keras.layers.Dense(
         1, activation="sigmoid", bias_initializer=tf.keras.initializers.Constant(-2.0), name="dense"
@@ -903,12 +997,15 @@ def evaluate_streaming_confusion_matrix(
     level_db: tuple[float, float] | None = None,
     seed: int = 1,
     pool: BackgroundPool | None = None,
+    extra_streams: dict[str, list[np.ndarray]] | None = None,
 ) -> dict:
     """Run streaming inference on all WAV files and compute the confusion matrix.
 
     Each clip is streamed after continuous background (embed_in_background),
     and detections count from the clip start. A detection fires when the mean
     of the last avg_len probabilities reaches threshold, as in the firmware.
+    extra_streams are negative int16 streams evaluated from the first hop
+    after a model state reset, as at stream start on the device.
     """
     rng = np.random.default_rng(seed)
     if pool is None:
@@ -924,53 +1021,60 @@ def evaluate_streaming_confusion_matrix(
     in_dtype = in_det["dtype"]
     out_dtype = out_det["dtype"]
 
+    def stream(mel: np.ndarray, count_start: int) -> tuple[bool, float]:
+        # Reset streaming internal states
+        interp.allocate_tensors()
+
+        max_prob = 0.0
+        hist = np.zeros(avg_len)
+        fired = False
+
+        for s in range(0, mel.shape[0] - slice_hops + 1, slice_hops):
+            chunk = mel[s : s + slice_hops][np.newaxis, ...]  # shape: (1, 3, 40)
+            if np.issubdtype(in_dtype, np.integer) and in_scale > 0:
+                chunk = _quantize(chunk, in_scale, in_zp, in_dtype)
+
+            interp.set_tensor(in_det["index"], chunk)
+            interp.invoke()
+            y = interp.get_tensor(out_det["index"])
+
+            if np.issubdtype(out_dtype, np.integer) and out_scale > 0:
+                prob = float(_dequantize(y, out_scale, out_zp).flatten()[0])
+            else:
+                prob = float(y.flatten()[0])
+
+            hist = np.roll(hist, 1)
+            hist[0] = prob
+            if s < count_start:
+                continue
+
+            if prob > max_prob:
+                max_prob = prob
+            if hist.mean() >= threshold:
+                fired = True
+
+        return fired, max_prob
+
+    def clips():
+        for label, files in file_map.items():
+            yield label, label in keywords, len(files), (
+                embed_in_background(load_wav_pcm16(f), pool, rng, level_db) for f in files)
+        for label, pcms in (extra_streams or {}).items():
+            yield label, False, len(pcms), ((pcm, 0) for pcm in pcms)
+
     results = {}
     tp, fp, tn, fn = 0, 0, 0, 0
 
-    for label, files in file_map.items():
-        is_pos = (label in keywords)
-        n_files = len(files)
+    for label, is_pos, n_files, pcm_iter in clips():
         n_detected = 0
         peak_probs = []
 
-        for f in files:
-            pcm, fg_start = embed_in_background(load_wav_pcm16(f), pool, rng, level_db)
+        for pcm, fg_start in pcm_iter:
             mel = extract_pcan_features(pcm)
             if mel.shape[0] < slice_hops:
                 continue
 
-            # Reset streaming internal states
-            interp.allocate_tensors()
-
-            max_prob = 0.0
-            n_hops = mel.shape[0]
-            hist = np.zeros(avg_len)
-            fired = False
-
-            for s in range(0, n_hops - slice_hops + 1, slice_hops):
-                chunk = mel[s : s + slice_hops][np.newaxis, ...]  # shape: (1, 3, 40)
-                if np.issubdtype(in_dtype, np.integer) and in_scale > 0:
-                    chunk = _quantize(chunk, in_scale, in_zp, in_dtype)
-
-                interp.set_tensor(in_det["index"], chunk)
-                interp.invoke()
-                y = interp.get_tensor(out_det["index"])
-
-                if np.issubdtype(out_dtype, np.integer) and out_scale > 0:
-                    prob = float(_dequantize(y, out_scale, out_zp).flatten()[0])
-                else:
-                    prob = float(y.flatten()[0])
-
-                hist = np.roll(hist, 1)
-                hist[0] = prob
-                if s < fg_start:
-                    continue
-
-                if prob > max_prob:
-                    max_prob = prob
-                if hist.mean() >= threshold:
-                    fired = True
-
+            fired, max_prob = stream(mel, fg_start)
             peak_probs.append(max_prob)
             if fired:
                 n_detected += 1
@@ -1077,6 +1181,9 @@ def main() -> int:
                         help="Max random clip peak level in dBFS (default -6)")
     parser.add_argument("--pos-level-copies", type=int, default=2,
                         help="Number of random-level copies per keyword clip (default 2)")
+    parser.add_argument("--digital-silence", type=int, default=300,
+                        help="Number of digital silence (zero PCM) hard negative streams, "
+                             "0 disables (default 300)")
 
     args = parser.parse_args()
 
@@ -1113,9 +1220,9 @@ def run(args: argparse.Namespace, level_db: tuple[float, float]) -> int:
 
     print(f">>> [PCAN Pipeline] Loading WAVs from {args.wav_root} for classes: {labels}")
     pool = BackgroundPool(args.wav_root)
-    X, y, file_map = load_pcan_dataset(args.wav_root, labels=labels, level_db=level_db,
-                                       pos_level_copies=args.pos_level_copies, seed=args.seed,
-                                       pool=pool)
+    X, y, file_map, cold = load_pcan_dataset(args.wav_root, labels=labels, level_db=level_db,
+                                             pos_level_copies=args.pos_level_copies, seed=args.seed,
+                                             pool=pool, n_digital_silence=args.digital_silence)
 
     if X.shape[0] == 0:
         print(f"Error: No audio samples found under {args.wav_root}.", file=sys.stderr)
@@ -1126,7 +1233,7 @@ def run(args: argparse.Namespace, level_db: tuple[float, float]) -> int:
     X_train, y_train, X_val, y_val = split_train_val(X, y, val_frac=args.val_frac, seed=args.seed)
     print(f">>> Train split: {X_train.shape[0]} samples, Val split: {X_val.shape[0]} samples")
 
-    model = build_mww_model(window_hops=WINDOW_HOPS, num_mels=HOP_BINS)
+    model = build_mww_model(num_mels=HOP_BINS)
     model.compile(
         optimizer=tf.keras.optimizers.Adam(learning_rate=args.lr),
         loss=tf.keras.losses.BinaryCrossentropy(),
@@ -1134,14 +1241,15 @@ def run(args: argparse.Namespace, level_db: tuple[float, float]) -> int:
     )
 
     class_weights = {0: float(args.class_weight_neg), 1: 1.0}
-    print(f">>> Training base model with PCAN features (class_weight={class_weights})...")
+    print(f">>> Training base model with PCAN features (class_weight={class_weights}, "
+          f"{len(cold)} cold-start windows)...")
+    train_ds, steps = make_train_dataset(X_train, y_train, cold, args.batch_size,
+                                         class_weights, args.seed)
     model.fit(
-        X_train,
-        y_train,
+        train_ds,
+        steps_per_epoch=steps,
         validation_data=(X_val, y_val),
         epochs=args.epochs,
-        batch_size=args.batch_size,
-        class_weight=class_weights,
         verbose=2,
     )
 
@@ -1177,6 +1285,7 @@ def run(args: argparse.Namespace, level_db: tuple[float, float]) -> int:
     print(f">>> Emitted sof-ctl text to {txt_path}")
 
     print(">>> Running streaming evaluation and generating Confusion Matrix...")
+    eval_rng = np.random.default_rng(args.seed + 1)
     cm = evaluate_streaming_confusion_matrix(
         str(tflite_path),
         file_map=file_map,
@@ -1186,6 +1295,7 @@ def run(args: argparse.Namespace, level_db: tuple[float, float]) -> int:
         slice_hops=SLICE_HOPS,
         level_db=level_db,
         pool=pool,
+        extra_streams={"digital_silence": generate_digital_silence_streams(30, pool, eval_rng, level_db)},
     )
     print_confusion_matrix_report(cm, threshold=args.threshold, avg_len=args.avg_len)
 
