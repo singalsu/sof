@@ -11,6 +11,8 @@ This directory contains offline scripts to train, quantize, verify, and export s
    - [sof_mww_generate_keyword_dataset_piper_tts.sh](sof_mww_generate_keyword_dataset_piper_tts.sh): Synthesizes positive keyword WAVs with single-speaker Piper TTS voices, pitch/tempo perturbation (via `sox`), Gaussian gain jitter, and Room Impulse Response (RIR) reverberation.
    - [sof_mww_generate_keyword_dataset.sh](sof_mww_generate_keyword_dataset.sh): Multi-speaker generation with `piper-sample-generator` (LibriTTS-R).
    - [sof_mww_prepare_silence_unknown.sh](sof_mww_prepare_silence_unknown.sh): Prepares negative dataset classes (`silence` and `unknown`) by slicing background noise and non-target words from Google Speech Commands v2.
+   - [sof_mww_asr_transcribe.py](sof_mww_asr_transcribe.py): Transcribes a directory of WAVs with an OpenVINO Whisper model (e.g. `whisper-medium-int4-ov`) into a `file,text` CSV, to find generated keyword clips that are not recognizable. Needs `openvino`, `transformers` and `soundfile`.
+   - [sof_mww_asr_filter.py](sof_mww_asr_filter.py): Deletes the WAVs listed in a `sof_mww_asr_transcribe.py` CSV whose transcription does not match any `--pass` string, compared case-insensitively without punctuation. E.g. `python3 sof_mww_asr_filter.py --pass banana banana_asr.csv ~/train/mww_wov2/wavs/banana`. Use `--dry-run` to only report.
 
 2. **DSP Feature Extraction:**
    - [sof_mfcc_extract_features.sh](sof_mfcc_extract_features.sh): Emits 184-byte hop records ($24\text{-byte } \texttt{struct mfcc\_data\_header} + 40 \times \text{int32\_t}$ Q9.23 mel values) by running the SOF host testbench with 10 ms mel-40 topology.
