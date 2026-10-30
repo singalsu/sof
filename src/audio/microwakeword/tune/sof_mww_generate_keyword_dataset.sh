@@ -26,7 +26,8 @@
 #   PIPER_REPO      Path to a piper-sample-generator git clone root.
 #   MAX_SAMPLES     Positive clips per speaking-rate loop (default 1000).
 #   MAX_SPEAKERS    Cap on speaker-embedding index (default 200).
-#   SLERP_WEIGHTS   Speaker blending weights passed to generator (default "0.0").
+#   SLERP_WEIGHTS   Speaker blending weights passed to generator (default "1.0",
+#                   unblended speaker_2, which changes on every clip).
 #   NOISE_SCALES    Generator noise_scale values (default "0.45 0.55 0.667");
 #                   lower values give clearer, less slurred consonants.
 #   NOISE_SCALE_WS  Generator noise_scale_w values (default "0.6 0.8").
@@ -119,7 +120,7 @@ fi
 
 : "${MAX_SAMPLES:=1000}"
 : "${MAX_SPEAKERS:=200}"
-: "${SLERP_WEIGHTS:=0.0}"
+: "${SLERP_WEIGHTS:=1.0}"
 : "${NOISE_SCALES:=0.45 0.55 0.667}"
 : "${NOISE_SCALE_WS:=0.6 0.8}"
 : "${TEXT_VARIANTS:=1}"
