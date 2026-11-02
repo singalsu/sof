@@ -148,14 +148,22 @@ function setup_mfcc()
 	export_mfcc_setup(gen_cfg, setup);
 
 	% 40 mel bins, 10 ms hop with soft AGC int8 output for microWakeWord, a
-	% light alternative to PCAN. Same Mel setup as mel40_10ms_compress.conf.
+	% light alternative to PCAN. The int8 range -1.0 .. +1.0 covers 50 dB of
+	% log10 Mel power below the AGC normalized peak.
 	setup = get_mel_spectrogram_config();
 	setup.frame_length = 30.0;
 	setup.frame_shift = 10.0;
 	setup.num_mel_bins = 40;
 	setup.low_freq = 125;
 	setup.high_freq = 7500;
+	setup.mel_log = 'log10';
+	setup.mel_offset = 0;
+	setup.mel_scale = 0.4; % 1.0 is 25 dB
 	setup.enable_agc8 = true;
+	setup.agc_target = 3.0; % allows +75 dB boost for quiet input
+	setup.agc_floor = -1.0;
+	setup.agc_release = 10066; % 3 dB/s at 100 hops/s
+	setup.agc_release_speech = 335; % 0.1 dB/s
 	setup.compress_output = true;
 	setup.update_controls = false;
 	setup.enable_vad = true; % slower AGC release in speech, vad_flag for MWW
