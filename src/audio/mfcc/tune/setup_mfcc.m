@@ -60,6 +60,17 @@ function setup_mfcc()
 	setup.num_mel_bins = 40;
 	setup.low_freq = 125;
 	setup.high_freq = 7500;
+	setup.mel_log = 'log10';
+	setup.top_db = 8.0;
+	setup.mmax_coef = 0;
+	setup.dynamic_mmax = true;
+	setup.remove_dc_offset = false;
+	setup.enable_vad = true;
+	setup.update_controls = true;
+	setup.pcan_strength = 0;
+	setup.pcan_offset = 0;
+	setup.pcan_gain_bits = 0;
+	setup.pcan_smoothing_coef = 0;
 	setup.tplg_fn = 'mel40_10ms.conf';
 	export_mfcc_setup(gen_cfg, setup);
 
@@ -77,6 +88,7 @@ function setup_mfcc()
 	setup.enable_dtx = false;
 	setup.dtx_trailing_silence_hops = 0;
 	setup.dtx_silence_hops_interval = 0;
+	setup.comment = 'enable_vad=0 enable_dtx=0: streaming MWW must see every hop, and VAD is not run.';
 	setup.tplg_fn = 'mel40_10ms_compress.conf';
 	export_mfcc_setup(gen_cfg, setup);
 
@@ -126,10 +138,12 @@ function setup_mfcc()
 	setup.pcan_smoothing_coef = 819;
 	setup.compress_output = true;
 	setup.update_controls = false;
-	setup.enable_vad = false;
+	setup.enable_vad = true;
 	setup.enable_dtx = false;
 	setup.dtx_trailing_silence_hops = 0;
 	setup.dtx_silence_hops_interval = 0;
+	setup.comment = ['enable_vad=1 enable_dtx=0 update_controls=0: VAD runs to populate energy/vad_flag\n' ...
+			 '# for MWW gating; DTX off so every hop is still emitted; no kcontrol notifications.'];
 	setup.tplg_fn = 'mel40_10ms_pcan_compress.conf';
 	export_mfcc_setup(gen_cfg, setup);
 
@@ -156,6 +170,8 @@ function setup_mfcc()
 	setup.enable_dtx = false;
 	setup.dtx_trailing_silence_hops = 0;
 	setup.dtx_silence_hops_interval = 0;
+	setup.comment = ['enable_vad=1 enable_dtx=0 update_controls=0: VAD runs to populate energy/vad_flag\n' ...
+			 '# for the AGC release and MWW gating; DTX off so every hop is still emitted.'];
 	setup.tplg_fn = 'mel40_10ms_agc8_compress.conf';
 	export_mfcc_setup(gen_cfg, setup);
 
@@ -357,15 +373,17 @@ end
 
 %% Export
 tplg_fn = [gen_cfg.mfcc_conf_path cfg.tplg_fn];
+howto = 'cd src/audio/mfcc/tune; octave setup_mfcc.m';
+if isfield(cfg, 'comment')
+	howto = sprintf('%s\n# %s', howto, sprintf(cfg.comment));
+end
 switch gen_cfg.tplg_ver
        case 1
 	       sof_tplg_write(tplg_fn, b8, "DEF_MFCC_PRIV", ...
-			      "Exported with script setup_mfcc.m", ...
-			      "cd src/audio/mfcc/tune; octave setup_mfcc.m");
+			      "Exported with script setup_mfcc.m", howto);
        case 2
 	       sof_tplg2_write(tplg_fn, b8, "mfcc_config", ...
-			       "Exported MFCC configuration", ...
-			       "cd src/audio/mfcc/tune; octave setup_mfcc.m");
+			       "Exported MFCC configuration", howto);
        otherwise
 	       error("Illegal tplg_ver, use 1 for topology v1 or 2 topology v2.");
 end
