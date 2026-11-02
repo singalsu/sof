@@ -15,26 +15,12 @@ This directory contains offline scripts to train, quantize, verify, and export s
    - [sof_mww_asr_filter.py](sof_mww_asr_filter.py): Deletes the WAVs listed in a `sof_mww_asr_transcribe.py` CSV whose transcription does not match any `--pass` string, compared case-insensitively without punctuation. E.g. `python3 sof_mww_asr_filter.py --pass banana banana_asr.csv ~/train/mww_wov2/wavs/banana`. Use `--dry-run` to only report.
 
 2. **DSP Feature Extraction:**
-   - [sof_mfcc_extract_features.sh](sof_mfcc_extract_features.sh): Emits 184-byte hop records ($24\text{-byte } \texttt{struct mfcc\_data\_header} + 40 \times \text{int32\_t}$ Q9.23 mel values) by running the SOF host testbench with 10 ms mel-40 topology.
+   - [sof_mfcc_extract_features.sh](sof_mfcc_extract_features.sh): Emits SOF MFCC hop records for a labelled WAV dataset by running the SOF host testbench with a 10 ms mel-40 topology: 184-byte hops ($24\text{-byte } \texttt{struct mfcc\_data\_header} + 40 \times \text{int32\_t}$ Q9.23 mel values) or with `--pcan` 64-byte hops ($24\text{-byte header} + 40 \times \text{int8\_t}$).
 
 3. **Model Training & Export:**
    - [sof_mww_train_pcan.py](sof_mww_train_pcan.py): All-in-one PCAN (int8 feature) trainer working directly from WAVs. Features come from the SOF MFCC component run in `sof-testbench4` with `sof-hda-benchmark-mfccmel40_10ms_pcan32.tplg` (`--frontend sof`, default) or from TensorFlow `audio_microfrontend` (`--frontend tf`). Each clip is embedded in 2 s of continuous background from the ambient classes at 5..35 dB SNR with a random 0..29 ms phase, and the mixture is peak-normalized to a random level in `--level-min-dbfs`..`--level-max-dbfs` (default -45..-6 dBFS). Training windows are 160 hops so they cover the streaming model's 149-hop receptive field, and the evaluation streams each clip after background as on the device. The model input quantization is pinned to the firmware int8 PCAN scale (666/256, zero point -128). Digital silence (all-zero PCM, e.g. a muted or not yet started capture) is a hard negative (`--digital-silence N` streams, default 300): zeros only, background followed by zeros, and zeros followed by background. Windows from these streams are also trained from stream start, where the streaming model state is still zero, and the evaluation report includes a `digital_silence` class streamed from a state reset.
-   - [sof_mww_dataset.py](sof_mww_dataset.py): Parses testbench `.raw` feature files, applies soft mel-log AGC ($0\text{ dB}$ target, $0.5\text{ dB/s}$ release recovery), and builds training slices.
-   - [sof_mww_train.py](sof_mww_train.py): Trains a streaming Keras model, quantizes to `int8` with TFLite Micro resource variables, packages behind SOF IPC4 ABI headers, and emits:
-         - `mww_model_data_<name>.h`: Built-in model header selected by Kconfig.
-     - `<name>.conf`: ALSA Topology v2 configuration blob for `Object.Base.data`.
-     - `<name>.txt`: Runtime `sof-ctl` binary control file.
-     - `sof_mww_train_pipeline.sh --hard-negative-keyword <phrase>`: Synthesizes
-         Piper TTS competing wake phrases into `unknown/` as hard negatives before
-         feature extraction. Set `PIPER_VOICE` and optionally
-         `HARD_NEGATIVE_SAMPLES` (default: 200 per phrase).
 
-         For a `Hi Intel` model, useful phrases include `hey siri`, `hey google`,
-         `ok google`, `alexa`, `hey copilot`, and `hey jarvis`.
-
-4. **Off-Device Verification & Automation:**
-   - [sof_mww_verify.py](sof_mww_verify.py): Feeds 3-hop streaming slices through the quantized TFLite model to verify detection rates and false alarm rates.
-   - [sof_mww_train_pipeline.sh](sof_mww_train_pipeline.sh): End-to-end automation runner.
+4. **Automation:**
    - [sof_mww_pcan_train_fruits.sh](sof_mww_pcan_train_fruits.sh): Trains the strawberry, banana and orange PCAN models for the 3-keyword topology. Positives can optionally be ASR screened (`ASR_SCREEN=true`) on the clean TTS output before noise augmentation, and each fruit model gets the other fruits as `unknown` negatives since all detectors run at the same time.
 
 ---
@@ -106,31 +92,14 @@ To use recorded human speech recordings instead of synthetic TTS:
 ```
 This converts the input audio to 16 kHz 16-bit mono, keeps the clean unperturbed samples, and automatically complements them with RIR convolution, background noise mixing (10–30 dB SNR), pitch/tempo shifts, and Gaussian level jitter to reach a full training set size (`MAX_SAMPLES=1000` by default).
 
-You can also pass `--keyword-dir <label>:<path>` directly to `sof_mww_train_pipeline.sh`:
-```bash
-./sof_mww_train_pipeline.sh \
-    --keyword-dir hi_intel:/path/to/recorded/audio \
-    --name hi_intel \
-    ~/wov/wavs ~/wov/feats ~/wov/model
-```
-
-### 2. Run End-to-End Retraining Pipeline
-With the `mww-train` virtual environment activated:
-```bash
-source ~/venvs/mww-train/bin/activate
-./sof_mww_train_pipeline.sh \
-    --keyword hey_jarvis \
-    --name hey_jarvis \
-    ~/wov/wavs ~/wov/feats ~/wov/model
-```
-
 ---
 
 ### Training Multiple Keyword Variants into the Same Model
 
 You can train a single wake-word model to trigger on multiple spoken variants (such as `"hey jarvis"` and `"hi jarvis"`) with **no increase in model size or DSP RAM**:
 
-#### 1. Generate Datasets for Both Phrases
+Generate datasets for both phrases, then pass both labels to `sof_mww_train_pcan.py` with repeated `--keyword` arguments (e.g. `--keyword hey_jarvis --keyword hi_jarvis --name hey_jarvis`). Both phrase directories are pooled as the positive class, and the exported model triggers when either phrase is spoken.
+
 ```bash
 ./sof_mww_generate_keyword_dataset.sh \
     --keyword "hey jarvis" --label hey_jarvis \
@@ -138,19 +107,6 @@ You can train a single wake-word model to trigger on multiple spoken variants (s
     --venv ~/venvs/piper \
     ~/wov/wavs
 ```
-
-#### 2. Train with Multiple `--keyword` Arguments
-Pass both directory labels to the training pipeline and specify `--name hey_jarvis`:
-```bash
-source ~/venvs/mww-train/bin/activate
-./sof_mww_train_pipeline.sh \
-    --keyword hey_jarvis \
-    --keyword hi_jarvis \
-    --name hey_jarvis \
-    ~/wov/wavs ~/wov/feats ~/wov/model
-```
-
-Both phrase directories are pooled as the positive target class ($y = 1$). The streaming verification report provides individual detection recall for each phrase, and the exported `mww_model_data_<name>.h` model triggers when either phrase is spoken.
 
 ---
 
