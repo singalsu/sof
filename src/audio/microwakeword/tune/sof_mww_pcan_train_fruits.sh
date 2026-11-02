@@ -46,9 +46,9 @@ LEVEL_MAX_DBFS=-6
 POS_LEVEL_COPIES=2
 
 # Fruit selection gates (enable/disable individually)
-STRAWBERRY=true
+STRAWBERRY=false
 BANANA=true
-ORANGE=true
+ORANGE=false
 
 # Dataset preparation and training settings (aligned with hi_intel PCAN training)
 ADD_BABBLE=true
@@ -74,7 +74,7 @@ DETECT_AVG_LEN=4
 
 # Delete generated positives whose Whisper transcription is not the keyword
 # (e.g. "banana" synthesized as "on Anna" or "oh no no"). Slow on CPU.
-ASR_SCREEN=false
+ASR_SCREEN=true
 ASR_VENV=${ASR_VENV:-"$HOME/venvs/openvino_env"}
 ASR_MODEL=${ASR_MODEL:-"$HOME/whisper/whisper-medium-int4-ov"}
 
