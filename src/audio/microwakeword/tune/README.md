@@ -35,6 +35,7 @@ This directory contains offline scripts to train, quantize, verify, and export s
 4. **Off-Device Verification & Automation:**
    - [sof_mww_verify.py](sof_mww_verify.py): Feeds 3-hop streaming slices through the quantized TFLite model to verify detection rates and false alarm rates.
    - [sof_mww_train_pipeline.sh](sof_mww_train_pipeline.sh): End-to-end automation runner.
+   - [sof_mww_pcan_train_fruits.sh](sof_mww_pcan_train_fruits.sh): Trains the strawberry, banana and orange PCAN models for the 3-keyword topology. Positives can optionally be ASR screened (`ASR_SCREEN=true`) on the clean TTS output before noise augmentation, and each fruit model gets the other fruits as `unknown` negatives since all detectors run at the same time.
 
 ---
 
