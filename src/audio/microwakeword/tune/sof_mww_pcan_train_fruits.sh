@@ -31,12 +31,15 @@ PREPARE_NEGATIVES=true
 TRAIN_PCAN=true
 DEPLOY_MODEL=true
 
-# PCAN features are computed by the SOF MFCC component in sof-testbench4
-# (bit-exact with firmware). Build both before training:
+# int8 features from MFCC: "pcan" or "agc8" (soft AGC, set the same
+# MWW_FEATURES in the WoV topology). They are computed by the SOF MFCC
+# component in sof-testbench4 (bit-exact with firmware). Build both before
+# training:
 #   scripts/rebuild-testbench.sh
-#   sof-hda-benchmark-mfccmel40_10ms_pcan32.tplg (topology2 development targets)
+#   sof-hda-benchmark-mfccmel40_10ms_${FEATURES}32.tplg (topology2 development targets)
+FEATURES=pcan
 TESTBENCH="$SOF_WORKSPACE/sof/tools/testbench/build_testbench/install/bin/sof-testbench4"
-TPLG="$SOF_WORKSPACE/sof/tools/build_tools/topology/topology2/development/sof-hda-benchmark-mfccmel40_10ms_pcan32.tplg"
+TPLG="$SOF_WORKSPACE/sof/tools/build_tools/topology/topology2/development/sof-hda-benchmark-mfccmel40_10ms_${FEATURES}32.tplg"
 
 # Random per-clip peak level range in dBFS, applied to all classes before
 # feature extraction. The DUT detector input peaks around -25 dBFS for
@@ -338,6 +341,7 @@ if $TRAIN_PCAN; then
             --name "$keyword" \
             --out-dir "$out_dir" \
             --frontend sof \
+            --features "$FEATURES" \
             --testbench "$TESTBENCH" \
             --tplg "$TPLG" \
             --level-min-dbfs "$LEVEL_MIN_DBFS" \
