@@ -114,6 +114,8 @@ Generate datasets for both phrases, then pass both labels to `sof_mww_train_pcan
 
 The firmware MWW models (`banana`, `hi_intel`, `orange`, `strawberry`) take int8 PCAN features from the `mel40_10ms_pcan_compress` MFCC profile. Train them with `sof_mww_train_pcan.py`, which computes the features with the SOF MFCC component in `sof-testbench4` so they are bit-exact with the firmware.
 
+MFCC can alternatively produce int8 features with its soft AGC (AGC8, `mel40_10ms_agc8_compress` profile), a lighter frontend without PCAN. Train such models with `--features agc8`, which uses `sof-hda-benchmark-mfccmel40_10ms_agc832.tplg`, and build the WoV topology with `MWW_FEATURES=agc8`. A model works only with the feature type it was trained with.
+
 #### 1. Build the Testbench and the PCAN Benchmark Topology
 ```bash
 cd $SOF_WORKSPACE/sof
@@ -123,6 +125,7 @@ scripts/rebuild-testbench.sh
 This provides:
 - `tools/testbench/build_testbench/install/bin/sof-testbench4`
 - `tools/build_tools/topology/topology2/development/sof-hda-benchmark-mfccmel40_10ms_pcan32.tplg`
+- `tools/build_tools/topology/topology2/development/sof-hda-benchmark-mfccmel40_10ms_agc832.tplg`
 
 #### 2. Prepare the Dataset
 The trainer expects one WAV directory per class under the dataset root: the positive class named by `--keyword`, `unknown/` for non-target speech, and `ambient/` for silence, noise and babble. The ambient clips are also used as continuous background for every training clip.

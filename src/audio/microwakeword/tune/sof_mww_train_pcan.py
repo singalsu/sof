@@ -5,7 +5,8 @@ All-in-one Python reference training pipeline for microWakeWord (MWW) using PCAN
 
 Extracts 40-bin PCAN mel features from WAV datasets (e.g. ~/wov/wavs/{silence,unknown,<keyword>})
 with the SOF MFCC component run in sof-testbench4 (default, bit-exact with firmware) or with
-TensorFlow's audio_microfrontend (--frontend tf). Every clip is embedded in continuous
+TensorFlow's audio_microfrontend (--frontend tf). With --features agc8 the int8 features
+come from the SOF MFCC soft AGC output (AGC8) instead of PCAN. Every clip is embedded in continuous
 background audio from the ambient classes and the mixture is peak-normalized to a random
 level in [--level-min-dbfs, --level-max-dbfs], so training windows hold real context over
 the full streaming receptive field as on the device. Trains the streaming MixConv neural
@@ -73,10 +74,13 @@ _SOF_WORKSPACE = os.environ.get("SOF_WORKSPACE", os.path.expanduser("~/work/curr
 DEFAULT_TESTBENCH = os.path.join(
     _SOF_WORKSPACE, "sof/tools/testbench/build_testbench/install/bin/sof-testbench4"
 )
-DEFAULT_TPLG = os.path.join(
-    _SOF_WORKSPACE,
-    "sof/tools/build_tools/topology/topology2/development/sof-hda-benchmark-mfccmel40_10ms_pcan32.tplg",
-)
+TPLG_DIR = os.path.join(_SOF_WORKSPACE, "sof/tools/build_tools/topology/topology2/development")
+# Testbench MFCC topology per int8 feature type. Both emit 64-byte hops with
+# int8 features that use the same model input mapping (q + 128) * 666 / 256.
+FEATURE_TPLGS = {
+    "pcan": os.path.join(TPLG_DIR, "sof-hda-benchmark-mfccmel40_10ms_pcan32.tplg"),
+    "agc8": os.path.join(TPLG_DIR, "sof-hda-benchmark-mfccmel40_10ms_agc832.tplg"),
+}
 
 
 # -----------------------------------------------------------------------------
@@ -1174,7 +1178,10 @@ def main() -> int:
                         help="PCAN feature frontend: sof = SOF MFCC in sof-testbench4 (default), "
                              "tf = TensorFlow audio_microfrontend")
     parser.add_argument("--testbench", default=DEFAULT_TESTBENCH, help="sof-testbench4 binary")
-    parser.add_argument("--tplg", default=DEFAULT_TPLG, help="Testbench MFCC PCAN topology")
+    parser.add_argument("--features", choices=tuple(FEATURE_TPLGS), default="pcan",
+                        help="int8 feature type from MFCC: pcan (default) or agc8 (soft AGC)")
+    parser.add_argument("--tplg", default=None,
+                        help="Testbench MFCC topology, default selected by --features")
     parser.add_argument("--level-min-dbfs", type=float, default=-45.0,
                         help="Min random clip peak level in dBFS (default -45)")
     parser.add_argument("--level-max-dbfs", type=float, default=-6.0,
@@ -1188,17 +1195,22 @@ def main() -> int:
     args = parser.parse_args()
 
     global extract_pcan_features
+    if args.features != "pcan" and args.frontend != "sof":
+        print("Error: --frontend tf provides only pcan features", file=sys.stderr)
+        return 1
+    if args.tplg is None:
+        args.tplg = FEATURE_TPLGS[args.features]
     sof_frontend = None
     if args.frontend == "sof":
         try:
             sof_frontend = SofTestbenchFrontend(args.testbench, args.tplg)
         except FileNotFoundError as exc:
             print(f"Error: missing {exc}. Build the testbench (scripts/rebuild-testbench.sh) and the "
-                  "sof-hda-benchmark-mfccmel40_10ms_pcan32 topology, or use --frontend tf.",
+                  f"{os.path.basename(args.tplg)} topology, or use --frontend tf.",
                   file=sys.stderr)
             return 1
         extract_pcan_features = sof_frontend
-    print(f">>> PCAN frontend: {args.frontend}")
+    print(f">>> Feature frontend: {args.frontend}, features: {args.features}")
     level_db = (args.level_min_dbfs, args.level_max_dbfs)
 
     try:
