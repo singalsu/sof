@@ -4,13 +4,14 @@
 """
 Convert the float32 streaming state of a microWakeWord TFLite model to int8.
 
-Models exported by sof_mww_train_pcan.py keep the six streaming ring buffers in
-float32 resource variables. Every inference then runs DEQUANTIZE ->
-CONCATENATION -> QUANTIZE for each layer and DEQUANTIZE -> ASSIGN_VARIABLE for
-the state update. The int8 tensors on both sides of these float paths have the
-same scale and zero point, so the state can be kept in int8 without changing
-any value. This script rewrites the flatbuffer accordingly and emits the
-firmware header and the sof-ctl blob.
+The TFLite converter keeps the six streaming ring buffers of the models from
+sof_mww_train_pcan.py in float32 resource variables. Every inference then runs
+DEQUANTIZE -> CONCATENATION -> QUANTIZE for each layer and DEQUANTIZE ->
+ASSIGN_VARIABLE for the state update. The int8 tensors on both sides of these
+float paths have the same scale and zero point, so the state can be kept in
+int8 without changing any value. This script rewrites the flatbuffer
+accordingly and emits the firmware header and the sof-ctl blob.
+sof_mww_train_pcan.py applies the same conversion to the models it exports.
 
 Example:
     python3 sof_mww_int8_state.py --name banana \\
@@ -150,6 +151,15 @@ def convert(model) -> int:
     return len(state_quant)
 
 
+def convert_bytes(src: bytes) -> tuple[bytes, int]:
+    """Convert a .tflite flatbuffer, return the new flatbuffer and the converted state count."""
+    model = fu.convert_bytearray_to_object(bytearray(src))
+    n = convert(model)
+    if n == 0:
+        return src, 0
+    return bytes(fu.convert_object_to_bytearray(model)), n
+
+
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("model", type=Path, help="Input .tflite or mww_model_data_<name>.h")
@@ -158,12 +168,10 @@ def main() -> int:
     args = ap.parse_args()
 
     src = read_model_bytes(args.model)
-    model = fu.convert_bytearray_to_object(bytearray(src))
-    n = convert(model)
+    out, n = convert_bytes(src)
     if n == 0:
         print(f"{args.model}: no float32 streaming state, nothing to convert")
         return 1
-    out = bytes(fu.convert_object_to_bytearray(model))
 
     args.out_dir.mkdir(parents=True, exist_ok=True)
     (args.out_dir / f"{args.name}_int8_state.tflite").write_bytes(out)
