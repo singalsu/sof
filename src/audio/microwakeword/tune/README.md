@@ -11,6 +11,7 @@ This directory contains offline scripts to train, quantize, verify, and export s
    - [sof_mww_generate_keyword_dataset_piper_tts.sh](sof_mww_generate_keyword_dataset_piper_tts.sh): Synthesizes positive keyword WAVs with single-speaker Piper TTS voices, pitch/tempo perturbation (via `sox`), Gaussian gain jitter, and Room Impulse Response (RIR) reverberation.
    - [sof_mww_generate_keyword_dataset.sh](sof_mww_generate_keyword_dataset.sh): Multi-speaker generation with `piper-sample-generator` (LibriTTS-R).
    - [sof_mww_prepare_silence_unknown.sh](sof_mww_prepare_silence_unknown.sh): Prepares negative dataset classes (`silence` and `unknown`) by slicing background noise and non-target words from Google Speech Commands v2.
+   - [sof_mww_prepare_common_voice.py](sof_mww_prepare_common_voice.py): Selects a repeatable set of Mozilla Common Voice (CC0) sentence clips from extracted language releases into a `speech` class of continuous speech negatives, with a per-speaker limit and a transcript exclusion regex for the keyword. Common Voice is downloaded from Mozilla Data Collective.
    - [sof_mww_asr_transcribe.py](sof_mww_asr_transcribe.py): Transcribes a directory of WAVs with an OpenVINO Whisper model (e.g. `whisper-medium-int4-ov`) into a `file,text` CSV, to find generated keyword clips that are not recognizable. Needs `openvino`, `transformers` and `soundfile`.
    - [sof_mww_asr_filter.py](sof_mww_asr_filter.py): Deletes the WAVs listed in a `sof_mww_asr_transcribe.py` CSV whose transcription does not match any `--pass` string, compared case-insensitively without punctuation. E.g. `python3 sof_mww_asr_filter.py --pass banana banana_asr.csv ~/train/mww_wov2/wavs/banana`. Use `--dry-run` to only report.
 
@@ -155,6 +156,7 @@ Optional additions that improved the models:
 - Multi-speaker cafeteria babble from the DEMAND `PCAFETER_16k` set (CC-BY-4.0) sliced into 5 s clips in `ambient/`. This reduced random false positives.
 - For synthetic keywords, a few hundred clips per single-speaker Piper voice with `sof_mww_generate_keyword_dataset_piper_tts.sh --voice <model.onnx>`. Keep them around 20-30 % of the positives so the model does not learn the voices instead of the word.
 - Competing wake phrases (`hey siri`, `ok google`, `alexa`, ...) synthesized with `sof_mww_generate_keyword_dataset_piper_tts.sh` into `unknown/` as hard negatives.
+- Continuous sentence speech in `speech/`, e.g. 3000 Common Voice clips with `sof_mww_prepare_common_voice.py --out-dir ~/train/mww_hi_intel/wavs/speech ~/Music/CommonVoice/*/`. The `unknown/` clips are single words and only get windows near their start and end, while `speech/` clips are windowed over their whole length.
 
 #### 3. Train
 ```bash
