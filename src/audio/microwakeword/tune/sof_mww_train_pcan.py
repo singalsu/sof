@@ -61,6 +61,9 @@ WINDOW_HOPS = 160  # 1.6 s at 10 ms hop stride
 SLICE_HOPS = 3     # 30 ms streaming chunk size (MWW_FEATURE_SLICE_COUNT)
 
 AMBIENT_LABELS = ("ambient", "silence", "noise", "background", "babble")
+# Continuous sentence-length speech negatives, windowed over the whole clip
+SPEECH_LABELS = ("speech",)
+SPEECH_WINDOW_STEP = 30
 PRE_CONTEXT_SAMPLES = 32000  # background before each clip, longer than the receptive field
 
 # SOF MFCC maps PCAN output 0..666 to int8 as ((v * 256 + 333) / 666) - 128
@@ -432,6 +435,7 @@ def load_pcan_dataset(
       - keyword: ending at speech end, one per 3-hop stride phase (1);
         partial keyword, onset and trailing context (0)
       - unknown speech: onsets and ending at word end (0)
+      - continuous speech: sliding windows over the clip (0)
       - ambient: sliding windows (0)
       - digital silence (zero PCM) streams: sliding windows (0), and
         cold-start windows from stream start of 15..window_hops hops (0)
@@ -464,8 +468,9 @@ def load_pcan_dataset(
             print(f"Warning: no .wav files found in {label_dir}", file=sys.stderr)
             continue
 
-        is_keyword = label not in AMBIENT_LABELS + ("unknown",)
+        is_keyword = label not in AMBIENT_LABELS + SPEECH_LABELS + ("unknown",)
         is_ambient = label in AMBIENT_LABELS
+        is_speech = label in SPEECH_LABELS
         n_copies = max(1, pos_level_copies) if is_keyword else 1
         print(f">>> Extracting features for {label}: {len(wav_files)} WAVs x {n_copies} level(s)")
 
@@ -492,6 +497,10 @@ def load_pcan_dataset(
             elif is_ambient:
                 for end in range(fg_start + 20, mel.shape[0] + 1, 20):
                     add(mel, end, 0)
+
+            elif is_speech:
+                for end in range(fg_start + 20, fg_end + 1, SPEECH_WINDOW_STEP):
+                    add(mel, end + int(rng.integers(0, SLICE_HOPS)), 0)
 
             else:
                 s0, s1 = find_speech_bounds(mel[fg_start:fg_end])
@@ -1223,7 +1232,7 @@ def main() -> int:
 def run(args: argparse.Namespace, level_db: tuple[float, float]) -> int:
     labels = []
     # Discover available standard negative categories present in wav_root
-    for neg_dir in ("ambient", "silence", "unknown", "babble", "noise"):
+    for neg_dir in ("ambient", "silence", "unknown", "speech", "babble", "noise"):
         if os.path.isdir(os.path.join(args.wav_root, neg_dir)):
             labels.append(neg_dir)
     if not labels:
