@@ -1271,6 +1271,11 @@ def run(args: argparse.Namespace, level_db: tuple[float, float]) -> int:
     print(">>> Quantizing to int8 with representative dataset...")
     tflite_bytes = convert_to_tflite_int8(streaming_model, rep_X=X_train)
 
+    # Local import, sof_mww_int8_state imports this module for the emitters
+    import sof_mww_int8_state
+    tflite_bytes, n_state = sof_mww_int8_state.convert_bytes(tflite_bytes)
+    print(f">>> Converted {n_state} streaming state variables to int8")
+
     out_dir = Path(args.out_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
 
