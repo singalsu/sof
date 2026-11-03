@@ -1168,7 +1168,7 @@ def main() -> int:
     parser.add_argument("--batch-size", type=int, default=64, help="Batch size (default 64)")
     parser.add_argument("--lr", type=float, default=1e-3, help="Learning rate (default 1e-3)")
     parser.add_argument("--val-frac", type=float, default=0.2, help="Validation fraction (default 0.2)")
-    parser.add_argument("--class-weight-neg", type=float, default=2.0, help="Loss multiplier for negative samples (default 2.0)")
+    parser.add_argument("--class-weight-neg", type=float, default=3.0, help="Loss multiplier for negative samples (default 3.0)")
     parser.add_argument("--threshold", type=float, default=0.5,
                         help="Detection threshold for the averaged probability (default 0.5)")
     parser.add_argument("--avg-len", type=int, default=4,

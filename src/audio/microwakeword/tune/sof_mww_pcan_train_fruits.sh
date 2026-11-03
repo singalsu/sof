@@ -70,7 +70,7 @@ SINGLE_SPEAKER_VOICES=(
     "$HOME/git/piper-sample-generator/models/en_US-ryan-medium.onnx"
 )
 EPOCHS=30
-CLASS_WEIGHT_NEG=2.0
+CLASS_WEIGHT_NEG=3.0
 # Firmware trigger: mean of last DETECT_AVG_LEN probabilities >= DETECT_THRESHOLD
 DETECT_THRESHOLD=0.5
 DETECT_AVG_LEN=4

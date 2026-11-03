@@ -166,7 +166,7 @@ python3 sof_mww_train_pcan.py \
     --frontend sof \
     --level-min-dbfs -45 --level-max-dbfs -6 \
     --pos-level-copies 2 \
-    --class-weight-neg 2.0 \
+    --class-weight-neg 3.0 \
     --threshold 0.5 --avg-len 4 \
     --epochs 30
 ```
