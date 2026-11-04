@@ -133,6 +133,32 @@ function setup_mfcc()
 	setup.tplg_fn = 'mel40_10ms_pcan_compress.conf';
 	export_mfcc_setup(gen_cfg, setup);
 
+	% 40 mel bins, 10 ms hop with soft AGC int8 output for microWakeWord, a
+	% light alternative to PCAN. The int8 range -1.0 .. +1.0 covers 50 dB of
+	% log10 Mel power below the AGC normalized peak.
+	setup = get_mel_spectrogram_config();
+	setup.frame_length = 30.0;
+	setup.frame_shift = 10.0;
+	setup.num_mel_bins = 40;
+	setup.low_freq = 125;
+	setup.high_freq = 7500;
+	setup.mel_log = 'log10';
+	setup.mel_offset = 0;
+	setup.mel_scale = 0.4; % 1.0 is 25 dB
+	setup.enable_agc8 = true;
+	setup.agc_target = 3.0; % allows +75 dB boost for quiet input
+	setup.agc_floor = -1.0;
+	setup.agc_release = 10066; % 3 dB/s at 100 hops/s
+	setup.agc_release_speech = 335; % 0.1 dB/s
+	setup.compress_output = true;
+	setup.update_controls = false;
+	setup.enable_vad = true; % slower AGC release in speech, vad_flag for MWW
+	setup.enable_dtx = false;
+	setup.dtx_trailing_silence_hops = 0;
+	setup.dtx_silence_hops_interval = 0;
+	setup.tplg_fn = 'mel40_10ms_agc8_compress.conf';
+	export_mfcc_setup(gen_cfg, setup);
+
 end
 
 function cfg = get_mfcc_default_config()
@@ -181,6 +207,11 @@ function cfg = get_mfcc_default_config()
 	cfg.pcan_offset = 80.0;
 	cfg.pcan_gain_bits = 21;
 	cfg.pcan_smoothing_coef = 819;
+	cfg.enable_agc8 = false;
+	cfg.agc_target = 0; % 0 = default 0.25
+	cfg.agc_floor = 0; % 0 = default -2.0
+	cfg.agc_release = 0; % Q9.23 per hop, 0 = default 4194
+	cfg.agc_release_speech = 0; % Q9.23 per hop, 0 = default 419
 end
 
 function cfg = get_mel_spectrogram_config()
@@ -229,6 +260,11 @@ function cfg = get_mel_spectrogram_config()
 	cfg.pcan_offset = 80.0;
 	cfg.pcan_gain_bits = 21;
 	cfg.pcan_smoothing_coef = 819;
+	cfg.enable_agc8 = false;
+	cfg.agc_target = 0; % 0 = default 0.25
+	cfg.agc_floor = 0; % 0 = default -2.0
+	cfg.agc_release = 0; % Q9.23 per hop, 0 = default 4194
+	cfg.agc_release_speech = 0; % Q9.23 per hop, 0 = default 419
 end
 
 function export_mfcc_setup(gen_cfg, cfg)
@@ -266,8 +302,12 @@ v = q_convert(cfg.mmax_coef, 15);                [b8, j] = add_w16b(v, b8, j);
 v = cfg.dtx_trailing_silence_hops;                [b8, j] = add_w16b(v, b8, j); % DTX trailing silence hops
 v = cfg.dtx_silence_hops_interval;                [b8, j] = add_w16b(v, b8, j); % DTX silence frame interval
 v = cfg.pcan_smoothing_coef;                 [b8, j] = add_w32b(v, b8, j); % PCAN smoothing coef in Q14
+v = q_convert(cfg.agc_target, 7);               [b8, j] = add_w16b(v, b8, j); % AGC8 target in Q8.7
+v = q_convert(cfg.agc_floor, 7);                [b8, j] = add_w16b(v, b8, j); % AGC8 floor in Q8.7
+v = cfg.agc_release;                            [b8, j] = add_w16b(v, b8, j); % AGC8 release in Q9.23
+v = cfg.agc_release_speech;                     [b8, j] = add_w16b(v, b8, j); % AGC8 speech release in Q9.23
 % Reserved
-for i = 1:4
+for i = 1:2
 	[b8, j] = add_w32b(0, b8, j);
 end
 
@@ -309,8 +349,9 @@ v = cfg.enable_dtx;                              [b8, j] = add_w8b(v, b8, j); % 
 v = cfg.update_controls;                         [b8, j] = add_w8b(v, b8, j); % bool
 v = cfg.compress_output;                         [b8, j] = add_w8b(v, b8, j); % bool
 v = cfg.enable_pcan;                             [b8, j] = add_w8b(v, b8, j); % bool
-% reserved_bool[3]
-for i = 1:3
+v = cfg.enable_agc8;                             [b8, j] = add_w8b(v, b8, j); % bool
+% reserved_bool[2]
+for i = 1:2
 	[b8, j] = add_w8b(0, b8, j);
 end
 
