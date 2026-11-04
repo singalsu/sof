@@ -34,6 +34,7 @@ import subprocess
 import sys
 import tempfile
 import wave
+import zlib
 from pathlib import Path
 
 # Force legacy Keras 2 to ensure compatibility with TFLite int8 converter and resource variables
@@ -904,21 +905,66 @@ SOF_IPC4_ABI_MAGIC = 0x34464F53  # 'SOF4'
 SOF_ABI_VERSION = (3 << 24) | (29 << 12) | 1  # 3.29.1
 SOF_CTRL_CMD_BINARY = 3
 
+# struct sof_mww_model_hdr in src/include/user/mww.h
+SOF_MWW_MODEL_MAGIC = 0x4D57574D  # 'MWWM'
+SOF_MWW_MODEL_VERSION = 1
+SOF_MWW_MODEL_HDR = struct.Struct("<IHHIII16sBBBBhBB5I")
+SOF_MWW_FEATURE_TYPES = {"pcan": 1, "agc8": 2}
 
-def build_ipc4_abi_blob(tflite_bytes: bytes, param_id: int = 0) -> bytes:
-    """Pack tflite model bytes behind a standard 32-byte struct sof_abi_hdr."""
-    size = len(tflite_bytes)
+
+def pack_model_blob(
+    tflite_bytes: bytes,
+    name: str,
+    features: str = "pcan",
+    threshold: float = 0.5,
+    avg_len: int = 4,
+) -> bytes:
+    """Prepend struct sof_mww_model_hdr to a TFLite model."""
+    threshold_q8 = min(max(int(round(threshold * 256)), 1), 255)
+    if not 1 <= avg_len <= 16:
+        raise ValueError(f"avg_len {avg_len} not in 1..16")
+    hdr = SOF_MWW_MODEL_HDR.pack(
+        SOF_MWW_MODEL_MAGIC, SOF_MWW_MODEL_VERSION, SOF_MWW_MODEL_HDR.size,
+        len(tflite_bytes), zlib.crc32(tflite_bytes), 0, name.encode()[:15],
+        SOF_MWW_FEATURE_TYPES[features], HOP_BINS, 10, SLICE_HOPS,
+        threshold_q8, avg_len, 0, 0, 0, 0, 0, 0)
+    return hdr + tflite_bytes
+
+
+def unpack_model_blob(blob: bytes) -> tuple[bytes, dict | None]:
+    """Split a model blob into the TFLite model and its header fields.
+
+    A bare TFLite model is returned as is with None for the header.
+    """
+    if blob[4:8] == b"TFL3":
+        return blob, None
+    f = SOF_MWW_MODEL_HDR.unpack_from(blob)
+    if f[0] != SOF_MWW_MODEL_MAGIC or f[1] != SOF_MWW_MODEL_VERSION:
+        raise ValueError("unknown model blob format")
+    hdr_size, model_size = f[2], f[3]
+    tflite_bytes = blob[hdr_size : hdr_size + model_size]
+    if len(tflite_bytes) != model_size or zlib.crc32(tflite_bytes) != f[4]:
+        raise ValueError("model size or CRC32 mismatch")
+    features = {v: k for k, v in SOF_MWW_FEATURE_TYPES.items()}.get(f[7], "unknown")
+    info = {"name": f[6].rstrip(b"\0").decode(), "features": features,
+            "threshold": f[11] / 256, "avg_len": f[12]}
+    return tflite_bytes, info
+
+
+def build_ipc4_abi_blob(model_blob: bytes, param_id: int = 0) -> bytes:
+    """Pack a model blob behind a standard 32-byte struct sof_abi_hdr."""
+    size = len(model_blob)
     abi_header = struct.pack("<IIIIIIII", SOF_IPC4_ABI_MAGIC, param_id, size, SOF_ABI_VERSION, 0, 0, 0, 0)
     pad = (4 - (size % 4)) % 4
-    return abi_header + tflite_bytes + b"\x00" * pad
+    return abi_header + model_blob + b"\x00" * pad
 
 
 def emit_model_header(
-    tflite_bytes: bytes,
+    model_blob: bytes,
     out_h: Path,
     model_name: str,
 ) -> None:
-    """Emit a self-contained built-in model header."""
+    """Emit a self-contained built-in model header with the model blob."""
     symbol_name = re.sub(r"[^a-z0-9_]", "_", model_name.lower())
     symbol = f"mww_model_data_{symbol_name}"
     guard = symbol.upper() + "_H_"
@@ -929,7 +975,7 @@ def emit_model_header(
         f.write("#include <cstddef>\n#include <cstdint>\n\n")
         f.write(f"alignas(16) static const unsigned char {symbol}[] = {{\n")
         line = "    "
-        for i, b in enumerate(tflite_bytes):
+        for i, b in enumerate(model_blob):
             line += f"0x{b:02x}, "
             if (i + 1) % 12 == 0:
                 f.write(line.rstrip() + "\n")
@@ -942,12 +988,12 @@ def emit_model_header(
 
 
 def emit_topology2_conf(
-    tflite_bytes: bytes,
+    model_blob: bytes,
     out_conf: Path,
     model_name: str,
 ) -> None:
     """Emit Topology2 configuration blob in .conf format."""
-    blob8 = build_ipc4_abi_blob(tflite_bytes)
+    blob8 = build_ipc4_abi_blob(model_blob)
     words = struct.unpack(f"<{len(blob8) // 4}I", blob8)
     out_conf.parent.mkdir(parents=True, exist_ok=True)
     today = datetime.date.today().strftime("%d-%b-%Y")
@@ -971,18 +1017,12 @@ def emit_topology2_conf(
 
 
 def emit_sofctl_ipc4_txt(
-    tflite_bytes: bytes,
+    model_blob: bytes,
     out_txt: Path,
 ) -> None:
     """Emit sof-ctl IPC4 text blob in comma-separated uint32 CSV format."""
-    size = len(tflite_bytes)
-    tlv_cmd = SOF_CTRL_CMD_BINARY
-    tlv_size = 32 + size
-    pad = (4 - (size % 4)) % 4
-    payload_padded = tflite_bytes + b"\x00" * pad
-    tlv_header = struct.pack("<II", tlv_cmd, tlv_size)
-    abi_header = struct.pack("<IIIIIIII", SOF_IPC4_ABI_MAGIC, 0, size, SOF_ABI_VERSION, 0, 0, 0, 0)
-    blob = tlv_header + abi_header + payload_padded
+    tlv_header = struct.pack("<II", SOF_CTRL_CMD_BINARY, 32 + len(model_blob))
+    blob = tlv_header + build_ipc4_abi_blob(model_blob)
 
     words = struct.unpack(f"<{len(blob) // 4}I", blob)
     out_txt.parent.mkdir(parents=True, exist_ok=True)
@@ -1299,19 +1339,20 @@ def run(args: argparse.Namespace, level_db: tuple[float, float]) -> int:
     print(f">>> Saved int8 quantized model: {tflite_path} ({len(tflite_bytes)} bytes)")
 
     # 2. Save built-in model header
+    model_blob = pack_model_blob(tflite_bytes, args.name, args.features, args.threshold, args.avg_len)
     header_name = re.sub(r"[^a-z0-9_]", "_", args.name.lower())
     h_path = out_dir / f"mww_model_data_{header_name}.h"
-    emit_model_header(tflite_bytes, h_path, args.name)
+    emit_model_header(model_blob, h_path, args.name)
     print(f">>> Emitted built-in model header to {h_path}")
 
     # 3. Save Topology2 config
     conf_path = out_dir / f"{args.name}.conf"
-    emit_topology2_conf(tflite_bytes, conf_path, model_name=args.name)
+    emit_topology2_conf(model_blob, conf_path, model_name=args.name)
     print(f">>> Emitted Topology2 conf to {conf_path}")
 
     # 4. Save sof-ctl IPC4 text
     txt_path = out_dir / f"{args.name}.txt"
-    emit_sofctl_ipc4_txt(tflite_bytes, txt_path)
+    emit_sofctl_ipc4_txt(model_blob, txt_path)
     print(f">>> Emitted sof-ctl text to {txt_path}")
 
     print(">>> Running streaming evaluation and generating Confusion Matrix...")
