@@ -859,28 +859,32 @@ def build_streaming_inference_model(
 def convert_to_tflite_int8(
     model: tf.keras.Model,
     rep_X: np.ndarray,
-    n_rep: int = 200,
+    rep_y: np.ndarray | None = None,
+    n_windows: int = 64,
 ) -> bytes:
-    """Convert streaming model to full int8 quantized TFLite flatbuffer."""
+    """Convert streaming model to full int8 quantized TFLite flatbuffer.
+
+    Calibration streams n_windows whole training windows, half of them
+    positives when rep_y is given, so the output range covers keywords.
+    """
     rng = np.random.default_rng(0)
+    if rep_y is not None and np.any(rep_y == 1) and np.any(rep_y == 0):
+        pos = rng.choice(np.flatnonzero(rep_y == 1), size=n_windows // 2)
+        neg = rng.choice(np.flatnonzero(rep_y == 0), size=n_windows - n_windows // 2)
+        idxs = rng.permutation(np.concatenate([pos, neg]))
+    else:
+        idxs = rng.integers(0, rep_X.shape[0], size=n_windows)
 
     def representative_dataset():
-        rng = np.random.default_rng(0)
         # Pin input range to [0, 255 * scale] so input quantization equals the
         # firmware int8 PCAN mapping: scale 666/256, zero point -128.
         pin = np.zeros((1, SLICE_HOPS, HOP_BINS), dtype=np.float32)
         pin[0, 0, 0] = 255.0 * PCAN_INT8_SCALE
         yield [pin]
-        samples_yielded = 0
-        while samples_yielded < n_rep:
-            idx = rng.integers(0, rep_X.shape[0])
+        for idx in idxs:
             win = rep_X[idx, :, :, 0]
             for h in range(0, win.shape[0] - SLICE_HOPS + 1, SLICE_HOPS):
-                slice_3 = win[h : h + SLICE_HOPS, :]
-                yield [slice_3[np.newaxis, ...].astype(np.float32)]
-                samples_yielded += 1
-                if samples_yielded >= n_rep:
-                    break
+                yield [win[np.newaxis, h : h + SLICE_HOPS, :].astype(np.float32)]
 
     converter = tf.lite.TFLiteConverter.from_keras_model(model)
     converter.optimizations = [tf.lite.Optimize.DEFAULT]
@@ -1278,7 +1282,7 @@ def run(args: argparse.Namespace, level_db: tuple[float, float]) -> int:
     streaming_model = build_streaming_inference_model(model, slice_hops=SLICE_HOPS, num_mels=HOP_BINS)
 
     print(">>> Quantizing to int8 with representative dataset...")
-    tflite_bytes = convert_to_tflite_int8(streaming_model, rep_X=X_train)
+    tflite_bytes = convert_to_tflite_int8(streaming_model, rep_X=X_train, rep_y=y_train)
 
     # Local import, sof_mww_int8_state imports this module for the emitters
     import sof_mww_int8_state
