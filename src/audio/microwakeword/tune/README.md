@@ -20,7 +20,7 @@ This directory contains offline scripts to train, quantize, verify, and export s
 
 3. **Model Training & Export:**
    - [sof_mww_train_pcan.py](sof_mww_train_pcan.py): All-in-one PCAN (int8 feature) trainer working directly from WAVs. Features come from the SOF MFCC component run in `sof-testbench4` with `sof-hda-benchmark-mfccmel40_10ms_pcan32.tplg` (`--frontend sof`, default) or from TensorFlow `audio_microfrontend` (`--frontend tf`). Each clip is embedded in 2 s of continuous background from the ambient classes at 5..35 dB SNR with a random 0..29 ms phase, and the mixture is peak-normalized to a random level in `--level-min-dbfs`..`--level-max-dbfs` (default -45..-6 dBFS). Training windows are 160 hops so they cover the streaming model's 149-hop receptive field, and the evaluation streams each clip after background as on the device. The model input quantization is pinned to the firmware int8 PCAN scale (666/256, zero point -128). Digital silence (all-zero PCM, e.g. a muted or not yet started capture) is a hard negative (`--digital-silence N` streams, default 300): zeros only, background followed by zeros, and zeros followed by background. Windows from these streams are also trained from stream start, where the streaming model state is still zero, and the evaluation report includes a `digital_silence` class streamed from a state reset. The network is described in [model_architecture.md](model_architecture.md).
-   - [sof_mww_int8_state.py](sof_mww_int8_state.py): Converts the float32 streaming state of a model (`.tflite` or `mww_model_data_<name>.h`) to int8 without changing any output, removing the per-inference DEQUANTIZE/QUANTIZE operations, and emits the header and the sof-ctl blob. `sof_mww_train_pcan.py` applies it to the models it exports; use it directly for older models.
+   - [sof_mww_int8_state.py](sof_mww_int8_state.py): Converts the float32 streaming state of a model (`.tflite` or `mww_model_data_<name>.h`) to int8 without changing any output, removing the per-inference DEQUANTIZE/QUANTIZE operations, and emits the header and the sof-ctl blob. `sof_mww_train_pcan.py` applies it to the models it exports; use it directly for older models. It also wraps a model in the old format without the `struct sof_mww_model_hdr` model header into the current format, and `--features`, `--threshold` and `--avg-len` change the header settings of a model.
 
 4. **Automation:**
    - [sof_mww_pcan_train_fruits.sh](sof_mww_pcan_train_fruits.sh): Trains the strawberry, banana and orange PCAN models for the 3-keyword topology. Positives can optionally be ASR screened (`ASR_SCREEN=true`) on the clean TTS output before noise augmentation, and each fruit model gets the other fruits as `unknown` negatives since all detectors run at the same time.
@@ -172,14 +172,14 @@ python3 sof_mww_train_pcan.py \
     --threshold 0.5 --avg-len 4 \
     --epochs 30
 ```
-`--testbench` and `--tplg` default to the paths above under `$SOF_WORKSPACE`. Keep `--threshold` and `--avg-len` equal to `MWW_DETECT_THRESHOLD` and `MWW_DETECT_AVG_LEN` in `mww.c`. The firmware triggers when the mean of the last `MWW_DETECT_AVG_LEN` probabilities reaches the threshold, and the streaming evaluation report uses the same rule.
+`--testbench` and `--tplg` default to the paths above under `$SOF_WORKSPACE`. `--threshold` and `--avg-len` are stored in the model blob header and used by the firmware trigger: it triggers when the mean of the last `--avg-len` probabilities reaches the threshold, and the streaming evaluation report uses the same rule.
 
 #### 4. Deploy
 ```bash
 cp ~/train/mww_banana/model_pcan/mww_model_data_banana.h $SOF_WORKSPACE/sof/src/audio/microwakeword/
 cp ~/train/mww_banana/model_pcan/banana.txt $SOF_WORKSPACE/sof/tools/ctl/ipc4/mww/
 ```
-The header is the built-in model selected by Kconfig. The `.txt` blob can be loaded at runtime with `sof-ctl`.
+The header is the built-in model selected by Kconfig. The `.txt` blob can be loaded at runtime with `sof-ctl`. Both contain the model with the `struct sof_mww_model_hdr` header, which carries the `--features`, `--threshold` and `--avg-len` settings of the training to the firmware trigger.
 
 ---
 

@@ -81,10 +81,10 @@ flowchart TD
 - **Negative data:** ambient noise and cafeteria babble, single words
   (`unknown`), synthesized competing wake phrases, continuous sentence speech
   (`speech`), digital silence and synthetic clicks.
-- **Trigger rule:** the firmware triggers when the average of the last 4
-  probabilities (about 120 ms) reaches 0.5. Keep `--threshold` and
-  `--avg-len` equal to `MWW_DETECT_THRESHOLD_Q8` and `MWW_DETECT_AVG_LEN`
-  in `mww.c`.
+- **Trigger rule:** the firmware triggers when the average of the last
+  `--avg-len` probabilities (default 4, about 120 ms) reaches `--threshold`
+  (default 0.5). The trainer stores both in the model blob header, so the
+  firmware uses the same rule as the evaluation report.
 
 ## Cost on the DSP
 

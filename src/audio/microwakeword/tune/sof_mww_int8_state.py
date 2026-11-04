@@ -10,7 +10,11 @@ DEQUANTIZE -> CONCATENATION -> QUANTIZE for each layer and DEQUANTIZE ->
 ASSIGN_VARIABLE for the state update. The int8 tensors on both sides of these
 float paths have the same scale and zero point, so the state can be kept in
 int8 without changing any value. This script rewrites the flatbuffer
-accordingly and emits the firmware header and the sof-ctl blob.
+accordingly and emits the firmware header and the sof-ctl blob with the
+struct sof_mww_model_hdr model header. A model without float32 state, e.g.
+a model in the old format without the header, is emitted unchanged with the
+header. The header settings come from the input header if it has one, and
+the command line options override them.
 sof_mww_train_pcan.py applies the same conversion to the models it exports.
 
 Example:
@@ -165,19 +169,27 @@ def main() -> int:
     ap.add_argument("model", type=Path, help="Input .tflite or mww_model_data_<name>.h")
     ap.add_argument("--name", required=True, help="Model name for the outputs, e.g. banana")
     ap.add_argument("--out-dir", type=Path, default=Path("."), help="Output directory")
+    ap.add_argument("--features", choices=tuple(mww.SOF_MWW_FEATURE_TYPES), help="Feature type (default pcan)")
+    ap.add_argument("--threshold", type=float, help="Trigger threshold (default 0.5)")
+    ap.add_argument("--avg-len", type=int, help="Trigger averaging length (default 4)")
     args = ap.parse_args()
 
-    src = read_model_bytes(args.model)
+    src, info = mww.unpack_model_blob(read_model_bytes(args.model))
+    info = info or {}
     out, n = convert_bytes(src)
-    if n == 0:
-        print(f"{args.model}: no float32 streaming state, nothing to convert")
-        return 1
+    blob = mww.pack_model_blob(out, args.name,
+                               args.features or info.get("features", "pcan"),
+                               args.threshold if args.threshold is not None else info.get("threshold", 0.5),
+                               args.avg_len or info.get("avg_len", 4))
 
     args.out_dir.mkdir(parents=True, exist_ok=True)
     (args.out_dir / f"{args.name}_int8_state.tflite").write_bytes(out)
-    mww.emit_model_header(out, args.out_dir / f"mww_model_data_{args.name}.h", args.name)
-    mww.emit_sofctl_ipc4_txt(out, args.out_dir / f"{args.name}.txt")
-    print(f"{args.model}: {n} state variables converted to int8, {len(src)} -> {len(out)} bytes")
+    mww.emit_model_header(blob, args.out_dir / f"mww_model_data_{args.name}.h", args.name)
+    mww.emit_sofctl_ipc4_txt(blob, args.out_dir / f"{args.name}.txt")
+    if n == 0:
+        print(f"{args.model}: no float32 streaming state, emitted unchanged model with header")
+    else:
+        print(f"{args.model}: {n} state variables converted to int8, {len(src)} -> {len(out)} bytes")
     return 0
 
 
