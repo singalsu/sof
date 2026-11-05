@@ -86,6 +86,16 @@ ASR_MODEL=${ASR_MODEL:-"$HOME/whisper/whisper-medium-int4-ov"}
 CROSS_FRUIT_NEGATIVES=true
 CROSS_FRUIT_SAMPLES=600
 
+# Mozilla Common Voice sentences (CC0) as continuous speech negatives in
+# wavs/speech/, one extracted language release per directory. Clips whose
+# transcript contains the keyword are skipped.
+ADD_COMMON_VOICE=true
+COMMON_VOICE_SAMPLES=6000
+COMMON_VOICE_MAX_PER_SPEAKER=5
+shopt -s nullglob
+COMMON_VOICE_DIRS=("$HOME"/Music/CommonVoice/*/)
+shopt -u nullglob
+
 # Optional Piper hard negatives; disabled by default (same as hi_intel script)
 ADD_HARD_NEGATIVES=false
 HARD_NEGATIVE_SAMPLES=200
@@ -236,6 +246,20 @@ prepare_fruit() {
         if $ADD_BABBLE; then
             add_cafeteria_babble "$wav_root"
         fi
+
+        if $ADD_COMMON_VOICE; then
+            if (( ${#COMMON_VOICE_DIRS[@]} == 0 )); then
+                echo "Error: no Common Voice releases in ~/Music/CommonVoice, set ADD_COMMON_VOICE=false to skip" >&2
+                return 1
+            fi
+            echo "=== Selecting $COMMON_VOICE_SAMPLES Common Voice clips without \"$keyword\" ==="
+            python3 ./sof_mww_prepare_common_voice.py \
+                --out-dir "$wav_root/speech" \
+                --num "$COMMON_VOICE_SAMPLES" \
+                --max-per-speaker "$COMMON_VOICE_MAX_PER_SPEAKER" \
+                --exclude "(?i)$keyword" \
+                "${COMMON_VOICE_DIRS[@]}"
+        fi
     fi
 
     if $ADD_HARD_NEGATIVES; then
@@ -323,7 +347,7 @@ if $TRAIN_PCAN; then
 
         positive_count=$(find "$wav_root/$keyword" -maxdepth 1 -type f -name '*.wav' 2>/dev/null | wc -l)
         negative_count=0
-        for dir in ambient silence unknown babble noise; do
+        for dir in ambient silence unknown speech babble noise; do
             if [[ -d "$wav_root/$dir" ]]; then
                 negative_count=$((negative_count + $(find "$wav_root/$dir" -maxdepth 1 -type f -name '*.wav' | wc -l)))
             fi
