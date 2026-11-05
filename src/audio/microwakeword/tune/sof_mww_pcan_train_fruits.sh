@@ -49,9 +49,15 @@ LEVEL_MAX_DBFS=-6
 POS_LEVEL_COPIES=2
 
 # Fruit selection gates (enable/disable individually)
-STRAWBERRY=false
+STRAWBERRY=true
 BANANA=true
-ORANGE=false
+ORANGE=true
+
+# Train the model of an enabled fruit. With false, only the fruit's positives
+# are generated, for the cross-fruit negatives of the trained fruits.
+TRAIN_STRAWBERRY=true
+TRAIN_BANANA=true
+TRAIN_ORANGE=true
 
 # Dataset preparation and training settings (aligned with hi_intel PCAN training)
 ADD_BABBLE=true
@@ -77,9 +83,23 @@ DETECT_AVG_LEN=4
 
 # Delete generated positives whose Whisper transcription is not the keyword
 # (e.g. "banana" synthesized as "on Anna" or "oh no no"). Slow on CPU.
-ASR_SCREEN=true
+ASR_SCREEN=false
 ASR_VENV=${ASR_VENV:-"$HOME/venvs/openvino_env"}
 ASR_MODEL=${ASR_MODEL:-"$HOME/whisper/whisper-medium-int4-ov"}
+
+# Real recordings of the keyword in $REAL_SAMPLES_ROOT/<label>/*.wav, if the
+# directory exists. Each recording is expanded with pitch/tempo, reverb,
+# noise and gain variation to REAL_SAMPLES clips, added to the TTS positives.
+ADD_REAL_SAMPLES=true
+REAL_SAMPLES_ROOT="$HOME/Music/local_mww_train_dataset"
+REAL_SAMPLES=600
+# The recordings are first trimmed around the detected speech. The trainer
+# labels the keyword at the last detected speech, so keep the part after the
+# word short. The splitter needs scipy, which the Piper venv may not have.
+REAL_PAD_BEFORE=1.0
+REAL_PAD_AFTER=0.25
+REAL_TRIM_THRESHOLD_DB=12
+SPLIT_PYTHON=${SPLIT_PYTHON:-/usr/bin/python3}
 
 # The 3-keyword topology runs all fruit detectors at the same time, so add
 # random positives of the other fruits to each fruit's unknown class.
@@ -188,6 +208,7 @@ prepare_fruit() {
     local keyword="$1"
     local label="$2"
     local wav_root="$3"
+    local train="${4:-true}"
 
     if $GENERATE_DATASET; then
         echo "=== Generating $keyword positive samples ==="
@@ -232,7 +253,37 @@ prepare_fruit() {
             "$asr_csv" "$wav_root/$label"
     fi
 
-    if $PREPARE_NEGATIVES; then
+    if $GENERATE_DATASET && $ADD_REAL_SAMPLES && [[ -d "$REAL_SAMPLES_ROOT/$label" ]]; then
+        echo "=== Adding $REAL_SAMPLES augmented clips of real $keyword recordings ==="
+        local tmp_real wav src n
+        local -a parts
+        tmp_real=$(mktemp -d -t "real_${label}.XXXXXX")
+        mkdir -p "$tmp_real/trimmed"
+        for src in "$REAL_SAMPLES_ROOT/$label"/*.wav; do
+            "$SPLIT_PYTHON" ./sof_mww_split_utterances.py -o "$tmp_real/split" \
+                --threshold-db "$REAL_TRIM_THRESHOLD_DB" \
+                --max-pad "$REAL_PAD_BEFORE" --max-pad-after "$REAL_PAD_AFTER" \
+                "$src" > /dev/null
+            n=$(basename "$src" .wav)
+            parts=("$tmp_real/split/$n"/*.wav)
+            if [[ -f "${parts[0]}" ]]; then
+                # The keyword is the longest segment, others are clicks or breaths
+                mv "$(ls -S "${parts[@]}" | head -1)" "$tmp_real/trimmed/$n.wav"
+            else
+                echo "Warning: no speech found in $src, used untrimmed" >&2
+                cp "$src" "$tmp_real/trimmed/$n.wav"
+            fi
+        done
+        MAX_SAMPLES="$REAL_SAMPLES" ./sof_mww_generate_keyword_dataset_from_dir.sh \
+            --src-dir "$tmp_real/trimmed" --label "$label" "$tmp_real/out"
+        for wav in "$tmp_real/out/$label"/*.wav; do
+            [[ -f "$wav" ]] || continue
+            mv "$wav" "$wav_root/$label/real_$(basename "$wav")"
+        done
+        rm -rf "$tmp_real"
+    fi
+
+    if $PREPARE_NEGATIVES && $train; then
         echo "=== Preparing silence, unknown speech, and babble for $keyword ==="
         mkdir -p "$wav_root/ambient"
         N_UNKNOWN="$N_UNKNOWN" N_SILENCE="$N_SILENCE" \
@@ -262,7 +313,7 @@ prepare_fruit() {
         fi
     fi
 
-    if $ADD_HARD_NEGATIVES; then
+    if $ADD_HARD_NEGATIVES && $train; then
         if [[ -z "$PIPER_VOICE" ]]; then
             echo "PIPER_VOICE must point to a Piper .onnx voice when ADD_HARD_NEGATIVES=true" >&2
             return 1
@@ -294,9 +345,9 @@ if $GENERATE_DATASET; then
     source "$PIPER_TTS_VENV/bin/activate"
 fi
 
-if $STRAWBERRY; then prepare_fruit strawberry strawberry "$WOV1/wavs"; fi
-if $BANANA; then prepare_fruit banana banana "$WOV2/wavs"; fi
-if $ORANGE; then prepare_fruit orange orange "$WOV3/wavs"; fi
+if $STRAWBERRY; then prepare_fruit strawberry strawberry "$WOV1/wavs" $TRAIN_STRAWBERRY; fi
+if $BANANA; then prepare_fruit banana banana "$WOV2/wavs" $TRAIN_BANANA; fi
+if $ORANGE; then prepare_fruit orange orange "$WOV3/wavs" $TRAIN_ORANGE; fi
 
 if $GENERATE_DATASET; then
     deactivate
@@ -324,9 +375,9 @@ add_cross_fruit_negatives() {
 
 if $CROSS_FRUIT_NEGATIVES; then
     echo "=== Adding cross-fruit negatives ==="
-    if $STRAWBERRY; then add_cross_fruit_negatives strawberry "$WOV1/wavs"; fi
-    if $BANANA; then add_cross_fruit_negatives banana "$WOV2/wavs"; fi
-    if $ORANGE; then add_cross_fruit_negatives orange "$WOV3/wavs"; fi
+    if $STRAWBERRY && $TRAIN_STRAWBERRY; then add_cross_fruit_negatives strawberry "$WOV1/wavs"; fi
+    if $BANANA && $TRAIN_BANANA; then add_cross_fruit_negatives banana "$WOV2/wavs"; fi
+    if $ORANGE && $TRAIN_ORANGE; then add_cross_fruit_negatives orange "$WOV3/wavs"; fi
 fi
 
 if $TRAIN_PCAN; then
@@ -383,9 +434,9 @@ if $TRAIN_PCAN; then
         fi
     }
 
-    if $STRAWBERRY; then train_fruit strawberry "$WOV1/wavs" "$WOV1/model_pcan"; fi
-    if $BANANA; then train_fruit banana "$WOV2/wavs" "$WOV2/model_pcan"; fi
-    if $ORANGE; then train_fruit orange "$WOV3/wavs" "$WOV3/model_pcan"; fi
+    if $STRAWBERRY && $TRAIN_STRAWBERRY; then train_fruit strawberry "$WOV1/wavs" "$WOV1/model_pcan"; fi
+    if $BANANA && $TRAIN_BANANA; then train_fruit banana "$WOV2/wavs" "$WOV2/model_pcan"; fi
+    if $ORANGE && $TRAIN_ORANGE; then train_fruit orange "$WOV3/wavs" "$WOV3/model_pcan"; fi
 
     deactivate
 fi
