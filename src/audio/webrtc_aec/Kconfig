@@ -73,6 +73,40 @@ config WEBRTC_AEC_FILTER_LEN_MS
 	  reverb tails) at the cost of increased memory and CPU.
 	  Valid values: 32, 64, 128.
 
+config WEBRTC_AEC_DELAY_MS
+	int "Float AEC reported echo path delay in ms"
+	range 0 15
+	default 0
+	depends on WEBRTC_AEC_BACKEND_FLOAT
+	help
+	  Delay from a reference sample entering the AEC to its echo
+	  appearing in the microphone input of the AEC, for the shortest
+	  (direct) acoustic path. The linear filter covers this delay plus
+	  48 ms, so a value larger than the real delay makes the echo
+	  non-causal and prevents cancellation. Use the "delay median"
+	  trace to tune it.
+
+config WEBRTC_AEC_REF_GAIN
+	int "Float AEC echo reference linear gain"
+	range 1 256
+	default 16
+	depends on WEBRTC_AEC_BACKEND_FLOAT
+	help
+	  Linear gain applied to the echo reference in float before the
+	  AEC. The filter update is clamped per block, so convergence time
+	  grows with the echo-to-reference level ratio. A quiet reference
+	  with loud echo converges in tens of seconds; raising the
+	  reference level shortens that. No clipping risk, the AEC is float.
+
+config WEBRTC_AEC_DELAY_DEBUG
+	bool "Float AEC echo delay estimation trace"
+	depends on WEBRTC_AEC_BACKEND_FLOAT
+	help
+	  Run the AEC signal based delay estimator and trace every 5 s the
+	  echo delay median, spread and the reference and microphone peak
+	  levels. Use it to tune WEBRTC_AEC_DELAY_MS and WEBRTC_AEC_REF_GAIN.
+	  Costs a few MCPS.
+
 config WEBRTC_AEC_SUPPRESSION_LEVEL
 	int "AECm comfort-noise suppression level (0=off, 1=low, 2=medium)"
 	range 0 2
