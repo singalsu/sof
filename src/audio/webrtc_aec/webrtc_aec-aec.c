@@ -30,6 +30,9 @@ struct webrtc_aec_float_data {
 	void   *aec[WEBRTC_AEC_CHANNELS_MAX];
 	int     num_channels;
 	int     suppression;
+	int     stats_frames;
+	int16_t ref_peak;
+	int16_t mic_peak;
 	float   ref_f[WEBRTC_AEC_FRAME_SAMPLES_16K];
 	float   mic_f[WEBRTC_AEC_FRAME_SAMPLES_16K];
 	float   out_f[WEBRTC_AEC_FRAME_SAMPLES_16K];
@@ -88,7 +91,8 @@ static int webrtc_aec_float_configure(struct processing_module *mod, int sample_
 				 (suppression == 0) ? kAecNlpConservative : kAecNlpModerate;
 		config.skewMode = kAecFalse;
 		config.metricsMode = kAecFalse;
-		config.delay_logging = kAecFalse;
+		config.delay_logging = IS_ENABLED(CONFIG_WEBRTC_AEC_DELAY_DEBUG) ?
+				       kAecTrue : kAecFalse;
 
 		ret = WebRtcAec_set_config(rd->aec[c], config);
 		if (ret) {
@@ -98,8 +102,12 @@ static int webrtc_aec_float_configure(struct processing_module *mod, int sample_
 	}
 
 	rd->num_channels = aec_channels;
-	comp_info(mod->dev, "webrtc_aec: Float AEC rate=%d nlpMode=%d ch=%d (stream_ch=%d)",
-		  sample_rate_hz, config.nlpMode, aec_channels, num_channels);
+	rd->stats_frames = 0;
+	rd->ref_peak = 0;
+	rd->mic_peak = 0;
+	comp_info(mod->dev, "webrtc_aec: Float AEC rate=%d nlpMode=%d ch=%d (stream_ch=%d) delay=%d ms ref_gain=%d",
+		  sample_rate_hz, config.nlpMode, aec_channels, num_channels,
+		  CONFIG_WEBRTC_AEC_DELAY_MS, CONFIG_WEBRTC_AEC_REF_GAIN);
 	return 0;
 
 err:
@@ -125,7 +133,8 @@ static int webrtc_aec_float_set_suppression(struct processing_module *mod, bool 
 	config.nlpMode = high_suppression ? kAecNlpAggressive : kAecNlpModerate;
 	config.skewMode = kAecFalse;
 	config.metricsMode = kAecFalse;
-	config.delay_logging = kAecFalse;
+	config.delay_logging = IS_ENABLED(CONFIG_WEBRTC_AEC_DELAY_DEBUG) ?
+			       kAecTrue : kAecFalse;
 
 	for (c = 0; c < rd->num_channels; c++) {
 		if (!rd->aec[c])
@@ -161,8 +170,15 @@ static int webrtc_aec_float_process_ch(struct processing_module *mod,
 	}
 
 	/* Convert ref to float and buffer far-end */
-	for (i = 0; i < frame_samples; i++)
-		rd->ref_f[i] = (float)ref[i];
+	for (i = 0; i < frame_samples; i++) {
+		rd->ref_f[i] = (float)ref[i] * (float)CONFIG_WEBRTC_AEC_REF_GAIN;
+#ifdef CONFIG_WEBRTC_AEC_DELAY_DEBUG
+		if (ref[i] > rd->ref_peak)
+			rd->ref_peak = ref[i];
+		if (mic[i] > rd->mic_peak)
+			rd->mic_peak = mic[i];
+#endif
+	}
 
 	ret = WebRtcAec_BufferFarend(rd->aec[ch], rd->ref_f, (size_t)frame_samples);
 	if (ret) {
@@ -174,15 +190,28 @@ static int webrtc_aec_float_process_ch(struct processing_module *mod,
 	for (i = 0; i < frame_samples; i++)
 		rd->mic_f[i] = (float)mic[i];
 
-
-	/* Process near-end (mic) and produce echo-cancelled output.
-	 * Pass 20 ms nominal sound card buffer delay. */
 	ret = WebRtcAec_Process(rd->aec[ch], nearend, 1, out_ptrs,
-				(size_t)frame_samples, 20, 0);
+				(size_t)frame_samples, CONFIG_WEBRTC_AEC_DELAY_MS, 0);
 	if (ret) {
 		comp_err(mod->dev, "webrtc_aec: Process ch%d failed %d", ch, ret);
 		return ret;
 	}
+
+#ifdef CONFIG_WEBRTC_AEC_DELAY_DEBUG
+	/* Median < 0 means echo arrives before the aligned reference (non-causal) */
+	if (ch == 0 && ++rd->stats_frames >= 500) {
+		int median, std;
+		float poor;
+
+		if (!WebRtcAec_GetDelayMetrics(rd->aec[0], &median, &std, &poor))
+			comp_info(mod->dev,
+				  "webrtc_aec: delay median %d std %d ms poor %d%% ref_pk %d mic_pk %d",
+				  median, std, (int)(poor * 100.0f), rd->ref_peak, rd->mic_peak);
+		rd->stats_frames = 0;
+		rd->ref_peak = 0;
+		rd->mic_peak = 0;
+	}
+#endif
 
 	/* Convert float output back to int16_t with saturation and rounding */
 	for (i = 0; i < frame_samples; i++) {

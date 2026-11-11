@@ -89,6 +89,11 @@ CONFIG_COMP_WEBRTC_AEC_STUB=n
 CONFIG_WEBRTC_AEC_BACKEND_FLOAT=y
 ```
 
+The float backend outputs the linear filter error without residual echo
+suppression, which keeps the near-end talker intact for wake on voice
+and barge-in. The far-end buffers and delay search are sized for a
+reference to echo delay of at most 15 ms.
+
 ### 3. Classic Fixed-Point AECm (Mobile / Low-Power Integer)
 
 ```ini
@@ -114,6 +119,9 @@ CONFIG_WEBRTC_AEC_SUPPRESSION_LEVEL=1
 | `CONFIG_WEBRTC_AEC_FILTER_LEN_MS` | 64 | int (`32`, `64`, `128`) | AECm adaptive filter length in ms |
 | `CONFIG_WEBRTC_AEC_SUPPRESSION_LEVEL` | 1 | int (`0` - `2`) | AECm comfort-noise suppression level |
 | `CONFIG_WEBRTC_AEC_SAMPLE_RATE_HZ` | 16000 | int (`8000`, `16000`) | Native AEC processing rate |
+| `CONFIG_WEBRTC_AEC_DELAY_MS` | 0 | int (`0` - `15`) | Float AEC reference to echo delay, must not exceed the real delay |
+| `CONFIG_WEBRTC_AEC_REF_GAIN` | 16 | int (`1` - `256`) | Float AEC linear gain on the reference, speeds up convergence |
+| `CONFIG_WEBRTC_AEC_DELAY_DEBUG` | n | bool | Float AEC delay estimate and level trace every 5 s |
 
 ---
 
