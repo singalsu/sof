@@ -570,4 +570,11 @@ SDW_AMP_FEEDBACK=false,SDW_SPK_STREAM=Playback-SmartAmp,SDW_DMIC_STREAM=Capture-
 SDW_JACK_OUT_STREAM=Playback-SimpleJack,SDW_JACK_IN_STREAM=Capture-SimpleJack,\
 SDW_DMIC_WOV_SINGLE=true"
 
+# Same SoundWire WoV with WebRTC AEC of the SDW DMIC against the speaker echo
+# reference before the KPB
+"cavs-sdw\;sof-ptl-rt713-l3-rt1320-l12-wov-aec\;PLATFORM=ptl,SDW_DMIC=1,NUM_SDW_AMP_LINKS=2,\
+SDW_AMP_FEEDBACK=false,SDW_SPK_STREAM=Playback-SmartAmp,SDW_DMIC_STREAM=Capture-SmartMic,\
+SDW_JACK_OUT_STREAM=Playback-SimpleJack,SDW_JACK_IN_STREAM=Capture-SimpleJack,\
+SDW_DMIC_WOV_SINGLE=true,SDW_SPK_ECHO_REF=true,SDW_ECHO_REF_DAI=true,SDW_DMIC_WOV_AEC=true"
+
 )
