@@ -20,11 +20,29 @@
 
 #include <sof/audio/module_adapter/module/generic.h>
 #include <errno.h>
+#include <math.h>
 #include "webrtc_aec.h"
 
 #include <webrtc/modules/audio_processing/aec/include/echo_cancellation.h>
 
 LOG_MODULE_DECLARE(webrtc_aec, CONFIG_SOF_LOG_LEVEL);
+
+#ifdef CONFIG_WEBRTC_AEC_ERLE_TRACE
+/* 100 frames of 10 ms */
+#define WEBRTC_AEC_ERLE_FRAMES	100
+/* Far-end active when the reference frame is above -50 dBFS */
+#define WEBRTC_AEC_ERLE_REF_MIN	(32768.0f * 32768.0f * 1e-5f)
+#define WEBRTC_AEC_FS_ENERGY	(32768.0f * 32768.0f)
+#endif
+
+#ifdef CONFIG_WEBRTC_AEC_DELAY_DEBUG
+/* 10 ms frame energy envelopes, lag search -200 .. +600 ms every 5 s */
+#define WEBRTC_AEC_XC_HIST	256
+#define WEBRTC_AEC_XC_WIN	170
+#define WEBRTC_AEC_XC_LAG_MIN	-20
+#define WEBRTC_AEC_XC_LAG_MAX	60
+#define WEBRTC_AEC_XC_FRAMES	500
+#endif
 
 struct webrtc_aec_float_data {
 	void   *aec[WEBRTC_AEC_CHANNELS_MAX];
@@ -33,6 +51,25 @@ struct webrtc_aec_float_data {
 	int     stats_frames;
 	int16_t ref_peak;
 	int16_t mic_peak;
+#ifdef CONFIG_WEBRTC_AEC_ERLE_TRACE
+	int     erle_frames;
+	int     erle_active;
+	float   erle_mic_e;
+	float   erle_out_e;
+	float   erle_ref_e;
+#endif
+#ifdef CONFIG_WEBRTC_AEC_DELAY_DEBUG
+	int     xc_pos;
+	int     xc_count;
+	int     xc_frames;
+	float   xc_ref[WEBRTC_AEC_XC_HIST];
+	float   xc_mic[WEBRTC_AEC_XC_HIST];
+#endif
+#if CONFIG_WEBRTC_AEC_MIC_DELAY_MS > 0
+	int     mic_dly_len;
+	int     mic_dly_pos;
+	float   mic_dly[CONFIG_WEBRTC_AEC_MIC_DELAY_MS * 16];
+#endif
 	float   ref_f[WEBRTC_AEC_FRAME_SAMPLES_16K];
 	float   mic_f[WEBRTC_AEC_FRAME_SAMPLES_16K];
 	float   out_f[WEBRTC_AEC_FRAME_SAMPLES_16K];
@@ -105,9 +142,15 @@ static int webrtc_aec_float_configure(struct processing_module *mod, int sample_
 	rd->stats_frames = 0;
 	rd->ref_peak = 0;
 	rd->mic_peak = 0;
-	comp_info(mod->dev, "webrtc_aec: Float AEC rate=%d nlpMode=%d ch=%d (stream_ch=%d) delay=%d ms ref_gain=%d",
+#if CONFIG_WEBRTC_AEC_MIC_DELAY_MS > 0
+	rd->mic_dly_len = CONFIG_WEBRTC_AEC_MIC_DELAY_MS * sample_rate_hz / 1000;
+	rd->mic_dly_pos = 0;
+	memset(rd->mic_dly, 0, sizeof(rd->mic_dly));
+#endif
+	comp_info(mod->dev, "webrtc_aec: Float AEC rate=%d nlpMode=%d ch=%d (stream_ch=%d) delay=%d ms ref_gain=%d mic_delay=%d ms",
 		  sample_rate_hz, config.nlpMode, aec_channels, num_channels,
-		  CONFIG_WEBRTC_AEC_DELAY_MS, CONFIG_WEBRTC_AEC_REF_GAIN);
+		  CONFIG_WEBRTC_AEC_DELAY_MS, CONFIG_WEBRTC_AEC_REF_GAIN,
+		  CONFIG_WEBRTC_AEC_MIC_DELAY_MS);
 	return 0;
 
 err:
@@ -151,6 +194,137 @@ static int webrtc_aec_float_set_suppression(struct processing_module *mod, bool 
 	return 0;
 }
 
+#ifdef CONFIG_WEBRTC_AEC_ERLE_TRACE
+static int webrtc_aec_db_round(float db)
+{
+	return (int)(db + (db >= 0.0f ? 0.5f : -0.5f));
+}
+
+/* ERLE over far-end active frames, near-end speech in them lowers the value */
+static void webrtc_aec_float_erle(struct processing_module *mod,
+				  struct webrtc_aec_float_data *rd,
+				  const int16_t *ref, int frame_samples)
+{
+	float ref_e = 0.0f, mic_e = 0.0f, out_e = 0.0f;
+	float norm;
+	int i;
+
+	for (i = 0; i < frame_samples; i++) {
+		float r = (float)ref[i];
+
+		ref_e += r * r;
+		mic_e += rd->mic_f[i] * rd->mic_f[i];
+		out_e += rd->out_f[i] * rd->out_f[i];
+	}
+
+	if (ref_e > WEBRTC_AEC_ERLE_REF_MIN * frame_samples) {
+		rd->erle_ref_e += ref_e;
+		rd->erle_mic_e += mic_e;
+		rd->erle_out_e += out_e;
+		rd->erle_active++;
+	}
+
+	if (++rd->erle_frames < WEBRTC_AEC_ERLE_FRAMES)
+		return;
+
+	if (rd->erle_active) {
+		float mic = rd->erle_mic_e > 1.0f ? rd->erle_mic_e : 1.0f;
+		float out = rd->erle_out_e > 1.0f ? rd->erle_out_e : 1.0f;
+
+		norm = WEBRTC_AEC_FS_ENERGY * rd->erle_active * frame_samples;
+		comp_info(mod->dev,
+			  "webrtc_aec: ERLE %d dB mic %d ref %d dBFS active %d%%",
+			  webrtc_aec_db_round(10.0f * log10f(mic / out)),
+			  webrtc_aec_db_round(10.0f * log10f(mic / norm)),
+			  webrtc_aec_db_round(10.0f * log10f(rd->erle_ref_e / norm)),
+			  rd->erle_active * 100 / WEBRTC_AEC_ERLE_FRAMES);
+	}
+
+	rd->erle_frames = 0;
+	rd->erle_active = 0;
+	rd->erle_mic_e = 0.0f;
+	rd->erle_out_e = 0.0f;
+	rd->erle_ref_e = 0.0f;
+}
+#endif
+
+#ifdef CONFIG_WEBRTC_AEC_DELAY_DEBUG
+static float webrtc_aec_frame_db(const int16_t *x, int frame_samples)
+{
+	float e = 1.0f;
+	int i;
+
+	for (i = 0; i < frame_samples; i++)
+		e += (float)x[i] * (float)x[i];
+
+	return 10.0f * log10f(e);
+}
+
+/* Coarse echo delay from energy envelopes, independent of the AEC estimator */
+static void webrtc_aec_float_xcorr(struct processing_module *mod,
+				   struct webrtc_aec_float_data *rd,
+				   const int16_t *ref, const int16_t *mic,
+				   int frame_samples)
+{
+	const int h = WEBRTC_AEC_XC_HIST;
+	float mean_m = 0.0f, mean_r, smm = 0.0f, smr, srr;
+	float best_corr = -2.0f;
+	int best_lag = 0;
+	int newest, start, lag, n, im, ir;
+
+	rd->xc_ref[rd->xc_pos] = webrtc_aec_frame_db(ref, frame_samples);
+	rd->xc_mic[rd->xc_pos] = webrtc_aec_frame_db(mic, frame_samples);
+	newest = rd->xc_pos;
+	rd->xc_pos = (rd->xc_pos + 1) % h;
+	if (rd->xc_count < h)
+		rd->xc_count++;
+
+	if (++rd->xc_frames < WEBRTC_AEC_XC_FRAMES || rd->xc_count < h)
+		return;
+
+	rd->xc_frames = 0;
+
+	/* Mic window ends -LAG_MIN frames back so negative lags fit in history */
+	start = newest + WEBRTC_AEC_XC_LAG_MIN - WEBRTC_AEC_XC_WIN + 1 + h;
+	for (n = 0; n < WEBRTC_AEC_XC_WIN; n++)
+		mean_m += rd->xc_mic[(start + n) % h];
+	mean_m /= WEBRTC_AEC_XC_WIN;
+	for (n = 0; n < WEBRTC_AEC_XC_WIN; n++) {
+		float d = rd->xc_mic[(start + n) % h] - mean_m;
+
+		smm += d * d;
+	}
+
+	for (lag = WEBRTC_AEC_XC_LAG_MIN; lag <= WEBRTC_AEC_XC_LAG_MAX; lag++) {
+		mean_r = 0.0f;
+		for (n = 0; n < WEBRTC_AEC_XC_WIN; n++)
+			mean_r += rd->xc_ref[(start + n - lag + h) % h];
+		mean_r /= WEBRTC_AEC_XC_WIN;
+
+		smr = 0.0f;
+		srr = 0.0f;
+		for (n = 0; n < WEBRTC_AEC_XC_WIN; n++) {
+			im = (start + n) % h;
+			ir = (start + n - lag + h) % h;
+			smr += (rd->xc_mic[im] - mean_m) * (rd->xc_ref[ir] - mean_r);
+			srr += (rd->xc_ref[ir] - mean_r) * (rd->xc_ref[ir] - mean_r);
+		}
+
+		if (smm > 0.0f && srr > 0.0f) {
+			float c = smr / sqrtf(smm * srr);
+
+			if (c > best_corr) {
+				best_corr = c;
+				best_lag = lag;
+			}
+		}
+	}
+
+	comp_info(mod->dev, "webrtc_aec: xcorr lag %d ms corr %d%%",
+		  best_lag * 10, (int)(best_corr * 100.0f));
+}
+#endif
+
 static int webrtc_aec_float_process_ch(struct processing_module *mod,
 				       const int16_t *mic, const int16_t *ref, int16_t *out,
 				       int frame_samples, int ch)
@@ -190,6 +364,17 @@ static int webrtc_aec_float_process_ch(struct processing_module *mod,
 	for (i = 0; i < frame_samples; i++)
 		rd->mic_f[i] = (float)mic[i];
 
+#if CONFIG_WEBRTC_AEC_MIC_DELAY_MS > 0
+	for (i = 0; i < frame_samples; i++) {
+		float x = rd->mic_f[i];
+
+		rd->mic_f[i] = rd->mic_dly[rd->mic_dly_pos];
+		rd->mic_dly[rd->mic_dly_pos] = x;
+		if (++rd->mic_dly_pos >= rd->mic_dly_len)
+			rd->mic_dly_pos = 0;
+	}
+#endif
+
 	ret = WebRtcAec_Process(rd->aec[ch], nearend, 1, out_ptrs,
 				(size_t)frame_samples, CONFIG_WEBRTC_AEC_DELAY_MS, 0);
 	if (ret) {
@@ -211,6 +396,15 @@ static int webrtc_aec_float_process_ch(struct processing_module *mod,
 		rd->ref_peak = 0;
 		rd->mic_peak = 0;
 	}
+#endif
+
+#ifdef CONFIG_WEBRTC_AEC_ERLE_TRACE
+	if (ch == 0)
+		webrtc_aec_float_erle(mod, rd, ref, frame_samples);
+#endif
+#ifdef CONFIG_WEBRTC_AEC_DELAY_DEBUG
+	if (ch == 0)
+		webrtc_aec_float_xcorr(mod, rd, ref, mic, frame_samples);
 #endif
 
 	/* Convert float output back to int16_t with saturation and rounding */

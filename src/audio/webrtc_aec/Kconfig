@@ -98,6 +98,18 @@ config WEBRTC_AEC_REF_GAIN
 	  with loud echo converges in tens of seconds; raising the
 	  reference level shortens that. No clipping risk, the AEC is float.
 
+config WEBRTC_AEC_MIC_DELAY_MS
+	int "Float AEC microphone delay in ms"
+	range 0 20
+	default 8
+	depends on WEBRTC_AEC_BACKEND_FLOAT
+	help
+	  Delay the microphone signal before the AEC. The AEC cannot cancel
+	  echo that arrives before the reference, so if the reference path
+	  latency varies by a few ms between stream starts, a mic delay of
+	  a few ms keeps the echo causal. Adds the same latency to the
+	  capture.
+
 config WEBRTC_AEC_DELAY_DEBUG
 	bool "Float AEC echo delay estimation trace"
 	depends on WEBRTC_AEC_BACKEND_FLOAT
@@ -105,7 +117,20 @@ config WEBRTC_AEC_DELAY_DEBUG
 	  Run the AEC signal based delay estimator and trace every 5 s the
 	  echo delay median, spread and the reference and microphone peak
 	  levels. Use it to tune WEBRTC_AEC_DELAY_MS and WEBRTC_AEC_REF_GAIN.
+	  Also traces a coarse delay from the reference and microphone
+	  10 ms energy envelopes in -200 .. +600 ms, to catch offsets
+	  outside the AEC estimator range.
 	  Costs a few MCPS.
+
+config WEBRTC_AEC_ERLE_TRACE
+	bool "Float AEC echo return loss enhancement trace"
+	depends on WEBRTC_AEC_BACKEND_FLOAT
+	help
+	  Trace every 1 s the echo return loss enhancement (ERLE), the
+	  microphone and reference levels and the share of frames with an
+	  active reference. Only frames with the reference above -50 dBFS
+	  are counted. Near-end speech in those frames lowers the reported
+	  ERLE, so read it from far-end only periods.
 
 config WEBRTC_AEC_SUPPRESSION_LEVEL
 	int "AECm comfort-noise suppression level (0=off, 1=low, 2=medium)"
